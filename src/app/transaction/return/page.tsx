@@ -1,0 +1,895 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import Main from '@/components/layout/main';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  ChevronDown,
+  ChevronRight,
+  CheckCircle,
+  X,
+  Users,
+  Calendar,
+  Check,
+} from 'lucide-react';
+import dayjs from 'dayjs';
+import buddhistEra from 'dayjs/plugin/buddhistEra';
+
+dayjs.extend(buddhistEra);
+
+// ============================================================================
+// 1. TYPES DEFINITION
+// ============================================================================
+
+
+interface ReturnRecord {
+  TransactionNo: string;
+  TransactionDesc: string;
+  ReturnCount: number;
+  Status: number;
+  CreateBy: string;
+  CreateDate: string;
+  DocumentNo: string;
+  DocumentStatus: number;
+  DocumentCreateDate: string;
+}
+
+interface BorrowRecord {
+  TransactionNo: string;
+  EffectiveDate: string;
+  ConclusionNo: string;
+  ConclusionDate: string;
+  TransactionDesc: string;
+  TransactionType: number;
+  Amount: number;
+  UnitReceive: string;
+  UnitReceiveName: string;
+  UnitTransfer: string;
+  UnitTransferName: string;
+  LevelGroupFrom: string;
+  LevelGroupFromName: string;
+  LevelGroupTo: string;
+  LevelGroupToName: string;
+  TransferInd: number;
+  Status: number;
+  PoolRsFlag: number;
+  StrgFlag: number;
+  BSType: number;
+  SpecFlag: number;
+  LineStaffFlag: number;
+  Policyflag: number;
+  CreateBy: string;
+  CreateDate: string;
+  DocumentNo: string;
+  DocumentCreateDate: string;
+  TotalReturned: number;
+  RemainingCount: number;
+  returns?: ReturnRecord[]; // Fetched dynamically
+  isFetchingReturns?: boolean;
+}
+
+interface SelectedReturn {
+  borrowId: string;
+  returnCount: number | '';
+  maxCount: number; // Maximum available to return
+  UnitTransfer: string;
+  UnitReceive: string;
+  LevelGroupTo: string;
+  UnitTransferName: string;
+  UnitReceiveName: string;
+  LevelGroupToName: string;
+  ParentDocumentNo: string;
+}
+
+export interface ApproverUser {
+  UserGroupNo: string;
+  UserGroupName?: string;
+  EmployeeID: string;
+  OrgUnitNo: string;
+  FullName: string;
+  LevelGroupNo: string;
+  Email: string;
+  PermissionOrder: number;
+  UnitSide: string;
+  UserGroupRole?: string;
+}
+
+export default function ReturnPage() {
+  // --- STATE ---
+  const [selectedStatus, setSelectedStatus] = useState<string>('borrowed');
+  const [selectedBusinessUnit, setSelectedBusinessUnit] = useState('');
+  const [selectedFromDept, setSelectedFromDept] = useState('');
+  
+  // Table column filters
+  const [filterInbox, setFilterInbox] = useState('');
+  const [filterEffectiveDate, setFilterEffectiveDate] = useState('');
+  const [filterResolution, setFilterResolution] = useState('');
+  
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [selectedReturns, setSelectedReturns] = useState<Map<string, SelectedReturn>>(new Map());
+  const [returnCounts, setReturnCounts] = useState<Record<string, number | ''>>({});
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  
+  const [borrowRecords, setBorrowRecords] = useState<BorrowRecord[]>([]);
+
+  // Departments list extracted from records
+  const [departments, setDepartments] = useState<{id: string, name: string}[]>([]);
+
+  // State for Request Modal & Approvers
+  const [selectedApprovers, setSelectedApprovers] = useState<Record<string, string[]>>({});
+  const [dynamicApprovers, setDynamicApprovers] = useState<Record<string, ApproverUser[]>>({});
+  const getDepartmentName = (id: string, resolvedName?: string) =>
+    resolvedName || departments.find(d => d.id === id)?.name || id;
+
+
+  useEffect(() => {
+    fetchBorrowRecords();
+  }, []);
+
+  const fetchBorrowRecords = async () => {
+    try {
+      const employeeId = localStorage.getItem('employeeId') || '';
+      const res = await fetch(`/api/transactions/borrow-records?employeeId=${employeeId}`);
+      if (res.ok) {
+        const result = await res.json();
+        setBorrowRecords(result.data || []);
+
+        // Extract unique departments for the dropdown
+        const depts = new Map<string, string>();
+        (result.data || []).forEach((r: BorrowRecord) => {
+          if (r.UnitTransfer) depts.set(r.UnitTransfer, r.UnitTransferName || r.UnitTransfer);
+          if (r.UnitReceive) depts.set(r.UnitReceive, r.UnitReceiveName || r.UnitReceive);
+        });
+        setDepartments(Array.from(depts.entries()).map(([id, name]) => ({ id, name })));
+      }
+    } catch (error) {
+      console.error('Failed to fetch borrow records:', error);
+    }
+  };
+
+  const fetchReturnHistory = async (borrowId: string, documentNo: string) => {
+    try {
+      setBorrowRecords(prev => prev.map(r => r.TransactionNo === borrowId ? { ...r, isFetchingReturns: true } : r));
+      const res = await fetch(`/api/transactions/return-history/${documentNo}`);
+      if (res.ok) {
+        const result = await res.json();
+        setBorrowRecords(prev => prev.map(r => r.TransactionNo === borrowId ? { ...r, returns: result.data || [], isFetchingReturns: false } : r));
+      }
+    } catch (error) {
+      console.error('Failed to fetch return history:', error);
+      setBorrowRecords(prev => prev.map(r => r.TransactionNo === borrowId ? { ...r, isFetchingReturns: false } : r));
+    }
+  };
+
+  const toggleRow = (id: string, documentNo: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+        // Fetch history if not already fetched
+        const record = borrowRecords.find(r => r.TransactionNo === id);
+        if (record && !record.returns && !record.isFetchingReturns) {
+          fetchReturnHistory(id, documentNo);
+        }
+      }
+      return next;
+    });
+  };
+
+  const toggleSelection = (borrowId: string, record: BorrowRecord) => {
+    setSelectedReturns(prev => {
+      const next = new Map(prev);
+      if (next.has(borrowId)) {
+        next.delete(borrowId);
+      } else {
+        const currentDraft = returnCounts[borrowId];
+        let finalCount = (currentDraft !== undefined && currentDraft !== '') ? currentDraft : record.RemainingCount;
+        if (finalCount === 0) finalCount = 1; // Fallback so it doesn't request 0
+
+        next.set(borrowId, {
+          borrowId,
+          returnCount: finalCount,
+          maxCount: record.RemainingCount,
+          UnitTransfer: record.UnitTransfer,
+          UnitReceive: record.UnitReceive,
+          LevelGroupTo: record.LevelGroupTo,
+          UnitTransferName: record.UnitTransferName,
+          UnitReceiveName: record.UnitReceiveName,
+          LevelGroupToName: record.LevelGroupToName,
+          ParentDocumentNo: record.DocumentNo
+        });
+      }
+      return next;
+    });
+  };
+
+  const updateReturnCount = (record: BorrowRecord, value: string) => {
+    const borrowId = record.TransactionNo;
+    let newCount: number | '' = '';
+    if (value !== '') {
+      const parsed = parseInt(value, 10);
+      if (!isNaN(parsed)) {
+        if (parsed < 0) {
+          newCount = 0; // Prevent negative
+        } else if (parsed > record.RemainingCount) {
+          newCount = record.RemainingCount; // Prevent more than max
+        } else {
+          newCount = parsed;
+        }
+      }
+    }
+    setReturnCounts(prev => ({ ...prev, [borrowId]: newCount }));
+  };
+
+  const handleRequest = async () => {
+    if (selectedReturns.size === 0) {
+      alert('กรุณาเลือกรายการคืนอย่างน้อย 1 รายการ');
+      return;
+    }
+
+    // Validate return counts
+    const invalidReturns = Array.from(selectedReturns.values()).filter(
+      r => r.returnCount === '' || Number(r.returnCount) <= 0
+    );
+    if (invalidReturns.length > 0) {
+      alert('กรุณาระบุจำนวนคืนให้ถูกต้อง (มากกว่า 0)');
+      return;
+    }
+
+    try {
+      const defaultUserGroup = localStorage.getItem('selected_usergroup') || '02';
+      const groupedReturns = getReturnsByDepartmentPair();
+      const approversData: Record<string, ApproverUser[]> = {};
+
+      for (const [key, returnsList] of Object.entries(groupedReturns)) {
+        approversData[key] = [];
+        
+        for (const ret of returnsList) {
+          // TransactionType 6 equivalent for approvers? Usually standard approval for return. JobType = 7
+          const jobType = 7;
+          const userGroupReceive = defaultUserGroup;
+          const orgUnitNoReceive = ret.UnitReceive;
+          const orgUnitNoTransfer = ret.UnitTransfer;
+          const levelGroupNoFrom = ret.LevelGroupTo;
+          const levelGroupNoTo = ret.LevelGroupTo;
+          const effectiveDate = dayjs().format('YYYY-MM-DD');
+
+          const queryParams = new URLSearchParams({
+            jobType: jobType.toString(),
+            userGroupReceive,
+            orgUnitNoReceive,
+            levelGroupNoFrom,
+            ...(orgUnitNoTransfer ? { orgUnitNoTransfer } : {}),
+            levelGroupNoTo,
+            effectiveDate,
+            isRequirePolicy: '0'
+          });
+
+          const resp = await fetch(`/api/transactions/approvers?${queryParams}&_t=${Date.now()}`);
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.data?.length > 0) {
+              approversData[key] = [...approversData[key], ...data.data];
+            }
+          }
+        }
+        
+        // Remove duplicates by EmployeeID
+        const uniqueSet = new Set();
+        approversData[key] = approversData[key].filter((item) => {
+          const isDuplicate = uniqueSet.has(item.EmployeeID);
+          uniqueSet.add(item.EmployeeID);
+          return !isDuplicate;
+        });
+      }
+
+      setDynamicApprovers(approversData);
+      setIsRequestModalOpen(true);
+    } catch (e) {
+      console.error("Failed to load approvers", e);
+      alert('เกิดข้อผิดพลาดในการโหลดรายชื่อผู้อนุมัติ');
+    }
+  };
+
+  const confirmRequest = async () => {
+    const groups = getReturnsByDepartmentPair();
+    const missingGroups = Object.keys(groups).filter(key => !selectedApprovers[key] || selectedApprovers[key].length === 0);
+
+    if (missingGroups.length > 0) {
+      alert('กรุณาเลือกผู้ตรวจสอบสำหรับทุกกลุ่ม');
+      return;
+    }
+
+    try {
+      let employeeId = 'SYSTEM';
+      let userGroupNo = '';
+      const userDataStr = localStorage.getItem('user_data');
+      if (userDataStr) {
+        try {
+          const userData = JSON.parse(userDataStr);
+          employeeId = userData.employeeID || 'SYSTEM';
+          userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
+        } catch { }
+      }
+
+      const itemsPayload = Array.from(selectedReturns.values()).map(ret => {
+        const key = `${ret.UnitReceive}-${ret.UnitTransfer}`;
+        const selectedEmpIds = selectedApprovers[key] || [];
+        const groupApprovers = dynamicApprovers[key] || [];
+
+          const itemApproversList = selectedEmpIds.map(empId => groupApprovers.find((a: ApproverUser) => a.EmployeeID === empId))
+          .filter((a): a is ApproverUser => !!a);
+          
+        itemApproversList.sort((a, b) => {
+             if (a!.PermissionOrder !== b!.PermissionOrder) {
+                 return a!.PermissionOrder - b!.PermissionOrder;
+             }
+             if (a!.UnitSide === 'UnitReceive' && b!.UnitSide !== 'UnitReceive') return -1;
+             if (a!.UnitSide !== 'UnitReceive' && b!.UnitSide === 'UnitReceive') return 1;
+             return 0;
+        });
+        
+        const itemApprovers = itemApproversList.map((a, index) => ({
+            seqno: index + 1,
+            employeeId: a!.EmployeeID,
+            fullname: a!.FullName,
+            email: a!.Email || '',
+            userGroupNo: a!.UserGroupNo,
+            unitSide: a!.UnitSide || ''
+        }));
+
+        return {
+          itemId: `TEMP_${ret.borrowId}_${Date.now()}`, // Temporary ID for DocumentItem
+          approvers: itemApprovers,
+          draftData: {
+            transactionType: 7, // Return transaction
+            effectiveMonth: dayjs().month() + 1,
+            effectiveYear: dayjs().year() + 543,
+            unitReceive: ret.UnitReceive,
+            unitTransfer: ret.UnitTransfer,
+            levelGroupTo: ret.LevelGroupTo,
+            levelGroupFrom: ret.LevelGroupTo,
+            amount: Number(ret.returnCount),
+            parentDocumentNo: ret.ParentDocumentNo, // Linking to original borrow
+            remark: 'รายการคืน',
+            employeeId
+          }
+        };
+      });
+
+      // 1. Save drafts
+      const savedDocs = await Promise.all(itemsPayload.map(async (item) => {
+        const payload = {
+          ...item.draftData,
+          detailData: {
+             levelGroupFrom: item.draftData.levelGroupFrom,
+             levelGroupTo: item.draftData.levelGroupTo,
+             unitTransfer: item.draftData.unitTransfer,
+             amount: item.draftData.amount,
+             conclusionNo: '',
+             conclusionDate: ''
+          }
+        };
+
+        const response = await fetch('/api/transactions/draft', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payload })
+        });
+
+        if (!response.ok) throw new Error('Failed to save draft for return');
+        const data = await response.json();
+        return {
+           itemId: data.data.transactionNo,
+           approvers: item.approvers
+        };
+      }));
+
+      // 2. Submit document
+      const payload = {
+        documentType: 1, // Transaction Document
+        userGroupNo: userGroupNo || undefined,
+        items: savedDocs,
+        parentDocumentNo: itemsPayload.length > 0 ? itemsPayload[0].draftData.parentDocumentNo : undefined
+      };
+
+      const submitRes = await fetch('/api/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!submitRes.ok) {
+        throw new Error('Failed to submit documents');
+      }
+
+      alert('ส่งขอการอนุมัติคืนเรียบร้อย!');
+      setIsRequestModalOpen(false);
+      setSelectedReturns(new Map());
+      setSelectedApprovers({});
+      fetchBorrowRecords(); 
+    } catch (error) {
+      console.error('Error submitting request:', error);
+      alert('เกิดข้อผิดพลาดในการส่งคำขออนุมัติ');
+    }
+  };
+
+  const toggleApprover = (groupKey: string, approverId: string) => {
+    setSelectedApprovers((prev) => {
+      const currentList = prev[groupKey] || [];
+      if (currentList.includes(approverId)) {
+        return { ...prev, [groupKey]: currentList.filter((id) => id !== approverId) };
+      } else {
+        return { ...prev, [groupKey]: [...currentList, approverId] };
+      }
+    });
+  };
+
+  const getReturnsByDepartmentPair = () => {
+    const grouped: Record<string, SelectedReturn[]> = {};
+    
+    Array.from(selectedReturns.values()).forEach((ret) => {
+      const key = `${ret.UnitReceive}-${ret.UnitTransfer}`;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(ret);
+    });
+    
+    return grouped;
+  };
+
+  // Filter records
+  const filteredRecords = borrowRecords.filter(record => {
+    // Status filter
+    const isFullyReturned = record.RemainingCount <= 0;
+    if (selectedStatus === 'borrowed' && isFullyReturned) return false;
+    if (selectedStatus === 'fully_returned' && !isFullyReturned) return false;
+    
+    // Dropdown filters
+    // if (selectedBusinessUnit && record.businessUnit !== selectedBusinessUnit) return false; // Not in DB model currently
+    if (selectedFromDept && record.UnitTransfer !== selectedFromDept) return false;
+    // if (selectedToDept && record.toDepartment !== selectedToDept) return false;
+    
+    // Table column filters
+    if (filterInbox && !record.DocumentNo.toLowerCase().includes(filterInbox.toLowerCase())) return false;
+    // EffectiveDate is a Datetime string from DB, we can format it if needed, or search as-is
+    if (filterEffectiveDate && !record.EffectiveDate.toLowerCase().includes(filterEffectiveDate.toLowerCase())) return false;
+    // if (filterDepartment) {
+    //   const fromDept = (record.UnitTransferName || record.UnitTransfer).toLowerCase();
+    //   const toDept = (record.UnitReceiveName || record.UnitReceive).toLowerCase();
+    //   const searchTerm = filterDepartment.toLowerCase();
+    //   if (!fromDept.includes(searchTerm) && !toDept.includes(searchTerm)) return false;
+    // }
+    if (filterResolution && !record.TransactionDesc.toLowerCase().includes(filterResolution.toLowerCase())) return false;
+    
+    return true;
+  });
+
+  return (
+    <Main currentPath="/transaction/borrowreturn/return">
+      <div className="space-y-4">
+        
+        {/* 1. HEADER */}
+        <Card className="border-0 shadow-md rounded-lg overflow-hidden py-0">
+          <div className="bg-linear-to-r from-blue-200 to-blue-500 px-6 py-3 flex items-center justify-between shadow-lg rounded-t-lg border-b border-blue-500/30">
+            <h1 className="text-xl font-bold text-gray-800 tracking-wide flex items-center gap-2">
+              <Calendar className="w-6 h-6 text-blue-900" />
+              การคืนกรอบอัตรากำลัง
+            </h1>
+          </div>
+        </Card>
+
+        {/* 2. FILTER BAR */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-wrap items-center gap-6">
+          {/* สถานะ */}
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium text-gray-700 whitespace-nowrap">สถานะ :</label>
+            <div className="relative">
+              <select 
+                value={selectedStatus} 
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="w-40 pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow appearance-none bg-white"
+              >
+                <option value="all">ทั้งหมด</option>
+                <option value="borrowed">ยืมอยู่</option>
+                <option value="fully_returned">คืนหมดแล้ว</option>
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* หน่วยธุรกิจ */}
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium text-gray-700 whitespace-nowrap">หน่วยธุรกิจ :</label>
+            <div className="relative">
+              <input 
+                type="text" 
+                value={selectedBusinessUnit} 
+                onChange={(e) => setSelectedBusinessUnit(e.target.value)} 
+                placeholder="เลือกหน่วยธุรกิจ..." 
+                className="w-48 pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow" 
+              />
+            </div>
+          </div>
+
+          {/* หน่วยงานให้ยืม */}
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium text-gray-700 whitespace-nowrap">หน่วยงาน :</label>
+            <div className="relative">
+              <select value={selectedFromDept} onChange={(e) => setSelectedFromDept(e.target.value)} className="w-56 pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow appearance-none bg-white">
+                <option value="">ทั้งหมด</option>
+                {departments.map((dep) => <option key={dep.id} value={dep.id}>{dep.name}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            </div>
+          </div>
+
+          
+
+          <div className="flex-1"></div>
+
+          {/* Request Button */}
+          {selectedReturns.size > 0 && (
+            <Button onClick={handleRequest} className="bg-linear-to-r from-purple-500 to-purple-600 text-white px-6 h-9 text-sm font-semibold hover:from-purple-600 hover:to-purple-700 shadow-md">
+              REQUEST ({selectedReturns.size})
+            </Button>
+          )}
+        </div>
+
+        {/* 3. TABLE CARD */}
+        <Card className="bg-white border-0 shadow-sm overflow-hidden">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-700">
+                    <th className="px-4 py-3 text-left text-sm font-semibold w-[50px]"></th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[150px]">Doc No.</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[120px]">Effective Date</th>
+                    {/* <th className="px-4 py-3 text-left text-sm font-semibold">หน่วยงาน</th> */}
+                    <th className="px-4 py-3 text-left text-sm font-semibold">มติ / เรื่อง</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[100px]">ระดับ</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap w-[80px]">ยืม/คืน</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap w-[80px]">คงเหลือ</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap w-[100px]">จำนวนคืน</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap w-[120px]">สถานะ</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap w-[100px]">Action</th>
+                  </tr>
+                  
+                  {/* Filter Row */}
+                  <tr className="bg-white border-b border-gray-100">
+                    <th className="px-4 py-2"></th>
+                    <th className="px-4 py-2">
+                      <input 
+                        type="text" 
+                        value={filterInbox}
+                        onChange={(e) => setFilterInbox(e.target.value)}
+                        placeholder=""
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-blue-400 focus:outline-none"
+                      />
+                    </th>
+                    <th className="px-4 py-2">
+                      <input 
+                        type="text" 
+                        value={filterEffectiveDate}
+                        onChange={(e) => setFilterEffectiveDate(e.target.value)}
+                        placeholder=""
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-blue-400 focus:outline-none"
+                      />
+                    </th>
+                    {/* <th className="px-4 py-2">
+                      <input 
+                        type="text" 
+                        value={filterDepartment}
+                        onChange={(e) => setFilterDepartment(e.target.value)}
+                        placeholder=""
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-blue-400 focus:outline-none"
+                      />
+                    </th> */}
+                    <th className="px-4 py-2">
+                      <input 
+                        type="text" 
+                        value={filterResolution}
+                        onChange={(e) => setFilterResolution(e.target.value)}
+                        placeholder=""
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-blue-400 focus:outline-none"
+                      />
+                    </th>
+                    <th className="px-4 py-2" colSpan={6}></th>
+                  </tr>
+                </thead>
+                
+                <tbody>
+                  {filteredRecords.map((record, index) => {
+                    const isExpanded = expandedRows.has(record.TransactionNo);
+                    const isSelected = selectedReturns.has(record.TransactionNo);
+                    const canReturn = record.RemainingCount > 0;
+
+                    return (
+                      <React.Fragment key={record.TransactionNo}>
+                        {/* Main Borrow Row */}
+                        <tr className={`border-b border-gray-100 hover:bg-blue-50/30 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'} ${isSelected ? 'bg-blue-50' : ''}`}>
+                          <td className="px-4 py-4 text-center">
+                            {(record.returns && record.returns.length > 0) && (
+                              <button onClick={() => toggleRow(record.TransactionNo, record.DocumentNo)} className="text-gray-500 hover:text-blue-600 transition-colors">
+                                {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                              </button>
+                            )}
+                            {(!record.returns && !record.isFetchingReturns && record.TotalReturned > 0) && (
+                              <button onClick={() => toggleRow(record.TransactionNo, record.DocumentNo)} className="text-gray-500 hover:text-blue-600 transition-colors">
+                                <ChevronRight className="w-5 h-5" />
+                              </button>
+                            )}
+                            {record.isFetchingReturns && (
+                              <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 text-sm font-medium">
+                            <span className="text-blue-600 hover:text-blue-800 font-mono whitespace-nowrap">{record.DocumentNo}</span>
+                          </td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{dayjs(record.EffectiveDate).format('DD/MM/YYYY')}</td>
+                          {/* <td className="px-4 py-4 text-sm text-gray-700">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-gray-500">จาก:</span>
+                                <span className="font-medium">{getDepartmentName(record.fromDepartment)}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-gray-500">ถึง:</span>
+                                <span className="font-medium">{getDepartmentName(record.toDepartment)}</span>
+                              </div>
+                            </div>
+                          </td> */}
+                          <td className="px-4 py-4 text-sm text-gray-600 leading-relaxed">
+                            {record.TransactionDesc}
+                            <div className="text-[10px] text-gray-400 mt-1">Created: {dayjs(record.CreateDate).format('DD/MM/YYYY HH:mm')}</div>
+                          </td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{record.LevelGroupToName || record.LevelGroupTo}</td>
+                          <td className="px-4 py-4 text-sm text-center font-semibold text-gray-900">{record.Amount}</td>
+                          <td className="px-4 py-4 text-sm text-center">
+                            <span className={`font-bold ${record.RemainingCount > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                              {record.RemainingCount}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            {canReturn ? (
+                              <div className="flex items-center justify-center">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max={record.RemainingCount}
+                                  value={selectedReturns.has(record.TransactionNo) ? selectedReturns.get(record.TransactionNo)!.returnCount : (returnCounts[record.TransactionNo] !== undefined ? returnCounts[record.TransactionNo] : record.RemainingCount)}
+                                  onChange={(e) => updateReturnCount(record, e.target.value)}
+                                  disabled={isSelected}
+                                  className={`w-16 px-2 py-1 text-sm text-center border rounded transition-all ${
+                                    isSelected 
+                                      ? 'border-purple-300 bg-gray-50 text-gray-700 cursor-not-allowed font-semibold' 
+                                      : 'border-gray-300 bg-white focus:border-purple-500 focus:ring-2 focus:ring-purple-200 hover:border-gray-400'
+                                  }`}
+                                />
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                              record.RemainingCount <= 0 
+                                ? 'bg-green-100 text-green-800 border border-green-200' 
+                                : 'bg-orange-100 text-orange-800 border border-orange-200'
+                            }`}>
+                              {record.RemainingCount <= 0 ? 'คืนหมดแล้ว' : 'ยืมอยู่'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            {canReturn ? (
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => toggleSelection(record.TransactionNo, record)}
+                                className={`h-8 text-xs font-semibold transition-all shadow-sm ${
+                                  isSelected 
+                                    ? 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700' 
+                                    : 'text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-300'
+                                }`}
+                              >
+                                {isSelected ? <Check className="w-3.5 h-3.5 mr-1.5" /> : null}
+                                คืน
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
+                          </td>
+                        </tr>
+
+                        {/* Return Records (Child Rows) */}
+                        {isExpanded && record.returns && record.returns.map((ret) => (
+                          <tr key={ret.TransactionNo} className="bg-purple-50/50 border-b border-purple-100">
+                            <td className="px-4 py-3"></td>
+                            <td className="px-4 py-3 text-sm font-medium pl-8">
+                              <div className="flex items-center gap-2">
+                                <span className="text-purple-600 text-lg">↳</span>
+                                <span className="text-purple-600 hover:text-purple-800 font-mono whitespace-nowrap">
+                                  {ret.DocumentNo || ret.TransactionNo}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700">
+                              {dayjs(ret.CreateDate).format('DD/MM/YYYY')}
+                            </td>
+                            {/* <td className="px-4 py-3"></td> */}
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              <span className="text-xs">{ret.TransactionDesc}</span>
+                               <div className="text-[10px] text-gray-400 mt-1">Created: {dayjs(ret.CreateDate).format('DD/MM/YYYY HH:mm')}</div>
+                            </td>
+                            <td className="px-4 py-3"></td>
+                            <td className="px-4 py-3 text-sm text-center font-bold text-purple-700">
+                              {ret.ReturnCount}
+                            </td>
+                            <td className="px-4 py-3"></td>
+                            <td className="px-4 py-3"></td>
+                            <td className="px-4 py-3 text-center">
+                              {ret.Status === 3 && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200">
+                                  คืนแล้ว
+                                </span>
+                              )}
+                              {(ret.Status === 1 || ret.Status === 2) && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">
+                                  รออนุมัติ
+                                </span>
+                              )}
+                              {ret.Status === 0 && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200">
+                                  ยกเลิก
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3"></td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ================================================================================= */}
+      {/* REQUEST MODAL */}
+      {/* ================================================================================= */}
+      {isRequestModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="px-6 py-2 border-b bg-linear-to-r from-purple-200 to-purple-700 flex justify-between items-center">
+              <h2 className="text-lg font-bold text-purple-900">ยืนยันการส่งขออนุมัติคืน</h2>
+              <button onClick={() => setIsRequestModalOpen(false)} className="text-white hover:bg-white/20 rounded-full p-1"><X className="w-6 h-6" /></button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 space-y-6 bg-gray-50">
+              {Object.entries(getReturnsByDepartmentPair()).map(([key, returns]) => {
+                const dynamicList = dynamicApprovers[key] || [];
+                const approverGroups = Array.from(new Set(dynamicList.map((u: ApproverUser) => `${u.UnitSide}-${u.PermissionOrder}`))).map(groupKey => {
+                    const groupUsers = dynamicList.filter((u: ApproverUser) => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
+                    const sample = groupUsers[0];
+                    let title = '';
+                    const icon = Users;
+                    let color = 'text-gray-600 bg-gray-50 border-gray-200';
+
+                    const rawRole = sample.UserGroupRole || '';
+                    const roleLabel = rawRole.toUpperCase().includes('HRUSER') ? 'HR USER' : rawRole.toUpperCase().includes('HRVERIFY') ? 'HR VERIFY' : rawRole;
+                    const sideLabel = sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom' ? 'ฝั่งรับ' : 'ฝั่งให้';
+                    const unitName = sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom' ? getDepartmentName(sample.OrgUnitNo) : getDepartmentName(sample.OrgUnitNo);
+
+                    title = `${roleLabel} (${sideLabel}: ${unitName})`;
+
+                    if (sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom') {
+                      color = 'text-green-600 bg-green-50 border-green-200';
+                    } else if ((sample.UnitSide === 'UnitTransfer' || sample.UnitSide === 'UnitTo') && roleLabel === 'HR USER') {
+                      color = 'text-blue-600 bg-blue-50 border-blue-200';
+                    } else if ((sample.UnitSide === 'UnitTransfer' || sample.UnitSide === 'UnitTo') && roleLabel === 'HR VERIFY') {
+                      color = 'text-indigo-600 bg-indigo-50 border-indigo-200';
+                    }
+
+                    return {
+                      title,
+                      icon,
+                      color,
+                      users: groupUsers
+                    };
+                });
+
+                return (
+                  <div key={key} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                    <div className="bg-purple-100 px-4 py-2 border-b border-purple-200 flex justify-between items-center">
+                      <span className="font-semibold text-sm text-purple-900 flex items-center gap-2">
+                        🔄 คืน : {returns[0]?.UnitReceiveName} → {returns[0]?.UnitTransferName}
+                      </span>
+                      <span className="text-xs bg-white px-2 py-1 rounded border text-purple-700">{returns.length} รายการ</span>
+                    </div>
+
+                    <div className="p-3 grid grid-cols-1 md:grid-cols-[60%_40%] gap-4">
+                      {/* LEFT: Return List */}
+                      <div className="space-y-2 border-r border-gray-100 pr-3">
+                        {returns.map((ret, idx) => {
+                          const borrowRecord = borrowRecords.find(b => b.TransactionNo === ret.borrowId);
+                          return (
+                            <div key={ret.borrowId} className="rounded-md border-2 p-3 bg-purple-50 border-purple-200">
+                              <div className="flex items-center gap-2 text-xs mb-1">
+                                <span className="font-bold bg-white/80 px-1.5 rounded">#{idx + 1}</span>
+                                <span className="font-bold uppercase text-purple-700">คืนกรอบอัตรากำลัง</span>
+                              </div>
+                              <span className="text-xs leading-relaxed opacity-90">
+                                คืนกรอบอัตรากำลัง จำนวน <span className="font-bold">{ret.returnCount}</span> อัตรา 
+                                ของ {ret.LevelGroupToName || ret.LevelGroupTo} 
+                                จาก {ret.UnitReceiveName} คืนให้ {ret.UnitTransferName}
+                              </span>
+                              {borrowRecord && (
+                                <div className="text-[10px] text-gray-500 mt-1">
+                                  Ref: {borrowRecord.DocumentNo}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* RIGHT: Approver Selection */}
+                      <div className="pl-2 space-y-4">
+                        <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                          <Users className="w-4 h-4" /> เลือกผู้อนุมัติ
+                        </h3>
+                        
+                        {approverGroups.length === 0 ? (
+                          <div className="text-red-500 text-sm p-4 bg-red-50 rounded text-center">ไม่พบรายชื่อผู้อนุมัติที่เกี่ยวข้อง</div>
+                        ) : (
+                          approverGroups.map((group, groupIdx) => (
+                            <div key={groupIdx} className={`rounded-lg border overflow-hidden ${group.color}`}>
+                              <div className="px-3 py-2 bg-white/50 border-b border-inherit flex items-center gap-2">
+                                <group.icon className="w-4 h-4 opacity-70" />
+                                <span className="text-xs font-bold uppercase tracking-wider">{group.title}</span>
+                              </div>
+                              <div className="p-2 space-y-2 bg-white">
+                                {group.users.map((user: ApproverUser) => {
+                                  const isSelected = (selectedApprovers[key] || []).includes(user.EmployeeID);
+                                  return (
+                                    <label key={user.EmployeeID} className={`flex items-center gap-3 p-2 rounded-md border cursor-pointer transition-all hover:shadow-sm
+                                      ${isSelected ? 'border-green-500 bg-green-50' : 'border-gray-100 hover:bg-gray-50'}`}>
+                                      <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0
+                                        ${isSelected ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}>
+                                        {isSelected && <CheckCircle className="w-3 h-3 text-white" />}
+                                      </div>
+                                      <input type="checkbox" className="hidden" checked={isSelected} onChange={() => toggleApprover(key, user.EmployeeID)} />
+                                      <div className="min-w-0">
+                                        <p className="text-sm font-medium text-gray-700 truncate">{user.FullName}</p>
+                                        <p className="text-[10px] text-gray-400">{user.UserGroupName || user.UserGroupRole}</p>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 bg-white flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setIsRequestModalOpen(false)} className="px-6">CANCEL</Button>
+              <Button onClick={confirmRequest} className="bg-purple-600 hover:bg-purple-700 text-white px-8 gap-2"><CheckCircle className="h-5 w-5" /> CONFIRM</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Main>
+  );
+}

@@ -1,5 +1,5 @@
 {
-  "name": "frontend",
+  "name": "pttswp-frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,19 +9,40 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "next": "16.1.1",
+    "@ant-design/icons": "^6.1.0",
+    "@ant-design/nextjs-registry": "^1.3.0",
+    "@azure/msal-browser": "^5.3.0",
+    "@azure/msal-react": "^5.0.5",
+    "antd": "^6.2.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "exceljs": "^4.4.0",
+    "file-saver": "^2.0.5",
+    "jwt-decode": "^4.0.0",
+    "lucide-react": "^0.562.0",
+    "next": "16.2.1",
+    "next-themes": "^0.4.6",
+    "radix-ui": "^1.4.3",
+    "rc-picker": "^4.11.3",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "reactflow": "^11.11.4",
+    "recharts": "^3.7.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/file-saver": "^2.0.7",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
-    "eslint-config-next": "16.1.1",
+    "eslint-config-next": "16.2.1",
     "tailwindcss": "^4",
+    "tw-animate-css": "^1.4.0",
     "typescript": "^5"
   },
   "ignoreScripts": [

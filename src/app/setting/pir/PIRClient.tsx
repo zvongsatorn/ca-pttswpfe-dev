@@ -1,0 +1,685 @@
+'use client';
+
+import React, { useState, useCallback, useEffect } from 'react';
+import { Table, Button, Select, Tabs, Modal, Input, InputNumber, Progress, Typography, Space, Popconfirm, Card, App, Tag } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { Trash2, Download, Upload, FileText, Plus, Info, FileSpreadsheet, FilePieChart, MessageSquare, Clipboard } from 'lucide-react';
+import { FilePdfOutlined, SearchOutlined } from '@ant-design/icons';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
+import { addPIRRateAction, deletePIRRateAction, copyPIRAction, addPIRRemarkAction, deletePIRRemarkAction } from './actions';
+import { getPIR, getFileAttach, getRemark, uploadFilePIR, deleteFileAttach, exportExcel, downloadPIRTemplate, insertPIR } from '@/services/pirService';
+
+const { Title, Text } = Typography;
+
+interface PIRType { ImproveRateID: number; Year: number; Rate: number; CreateBy: string; }
+interface FileType { ImproveRateUploadID: number; FileName: string; FileUpload: string; }
+interface RemarkType { ImproveRateRemarkID: number; Remark: string; EmpName: string; CreateBy: string; CreateDateBD: string; CreateDate?: string; }
+interface UnitOption { value: string; label: string; }
+
+interface PIRClientProps {
+    token: string;
+    currentUser: any;
+    initialUnits: UnitOption[];
+}
+
+export default function PIRClient({ token, currentUser, initialUnits }: PIRClientProps) {
+    const { notification, message: messageApi, modal } = App.useApp();
+    const currentYearTH = new Date().getFullYear() + 543;
+    const [effectiveYear, setEffectiveYear] = useState<string>(currentYearTH.toString());
+    const [orgUnitNo, setOrgUnitNo] = useState<string>('');
+    const [activeTab, setActiveTab] = useState('1');
+
+    // Tab 1: Rates
+    const [rates, setRates] = useState<PIRType[]>([]);
+    const [loadingRates, setLoadingRates] = useState(false);
+    const [isAddRateModal, setIsAddRateModal] = useState(false);
+    const [addRateForm, setAddRateForm] = useState({ year: currentYearTH, rate: 0 });
+
+    // Tab 2: Files
+    const [files, setFiles] = useState<FileType[]>([]);
+    const [loadingFiles, setLoadingFiles] = useState(false);
+    const [isAddFileModal, setIsAddFileModal] = useState(false);
+    const [newFileName, setNewFileName] = useState('');
+    const [uploadFile, setUploadFile] = useState<File | null>(null);
+
+    // Tab 3: Remarks
+    const [remarkList, setRemarkList] = useState<RemarkType[]>([]);
+    const [loadingRemarks, setLoadingRemarks] = useState(false);
+    const [newRemark, setNewRemark] = useState('');
+
+    // Tab 4: Import/Export
+    const [importing, setImporting] = useState(false);
+    const [exporting, setExporting] = useState(false);
+    const [selectedImportFile, setSelectedImportFile] = useState<File | null>(null);
+
+    const handleFetchAll = useCallback(async () => {
+        setLoadingRates(true);
+        setLoadingFiles(true);
+        setLoadingRemarks(true);
+        try {
+            const yearAD = (parseInt(effectiveYear) - 543).toString();
+            const [pirRes, fileRes, remarkRes] = await Promise.all([
+                getPIR(yearAD, orgUnitNo, token),
+                getFileAttach(yearAD, token),
+                getRemark(yearAD, token)
+            ]);
+
+            if (pirRes?.success) setRates(pirRes.data);
+            if (fileRes?.success) setFiles(fileRes.data);
+            if (remarkRes?.success) setRemarkList(remarkRes.data);
+        } catch (error) {
+            console.error('Fetch error:', error);
+            messageApi.error('ไม่สามารถโหลดข้อมูลได้');
+        } finally {
+            setLoadingRates(false);
+            setLoadingFiles(false);
+            setLoadingRemarks(false);
+        }
+    }, [effectiveYear, orgUnitNo, token, messageApi]);
+
+    useEffect(() => {
+        handleFetchAll();
+    }, [handleFetchAll]);
+
+    // Actions
+    const handleAddRate = async () => {
+        const yearAD = (addRateForm.year - 543).toString();
+        const effYearAD = (parseInt(effectiveYear) - 543).toString();
+        
+        try {
+            const res = await addPIRRateAction({
+                effectiveYear: effYearAD,
+                year: yearAD,
+                rate: addRateForm.rate,
+                orgUnitNo: orgUnitNo,
+                createBy: currentUser.employeeID || 'SYSTEM',
+                import: 0
+            }, token);
+            
+            if (res.success) {
+                notification.success({ message: 'สำเร็จ', description: 'เพิ่มข้อมูล Rate เรียบร้อยแล้ว' });
+                setIsAddRateModal(false);
+                handleFetchAll();
+            } else {
+                notification.error({ message: 'ผิดพลาด', description: res.message });
+            }
+        } catch (error) {
+            notification.error({ message: 'ข้อผิดพลาด', description: 'ไม่สามารถเพิ่มข้อมูลได้' });
+        }
+    };
+
+    const handleDeleteRate = async (id: number) => {
+        try {
+            const res = await deletePIRRateAction(id, currentUser.employeeID || 'SYSTEM', token);
+            if (res.success) {
+                notification.success({ message: 'สำเร็จ', description: 'ลบข้อมูลเรียบร้อยแล้ว' });
+                handleFetchAll();
+            }
+        } catch (error) {
+            notification.error({ message: 'ข้อผิดพลาด', description: 'ไม่สามารถลบข้อมูลได้' });
+        }
+    };
+
+    const handleCopyData = () => {
+        modal.confirm({
+            title: 'ยืนยันการสำเนาข้อมูล',
+            content: 'ระบบจะลบข้อมูลของปีปัจจุบัน (ถ้ามี) และคัดลอกข้อมูลจากปีที่แล้วมาแทนที่ ต้องการดำเนินการใช่หรือไม่?',
+            okText: 'ยืนยัน',
+            cancelText: 'ยกเลิก',
+            centered: true,
+            onOk: async () => {
+                try {
+                    const effYearAD = (parseInt(effectiveYear) - 543).toString();
+                    const res = await copyPIRAction(effYearAD, orgUnitNo, currentUser.employeeID || 'SYSTEM', token);
+                    if (res.success) {
+                        notification.success({ message: 'สำเร็จ', description: 'สำเนาข้อมูลเรียบร้อยแล้ว' });
+                        handleFetchAll();
+                    }
+                } catch (error) {
+                    notification.error({ message: 'ข้อผิดพลาด', description: 'ไม่สามารถสำเนาข้อมูลได้' });
+                }
+            }
+        });
+    };
+
+    const handleUpload = async () => {
+        if (!uploadFile || !newFileName) {
+            messageApi.warning('กรุณากรอกชื่อไฟล์และเลือกไฟล์ PDF');
+            return;
+        }
+        if (uploadFile.size > 15 * 1024 * 1024) {
+            messageApi.error('ขนาดไฟล์ต้องไม่เกิน 15MB');
+            return;
+        }
+
+        try {
+            const effYearAD = (parseInt(effectiveYear) - 543).toString();
+            const res = await uploadFilePIR(uploadFile, newFileName, effYearAD, currentUser.employeeID || 'SYSTEM', token);
+            if (res?.success) {
+                notification.success({ message: 'สำเร็จ', description: 'อัปโหลดไฟล์เรียบร้อยแล้ว' });
+                setIsAddFileModal(false);
+                setNewFileName('');
+                setUploadFile(null);
+                handleFetchAll();
+            } else {
+                messageApi.error('อัปโหลดล้มเหลว');
+            }
+        } catch (error) {
+            messageApi.error('เกิดข้อผิดพลาดในการอัปโหลด');
+        }
+    };
+
+    const handleDeleteFile = async (id: number, filePath: string) => {
+        try {
+            const effYearAD = (parseInt(effectiveYear) - 543).toString();
+            await deleteFileAttach(id, filePath, effYearAD, token);
+            notification.success({ message: 'สำเร็จ', description: 'ลบไฟล์เรียบร้อยแล้ว' });
+            handleFetchAll();
+        } catch (error) {
+            messageApi.error('ลบไฟล์ล้มเหลว');
+        }
+    };
+
+    const handleSaveRemark = async () => {
+        if (!newRemark) return;
+        try {
+            const effYearAD = (parseInt(effectiveYear) - 543).toString();
+            const res = await addPIRRemarkAction(effYearAD, newRemark, currentUser.employeeID || 'SYSTEM', token);
+            if (res.success) {
+                notification.success({ message: 'สำเร็จ', description: 'บันทึก Remark เรียบร้อยแล้ว' });
+                setNewRemark('');
+                handleFetchAll();
+            }
+        } catch (error) {
+            messageApi.error('บันทึก Remark ล้มเหลว');
+        }
+    };
+
+    const handleDeleteRemark = async (id: number) => {
+        try {
+            const res = await deletePIRRemarkAction(id, currentUser.employeeID || 'SYSTEM', token);
+            if (res.success) {
+                notification.success({ message: 'สำเร็จ', description: 'ลบ Remark เรียบร้อยแล้ว' });
+                handleFetchAll();
+            }
+        } catch (error) {
+            messageApi.error('ลบ Remark ล้มเหลว');
+        }
+    };
+
+    const handleExport = async () => {
+        setExporting(true);
+        try {
+            const effYearAD = (parseInt(effectiveYear) - 543).toString();
+            const res = await exportExcel({ effectiveYear: effYearAD, orgUnitNo, employeeId: currentUser.employeeID }, token);
+            if (res?.success && res.data.length > 0) {
+                const workbook = new ExcelJS.Workbook();
+                const worksheet = workbook.addWorksheet('PIR Data');
+                
+                const columns = Object.keys(res.data[0]).map(key => ({ header: key, key: key, width: 20 }));
+                worksheet.columns = columns;
+                worksheet.addRows(res.data);
+
+                // Styling
+                worksheet.getRow(1).eachCell((cell) => {
+                    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+                });
+
+                const buffer = await workbook.xlsx.writeBuffer();
+                saveAs(new Blob([buffer]), `PIR_Export_${effectiveYear}.xlsx`);
+                notification.success({ message: 'สำเร็จ', description: 'Export ข้อมูลเรียบร้อยแล้ว' });
+            } else {
+                messageApi.info('ไม่พบข้อมูลสำหรับ Export');
+            }
+        } catch (error) {
+            messageApi.error('Export ล้มเหลว');
+        } finally {
+            setExporting(false);
+        }
+    };
+
+    const handleImport = async () => {
+        if (!selectedImportFile) return;
+        setImporting(true);
+        try {
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const buffer = event.target?.result as ArrayBuffer;
+                const workbook = new ExcelJS.Workbook();
+                await workbook.xlsx.load(buffer);
+                const worksheet = workbook.worksheets[0];
+                const rows: any[] = [];
+                let headers: string[] = [];
+
+                worksheet.eachRow((row, rowNum) => {
+                    const rowValues = row.values as any[];
+                    if (rowNum === 1) headers = rowValues;
+                    else {
+                        const rowData: any = {};
+                        headers.forEach((h, i) => { if (h) rowData[h.toString().toUpperCase()] = rowValues[i]; });
+                        rows.push(rowData);
+                    }
+                });
+
+                let count = 0;
+                for (const row of rows) {
+                    if (!row.EFFECTIVEYEAR || !row.YEAR || row.RATE === undefined) continue;
+                    let eff = parseInt(row.EFFECTIVEYEAR); if (eff > 2500) eff -= 543;
+                    let yr = parseInt(row.YEAR); if (yr > 2500) yr -= 543;
+                    
+                    await insertPIR({
+                        effectiveYear: eff.toString(),
+                        year: yr.toString(),
+                        rate: parseFloat(row.RATE),
+                        orgUnitNo: row.ORGUNITNO || '',
+                        createBy: currentUser.employeeID || 'SYSTEM',
+                        import: 1
+                    }, token);
+                    count++;
+                }
+
+                notification.success({ message: 'นำเข้ารายการสำเร็จ', description: `นำเข้าข้อมูลจำนวน ${count} รายการเรียบร้อยแล้ว` });
+                handleFetchAll();
+                setSelectedImportFile(null);
+                setImporting(false);
+            };
+            reader.readAsArrayBuffer(selectedImportFile);
+        } catch (error) {
+            messageApi.error('Import ล้มเหลว');
+            setImporting(false);
+        }
+    };
+
+    const handleDownloadTemplate = async () => {
+        try {
+            const blob = await downloadPIRTemplate(token);
+            if (blob) {
+                saveAs(blob, 'PIR_Template.xlsx');
+                notification.info({ message: 'ดาวน์โหลดสำเร็จ', description: 'กรุณากรอกข้อมูลตามรูปแบบใน Template' });
+            }
+        } catch (error) {
+            messageApi.error('ดาวน์โหลด Template ล้มเหลว');
+        }
+    };
+
+    // Columns
+    const rateColumns: ColumnsType<PIRType> = [
+        {
+            title: 'พุทธศักราช (BE)',
+            dataIndex: 'Year',
+            key: 'Year',
+            align: 'center',
+            width: 150,
+            render: (val) => {
+                const yrBE = val + 543;
+                const isFuture = yrBE > parseInt(effectiveYear);
+                const isCurrent = yrBE === parseInt(effectiveYear);
+                return (
+                    <span className={`font-bold ${isFuture ? 'text-purple-600' : isCurrent ? 'text-blue-600' : 'text-slate-600'}`}>
+                        {yrBE} {isCurrent && '(ปีที่เลือก)'}
+                    </span>
+                );
+            }
+        },
+        {
+            title: 'Productivity Improvement Rate (%)',
+            dataIndex: 'Rate',
+            key: 'Rate',
+            align: 'center',
+            render: (val) => <span className="font-bold text-slate-700">{val}%</span>
+        },
+        {
+            title: 'Action',
+            key: 'action',
+            align: 'center',
+            width: 100,
+            render: (_, record) => (
+                <Popconfirm title="ลบรายการนี้?" onConfirm={() => handleDeleteRate(record.ImproveRateID)} okText="ลบ" cancelText="ยกเลิก">
+                    <Button type="text" danger icon={<Trash2 size={18} />} />
+                </Popconfirm>
+            )
+        }
+    ];
+
+    const fileColumns: ColumnsType<FileType> = [
+        {
+            title: 'ชื่อไฟล์อ้างอิง',
+            dataIndex: 'FileName',
+            key: 'FileName'
+        },
+        {
+            title: 'เอกสาร (PDF)',
+            key: 'FileUpload',
+            align: 'center',
+            width: 150,
+            render: (_, record) => (
+                <Button 
+                    type="link" 
+                    icon={<FilePdfOutlined className="text-red-500 text-xl" />}
+                    onClick={() => window.open(`${process.env.NEXT_PUBLIC_API_URL}/api/pir/file/download/${parseInt(effectiveYear)-543}/${record.FileUpload}`, '_blank')}
+                >
+                    เปิดไฟล์
+                </Button>
+            )
+        },
+        {
+            title: 'Action',
+            key: 'action',
+            align: 'center',
+            width: 100,
+            render: (_, record) => (
+                <Popconfirm title="ลบไฟล์นี้?" onConfirm={() => handleDeleteFile(record.ImproveRateUploadID, record.FileUpload)} okText="ลบ" cancelText="ยกเลิก">
+                    <Button type="text" danger icon={<Trash2 size={18} />} />
+                </Popconfirm>
+            )
+        }
+    ];
+
+    const remarkColumns: ColumnsType<RemarkType> = [
+        {
+            title: 'หมายเหตุ / ข้อความ',
+            dataIndex: 'Remark',
+            key: 'Remark',
+            width: '60%'
+        },
+        {
+            title: 'ผู้บันทึก',
+            key: 'info',
+            render: (_, record) => (
+                <div className="flex flex-col gap-1 items-end">
+                    <Text strong className="text-slate-600">{record.EmpName || record.CreateBy}</Text>
+                    <Text type="secondary" className="text-[11px]">{record.CreateDateBD}</Text>
+                </div>
+            )
+        },
+        {
+            title: '',
+            key: 'action',
+            align: 'center',
+            width: 60,
+            render: (_, record) => (record.CreateBy === currentUser.employeeID) ? (
+                <Popconfirm title="ลบหมายเหตุนี้?" onConfirm={() => handleDeleteRemark(record.ImproveRateRemarkID)} okText="ลบ" cancelText="ยกเลิก">
+                    <Button type="text" danger icon={<Trash2 size={16} />} />
+                </Popconfirm>
+            ) : null
+        }
+    ];
+
+    const yearOptions = Array.from({ length: 12 }, (_, i) => {
+        const y = currentYearTH + 5 - i;
+        return { value: y.toString(), label: y.toString() };
+    });
+
+    return (
+        <div className="w-full bg-slate-50 min-h-screen p-6 pir-modern">
+            <div className="rounded-xl bg-linear-to-r from-blue-700 to-blue-500 p-4 shadow-md mb-6 text-white flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <FilePieChart className="text-2xl" />
+                    <h1 className="text-xl font-bold m-0 text-white">Productivity Improvement Rate Management</h1>
+                </div>
+            </div>
+
+            <Card className="mb-6 shadow-sm border-slate-200">
+                <div className="flex flex-wrap items-end gap-6">
+                    <div className="flex flex-col gap-1">
+                        <label className="text-slate-500 font-bold text-xs uppercase tracking-wider pl-1">ปีปัจจุบัน (Effective Year)</label>
+                        <Select
+                            value={effectiveYear}
+                            onChange={setEffectiveYear}
+                            options={yearOptions}
+                            size="large"
+                            className="w-[180px]"
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1 flex-1 min-w-[300px]">
+                        <label className="text-slate-500 font-bold text-xs uppercase tracking-wider pl-1">หน่วยงาน (Org Unit Filter)</label>
+                        <Select
+                            placeholder="ค้นหาหรือเลือกหน่วยงาน... (ทั้งหมด)"
+                            allowClear
+                            showSearch
+                            value={orgUnitNo}
+                            onChange={setOrgUnitNo}
+                            options={initialUnits}
+                            size="large"
+                            className="w-full"
+                        />
+                    </div>
+                    <Space size="middle">
+                        <Button type="primary" size="large" onClick={handleFetchAll} icon={<SearchOutlined />} className="bg-blue-600 h-10 px-8 rounded-lg font-bold shadow-md shadow-blue-100">เรียกดู</Button>
+                        <Button type="default" size="large" onClick={handleCopyData} icon={<Clipboard size={18} />} className="h-10 px-6 rounded-lg font-bold border-emerald-500 text-emerald-600 hover:text-emerald-700 transition-all flex items-center gap-2">สำเนาปีก่อน</Button>
+                    </Space>
+                </div>
+            </Card>
+
+            <Tabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                className="pir-tabs"
+                items={[
+                    {
+                        key: '1',
+                        label: <div className="flex items-center gap-2"><FilePieChart size={18} /> อัตราการเพิ่มผลผลิต</div>,
+                        children: (
+                            <div className="py-6 flex flex-col gap-4">
+                                <div className="flex justify-between items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
+                                    <div className="flex items-center gap-2 text-blue-700"><Info size={18} /> <span>จัดการข้อมูลอัตราการเพิ่มผลผลิตรายปี BE</span></div>
+                                    <Button type="primary" icon={<Plus size={18} />} onClick={() => setIsAddRateModal(true)} className="bg-blue-600 rounded-lg h-10 px-6 shadow-md shadow-blue-100 font-bold">เพิ่มรายการ</Button>
+                                </div>
+                                <Table 
+                                    columns={rateColumns} 
+                                    dataSource={rates} 
+                                    rowKey="ImproveRateID" 
+                                    loading={loadingRates} 
+                                    pagination={false}
+                                    className="modern-table"
+                                    bordered
+                                />
+                            </div>
+                        )
+                    },
+                    {
+                        key: '2',
+                        label: <div className="flex items-center gap-2"><FileText size={18} /> เอกสารแนบ</div>,
+                        children: (
+                            <div className="py-6 flex flex-col gap-4">
+                                <div className="flex justify-between items-start bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                    <div className="text-slate-500 text-xs flex flex-col gap-1 italic">
+                                        <div className="flex items-center gap-1 font-bold text-slate-700 not-italic uppercase mb-1"><Info size={14} /> ข้อกำหนดการแนบไฟล์</div>
+                                        <div>- ขนาดไฟล์รวมสูงสุดไม่เกิน 15MB</div>
+                                        <div>- รองรับเฉพาะไฟล์รูปแบบ PDF เท่านั้น</div>
+                                    </div>
+                                    <Button type="primary" icon={<Upload size={18} />} onClick={() => setIsAddFileModal(true)} className="bg-blue-600 rounded-lg h-10 px-6 font-bold">อัปโหลดเอกสาร</Button>
+                                </div>
+                                <Table 
+                                    columns={fileColumns} 
+                                    dataSource={files} 
+                                    rowKey="ImproveRateUploadID" 
+                                    loading={loadingFiles} 
+                                    pagination={false}
+                                    className="modern-table"
+                                    bordered
+                                />
+                            </div>
+                        )
+                    },
+                    {
+                        key: '3',
+                        label: <div className="flex items-center gap-2"><MessageSquare size={18} /> หมายเหตุ</div>,
+                        children: (
+                            <div className="py-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                <Card className="shadow-sm border-slate-200 bg-slate-50/50" title="เพิ่มการบันทึกหมายเหตุ">
+                                    <Input.TextArea
+                                        rows={8}
+                                        placeholder="ระบุข้อความหมายเหตุที่ต้องการบันทึก..."
+                                        maxLength={300}
+                                        value={newRemark}
+                                        onChange={(e) => setNewRemark(e.target.value)}
+                                        className="rounded-lg mb-4"
+                                    />
+                                    <div className="flex justify-between items-center">
+                                        <Text type="secondary" className="text-[12px]">คงเหลือ {300 - newRemark.length} อักขระ</Text>
+                                        <Button 
+                                            type="primary" 
+                                            icon={<Plus size={18} />} 
+                                            onClick={handleSaveRemark}
+                                            disabled={!newRemark}
+                                            className="bg-emerald-600 h-11 px-10 rounded-lg font-bold shadow-md shadow-emerald-50 text-white border-none transition-all hover:scale-105"
+                                        >
+                                            บันทึกข้อมูล
+                                        </Button>
+                                    </div>
+                                </Card>
+                                <Table 
+                                    columns={remarkColumns} 
+                                    dataSource={remarkList} 
+                                    rowKey="ImproveRateRemarkID" 
+                                    loading={loadingRemarks} 
+                                    pagination={{ pageSize: 5 }}
+                                    className="modern-table"
+                                    showHeader={false}
+                                />
+                            </div>
+                        )
+                    },
+                    {
+                        key: '4',
+                        label: <div className="flex items-center gap-2"><FileSpreadsheet size={18} /> นำเข้า / ส่งออก</div>,
+                        children: (
+                            <div className="py-12 flex flex-col items-center justify-center bg-white border border-dashed border-slate-300 rounded-2xl min-h-[400px]">
+                                <div className="bg-blue-50 p-4 rounded-full mb-6 text-blue-600"><FileSpreadsheet size={48} /></div>
+                                <Title level={3} className="mb-2">Excel Data Interchange</Title>
+                                <Text type="secondary" className="mb-10 text-center max-w-md">จัดการข้อมูล PIR ปริมาณมากผ่านระบบ Excel ไฟล์สำหรับการนำเข้าและส่งออกข้อมูลอย่างรวดเร็ว</Text>
+                                
+                                <div className="flex flex-wrap gap-4 justify-center items-center">
+                                    <Button type="primary" onClick={handleExport} loading={exporting} size="large" icon={<Download size={20} />} className="bg-blue-600 h-14 px-10 rounded-2xl font-bold flex items-center gap-3 shadow-lg shadow-blue-100">EXPORT DATA</Button>
+                                    <Button type="default" onClick={handleDownloadTemplate} size="large" icon={<Download size={20} />} className="h-14 px-8 rounded-2xl font-bold border-slate-200">DOWNLOAD TEMPLATE</Button>
+                                </div>
+
+                                <div className="mt-12 w-full max-w-sm p-6 bg-slate-50 border border-slate-200 rounded-2xl">
+                                    <div className="flex items-center gap-2 text-slate-700 font-bold mb-4 uppercase text-xs tracking-widest"><Upload size={16} /> อัปโหลดไฟล์เพื่อนำเข้า</div>
+                                    <input 
+                                        type="file" 
+                                        accept=".xlsx" 
+                                        className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+                                        onChange={(e) => setSelectedImportFile(e.target.files?.[0] || null)}
+                                    />
+                                    {selectedImportFile && (
+                                        <Button 
+                                            type="primary" 
+                                            block
+                                            className="mt-6 bg-emerald-600 h-12 rounded-xl font-bold text-white border-none shadow-md shadow-emerald-50"
+                                            onClick={handleImport}
+                                            loading={importing}
+                                        >
+                                            CONFIRM UPLOAD & IMPORT
+                                        </Button>
+                                    )}
+                                </div>
+                                {importing && <Progress percent={100} status="active" strokeColor="#10b981" className="max-w-sm mt-4 px-6" />}
+                            </div>
+                        )
+                    }
+                ]}
+            />
+
+            {/* Modals */}
+            <Modal
+                title={<div className="flex items-center gap-2 border-b pb-3 mb-4"><Plus className="text-blue-600" /> <span className="font-bold">Add Productivity Rate</span></div>}
+                open={isAddRateModal}
+                onOk={handleAddRate}
+                onCancel={() => setIsAddRateModal(false)}
+                okText="บันทึกรายการ"
+                cancelText="ยกเลิก"
+                okButtonProps={{ className: 'bg-blue-600 rounded-lg px-8' }}
+            >
+                <div className="flex flex-col gap-6 py-4">
+                    <div className="flex flex-col gap-1">
+                        <label className="text-slate-500 text-xs font-bold uppercase">ปีพุทธศักราช (Year BE)</label>
+                        <Select
+                            value={addRateForm.year.toString()}
+                            onChange={(v) => setAddRateForm({ ...addRateForm, year: parseInt(v) })}
+                            options={yearOptions}
+                            size="large"
+                            className="w-full"
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <label className="text-slate-500 text-xs font-bold uppercase">อัตราการเพิ่มผลผลิต (%)</label>
+                        <InputNumber
+                            min={0}
+                            style={{ width: '100%' }}
+                            size="large"
+                            value={addRateForm.rate}
+                            onChange={(val) => setAddRateForm({ ...addRateForm, rate: val || 0 })}
+                            className="rounded-lg"
+                        />
+                    </div>
+                </div>
+            </Modal>
+
+            <Modal
+                title={<div className="flex items-center gap-2 border-b pb-3 mb-4"><Upload className="text-blue-600" /> <span className="font-bold">อัปโหลดไฟล์อ้างอิง PIR</span></div>}
+                open={isAddFileModal}
+                onOk={handleUpload}
+                onCancel={() => setIsAddFileModal(false)}
+                okText="อัปโหลดไฟล์"
+                cancelText="ย้อนกลับ"
+                okButtonProps={{ className: 'bg-blue-600 rounded-lg px-8' }}
+            >
+                <div className="flex flex-col gap-6 py-4">
+                    <div className="flex flex-col gap-1">
+                        <label className="text-slate-500 text-xs font-bold uppercase">ชื่อเรียกไฟล์ / คำอธิบาย</label>
+                        <Input 
+                            size="large"
+                            placeholder="เช่น แผนงานการเพิ่มผลผลิต ประจำปี..."
+                            value={newFileName}
+                            onChange={(e) => setNewFileName(e.target.value)}
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <label className="text-slate-500 text-xs font-bold uppercase">เลือกไฟล์ PDF</label>
+                        <div className="p-8 border-2 border-dashed border-blue-100 rounded-xl bg-blue-50/30 flex flex-col items-center justify-center gap-4">
+                            <Upload className="text-blue-400" size={32} />
+                            <input 
+                                type="file" 
+                                accept=".pdf" 
+                                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                                className="text-sm text-slate-500 file:bg-white file:border file:border-slate-300 file:rounded-md file:px-4 file:py-1"
+                            />
+                            {uploadFile && <Tag color="blue" icon={<FileText size={12} className="inline mr-1 mb-0.5" />}>{uploadFile.name}</Tag>}
+                        </div>
+                    </div>
+                </div>
+            </Modal>
+
+            <style jsx global>{`
+                .pir-tabs .ant-tabs-nav {
+                    border-bottom: 2px solid #f1f5f9 !important;
+                    margin-bottom: 0 !important;
+                }
+                .pir-tabs .ant-tabs-tab {
+                    padding: 16px 8px !important;
+                    font-weight: 700 !important;
+                    text-transform: uppercase !important;
+                    letter-spacing: 0.05em !important;
+                    font-size: 13px !important;
+                }
+                .pir-tabs .ant-tabs-ink-bar {
+                    height: 3px !important;
+                    background: #2563eb !important;
+                }
+                .modern-table .ant-table-thead > tr > th {
+                    background: #f8fafc !important;
+                    font-weight: 800 !important;
+                    font-size: 11px !important;
+                    text-transform: uppercase !important;
+                    color: #64748b !important;
+                    letter-spacing: 0.05em !important;
+                    padding: 16px !important;
+                }
+            `}</style>
+        </div>
+    );
+}

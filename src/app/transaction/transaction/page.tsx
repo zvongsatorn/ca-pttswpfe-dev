@@ -1,0 +1,1965 @@
+'use client';
+
+import Main from '@/components/layout/main';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { CheckCircle, Trash2, X, Save, Menu, LogOut, ChevronDown, ChevronUp, Check, ChevronsUpDown, AlertCircle, ArrowRight, UserCircle, FileText, User, ShieldCheck, Users, LucideIcon, Info
+} from 'lucide-react';
+import { useState, useEffect, useSyncExternalStore } from 'react'; // Added useSyncExternalStore
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
+import dayjs from 'dayjs';
+import 'dayjs/locale/th';
+import buddhistEra from 'dayjs/plugin/buddhistEra';
+import TH_Locale from 'antd/es/date-picker/locale/th_TH';
+import { UserSwitchOutlined } from '@ant-design/icons';
+
+dayjs.extend(buddhistEra);
+dayjs.locale('th');
+
+// Override the date picker locale to support Buddhist Era year
+const customLocale = {
+  ...TH_Locale,
+  lang: {
+    ...TH_Locale.lang,
+    yearFormat: 'BBBB',
+  },
+};
+
+// Create a custom Thai DatePicker using Antd's DatePicker
+import generatePicker from 'antd/es/date-picker/generatePicker';
+import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs';
+
+// Extend dayjs config to use BBBB for year rendering
+const customGenerateConfig = {
+  ...dayjsGenerateConfig,
+  getYear: (date: dayjs.Dayjs) => date.year(),
+  format: (locale: string, date: dayjs.Dayjs, format: string) => {
+    if (format === 'YYYY') return date.format('BBBB');
+    if (format === 'YYYY-MM') return date.format('BBBB-MM');
+    // Ensure all internal formats are processed normally
+    return date.format(format);
+  }
+};
+
+const BDatePicker = generatePicker<dayjs.Dayjs>(customGenerateConfig);
+
+
+// --- TYPE DEFINITIONS ---
+type TransactionTypeEnum = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+interface FilteredFile {
+  id: string;
+  name: string;
+  fileObj: File | null;
+}
+
+
+interface TransactionFormData {
+  transactionType: TransactionTypeEnum | null;
+  effectiveMonth: string;
+  effectiveYear: string;
+  poolRsFlag: number;
+  strgFlag: number;
+  bsType: number;
+  specFlag: number;
+  unitReceive: string;
+  remark: string;
+  lineStaffFlag: number;
+  policyFlag: number;
+  pastFlag: number;
+}
+
+export interface DetailFormData {
+  levelGroupTo: string;
+  levelGroupFrom: string;
+  levelGroupToName?: string;
+  levelGroupFromName?: string;
+  unitTransferName?: string;
+  unitReceiveName?: string;
+  amount: number;
+  conclusionNo: string;
+  conclusionDate: string | null;
+  unitTransfer: string;
+  transferInd: number; // 0 = default, 1 = เพิ่ม, 2 = ลด (Used for activeTab === 4)
+  file: File | null;
+  fileOption: 'new' | 'existing';
+  selectedFileId: string;
+  fileUrl?: string; // Add fileUrl to interface
+}
+
+export interface ApproverUser {
+  UserGroupNo: string;
+  UserGroupName?: string;
+  EmployeeID: string;
+  OrgUnitNo: string;
+  FullName: string;
+  LevelGroupNo: string;
+  Email: string;
+  PermissionOrder: number;
+  UnitSide: string;
+  UserGroupRole?: string; // from backend mp_CheckFlow
+}
+
+interface SavedTransaction {
+  id: string;
+  transactionData: TransactionFormData;
+  detailData: DetailFormData;
+  createdAt: Date;
+}
+
+
+
+const months = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+
+// Helper to generate years
+const getYears = () => {
+  if (typeof window === 'undefined') return ['2568', '2569'];
+  const startYearStr = localStorage.getItem('StartYear') || '2568';
+  const startYear = parseInt(startYearStr, 10);
+  const currentYear = new Date().getFullYear() + 543;
+  const endYear = currentYear + 1;
+  const years = [];
+  for (let i = endYear; i >= startYear; i--) {
+    years.push(i.toString());
+  }
+  return years;
+};
+
+const emptySubscribe = () => () => {};
+let cachedClientYears: string[] | null = null;
+const getClientYearsSnapshot = () => {
+  if (!cachedClientYears) {
+    cachedClientYears = getYears();
+  }
+  return cachedClientYears;
+};
+const serverYears = ['2568', '2569'];
+const getServerYearsSnapshot = () => serverYears;
+
+const currentDate = new Date();
+const currentMonth = months[currentDate.getMonth()];
+const currentYear = (currentDate.getFullYear() + 543).toString();
+
+export default function TransactionPage() {
+  // --- STATE ---
+  const years = useSyncExternalStore(emptySubscribe, getClientYearsSnapshot, getServerYearsSnapshot);
+
+  const [activeTab, setActiveTab] = useState<TransactionTypeEnum | null>(null);
+  const [savedTransactions, setSavedTransactions] = useState<SavedTransaction[]>([]);
+  const [existingFiles, setExistingFiles] = useState<{id: string, name: string, conclusionNo: string, fileUrl: string}[]>([]);
+
+  // State for Request Modal
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  // Store selected approver IDs per request group (Main Department)
+  const [selectedApprovers, setSelectedApprovers] = useState<Record<string, string[]>>({});
+  // Dynamic approvers from CheckFlow API (Record keyed by deptId)
+  const [dynamicApprovers, setDynamicApprovers] = useState<Record<string, ApproverUser[]>>({});
+  // Track collapsed state for department cards
+  const [collapsedDepts, setCollapsedDepts] = useState<Record<string, boolean>>({});
+
+  const toggleDeptCollapse = (deptId: string) => {
+    setCollapsedDepts(prev => ({ ...prev, [deptId]: !prev[deptId] }));
+  };
+
+  // Auto-collapse when all groups are selected for a department
+  useEffect(() => {
+    if (!isRequestModalOpen) return;
+
+    setCollapsedDepts(prevCollapsed => {
+      const newCollapsedDepts = { ...prevCollapsed };
+      let hasChanges = false;
+
+      Object.entries(dynamicApprovers).forEach(([deptId, dynamicList]) => {
+        const groups = Array.from(new Set(dynamicList.map(u => `${u.UnitSide}-${u.PermissionOrder}`)));
+        const isComplete = groups.length > 0 && groups.every(groupKey => {
+          const groupUsers = dynamicList.filter(u => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
+          return groupUsers.some(u => selectedApprovers[deptId]?.includes(u.EmployeeID));
+        });
+
+        // If it's freshly completed and not already collapsed, collapse it
+        if (isComplete && prevCollapsed[deptId] !== true) {
+          newCollapsedDepts[deptId] = true;
+          hasChanges = true;
+        }
+      });
+
+      return hasChanges ? newCollapsedDepts : prevCollapsed;
+    });
+  }, [selectedApprovers, dynamicApprovers, isRequestModalOpen]);
+
+  // Alert Modal State
+  const [alertInfo, setAlertInfo] = useState<{ show: boolean, title: string, message: string, type: 'success' | 'error' | 'warning' | 'info' }>({ show: false, title: '', message: '', type: 'info' });
+  const closeAlert = () => setAlertInfo({ ...alertInfo, show: false });
+
+  // State for Delete Modal
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [transactionToDelete, setTransactionToDelete] = useState<string | null>(null);
+
+  // State for Submit Confirm Modal
+  const [isSubmitConfirmModalOpen, setIsSubmitConfirmModalOpen] = useState(false);
+
+  // Popover open/close state for each unit selector
+  const [openUnitReceive, setOpenUnitReceive] = useState(false);
+  const [openUnitTransfer, setOpenUnitTransfer] = useState(false);
+
+
+  const [formData, setFormData] = useState<TransactionFormData>(() => {
+    // Check if user is HRPolicy
+    let isPolicy = 0;
+    if (typeof window !== 'undefined') {
+      const selectedGroup = localStorage.getItem('selected_usergroup');
+      if (selectedGroup === '04') { // 04 is HRPolicy
+        isPolicy = 1;
+      }
+    }
+
+    return {
+      transactionType: 1,
+      effectiveMonth: currentMonth,
+      effectiveYear: currentYear,
+      poolRsFlag: 0,
+      strgFlag: 0,
+      bsType: 0,
+      specFlag: 0,
+      unitReceive: '',
+      remark: '',
+      lineStaffFlag: 0,
+      policyFlag: isPolicy,
+      pastFlag: 0,
+    };
+  });
+
+  const [detailFormData, setDetailFormData] = useState<DetailFormData>({
+    levelGroupTo: '',
+    levelGroupFrom: '',
+    amount: 1,
+    conclusionNo: '',
+    conclusionDate: '',
+    unitTransfer: '',
+    transferInd: 0,
+    fileOption: 'new',
+    selectedFileId: '',
+    file: null,
+  });
+  const [uploadedFiles, setUploadedFiles] = useState<FilteredFile[]>([]);
+
+  const transactionTypes = [
+    { id: 1 as TransactionTypeEnum, label: 'โอนกรอบอัตรากำลังภายใต้สายผู้ช่วย', color: 'purple' },
+    { id: 2 as TransactionTypeEnum, label: 'โอนกรอบอัตรากำลังอื่นๆ', color: 'indigo' },
+    { id: 3 as TransactionTypeEnum, label: 'ปรับสัดส่วนกรอบอัตรากำลังภายในหน่วยงาน', color: 'pink' },
+    { id: 4 as TransactionTypeEnum, label: 'เพิ่มลดกรอบอัตรากำลังในหน่วยงาน', color: 'cyan' },
+    { id: 6 as TransactionTypeEnum, label: 'ยืมกรอบอัตรากำลัง', color: 'orange' },
+    { id: 5 as TransactionTypeEnum, label: 'บันทึก Remark หน่วยงาน', color: 'gray' },
+  ];
+
+  const [units, setUnits] = useState<{ id: string; name: string; unitText?: string; IsAssistant?: number; IsUnder?: number; IsSecondment?: number }[]>(() => {
+    if (typeof window === 'undefined') {
+      return [];
+    }
+    const cachedUnits = sessionStorage.getItem('user_units_cache');
+    if (cachedUnits && cachedUnits !== 'undefined' && cachedUnits.trim() !== '') {
+      try {
+        return JSON.parse(cachedUnits);
+      } catch (err) {
+        console.error("Failed to parse cached units:", err);
+      }
+    }
+    return [];
+  });
+
+  // We are keeping `departments` as a static array for `unitReceive` until we know if it also needs backend fetching.
+  // The user specifically asked for "หน่วยงานที่รับโอน" -> "หน่วยงาน/ฝ่าย"
+  const departments = [
+    { id: 'dep1', name: 'ฝ่ายทรัพยากรบุคคล (Dep 1)' },
+    { id: 'dep2', name: 'ฝ่ายบัญชี (Dep 2)' },
+    { id: 'dep3', name: 'ฝ่ายไอที (Dep 3)' },
+  ];
+
+  const [levels, setLevels] = useState<{ id: string; name: string }[]>([]);
+  const [allUnits, setAllUnits] = useState<{ id: string; name: string; unitText?: string }[]>([]);
+
+
+  useEffect(() => {
+    // Listen for custom event from Header when user switches group
+    const handleUnitsChanged = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      if (customEvent.detail) {
+        setUnits(customEvent.detail);
+        // Clear active selection if the previous selection is no longer valid
+        setDetailFormData(prev => ({
+          ...prev,
+          unitTransfer: '' // reset transferred unit selection
+        }));
+      }
+    };
+
+    window.addEventListener('user-units-changed', handleUnitsChanged);
+    
+    // Always fetch fresh units on mount to ensure IsAssistant/IsUnder fields are present
+    const userDataStr = localStorage.getItem('user_data');
+    if (userDataStr) {
+      try {
+        const userData = JSON.parse(userDataStr);
+        const defaultGroup = localStorage.getItem('selected_usergroup') || '02';
+        const employeeId = userData.employeeID || '00000000';
+        const token = localStorage.getItem('auth_token');
+        
+        fetch(`/api/units/by-role?roleId=${defaultGroup}&empId=${employeeId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+          .then(res => res.json())
+          .then(data => {
+            if ((data.status === 200 || data.success) && data.data) {
+              const fetchedUnits = data.data.map((u: { id?: string; OrgUnitNo?: string; unitText?: string; name?: string; UnitText?: string; UnitName?: string; IsAssistant?: number; IsUnder?: number; IsSecondment?: number }) => ({
+                  id: u.id || u.OrgUnitNo,
+                  name: u.unitText || u.name || u.UnitText || u.UnitName,
+                  unitText: u.unitText || u.UnitText,
+                  IsAssistant: u.IsAssistant ?? 0,
+                  IsUnder: u.IsUnder ?? 0,
+                  IsSecondment: u.IsSecondment ?? 0
+              }));
+              setUnits(fetchedUnits);
+              sessionStorage.setItem('user_units_cache', JSON.stringify(fetchedUnits));
+            }
+          })
+          .catch(err => console.error("Error fetching initial units:", err));
+      } catch (e) {
+           console.error("Failed to parse user_data for initial unit fetch", e);
+      }
+    }
+
+    return () => {
+      window.removeEventListener('user-units-changed', handleUnitsChanged);
+    };
+  }, [units.length]);
+
+  // Fetch Draft Transactions when effective month/year changes
+  useEffect(() => {
+    const fetchDrafts = async () => {
+      try {
+        let employeeId = 'SYSTEM';
+        const userDataStr = localStorage.getItem('user_data');
+        if (userDataStr) {
+          try {
+            const userData = JSON.parse(userDataStr);
+            employeeId = userData.employeeID || 'SYSTEM';
+          } catch (e) {
+            console.error("Failed to parse user_data", e);
+          }
+        }
+
+        if (employeeId === 'SYSTEM') return; // Don't fetch if not logged in properly
+
+        const url = `/api/transactions/drafts?employeeId=${employeeId}&effectiveMonth=${encodeURIComponent(formData.effectiveMonth)}&effectiveYear=${formData.effectiveYear}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 200 && data.data && data.data.length > 0) {
+            // Map the backend records to the frontend state shape
+            const loadedDrafts: SavedTransaction[] = data.data.map((item: {
+              TransactionNo: string;
+              TransactionType: number;
+              EffectiveDate?: string | null;
+              PoolRsFlag: number;
+              StrgFlag: number;
+              BSType: number;
+              SpecFlag: number;
+              UnitReceive: string;
+              Remark: string;
+              LineStaffFlag: number;
+              Policyflag: number;
+              PastFlag: number;
+              LevelGroupTo: string;
+              LevelGroupFrom: string;
+              LevelGroupToName?: string;
+              LevelGroupFromName?: string;
+              UnitTransferName?: string;
+              UnitReceiveName?: string;
+              Amount: number;
+              ConclusionNo: string;
+              ConclusionDate: string | null;
+              UnitTransfer: string;
+              TransferInd: number;
+              CreateDate: string | null;
+            }) => ({
+              id: item.TransactionNo,
+              transactionData: {
+                transactionType: item.TransactionType,
+                effectiveMonth: item.EffectiveDate ? months[new Date(item.EffectiveDate).getMonth()] : currentMonth,
+                effectiveYear: item.EffectiveDate ? (new Date(item.EffectiveDate).getFullYear() + 543).toString() : currentYear,
+                poolRsFlag: item.PoolRsFlag || 0,
+                strgFlag: item.StrgFlag || 0,
+                bsType: item.BSType || 0,
+                specFlag: item.SpecFlag || 0,
+                unitReceive: item.UnitReceive || '',
+                remark: item.Remark || '',
+                lineStaffFlag: item.LineStaffFlag || 0,
+                policyFlag: item.Policyflag || 0,
+                pastFlag: item.PastFlag || 0,
+              },
+              detailData: {
+                levelGroupTo: item.LevelGroupTo || '',
+                levelGroupFrom: item.LevelGroupFrom || '',
+                levelGroupToName: item.LevelGroupToName || '',
+                levelGroupFromName: item.LevelGroupFromName || '',
+                unitTransferName: item.UnitTransferName || '',
+                unitReceiveName: item.UnitReceiveName || '',
+                amount: item.Amount || 1,
+                conclusionNo: item.ConclusionNo || '',
+                conclusionDate: item.ConclusionDate ? dayjs(item.ConclusionDate).format('YYYY-MM-DD') : '',
+                unitTransfer: item.UnitTransfer || '',
+                transferInd: item.TransferInd || 0,
+                fileOption: 'new',
+                selectedFileId: '',
+                file: null,
+              },
+              createdAt: new Date(item.CreateDate || Date.now()),
+            }));
+            
+            setSavedTransactions(loadedDrafts);
+          } else {
+            // No drafts for this month, clear list
+            setSavedTransactions([]);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching draft transactions:', err);
+      }
+    };
+
+    fetchDrafts();
+  }, [formData.effectiveMonth, formData.effectiveYear]);
+
+  // Fetch all units by effective date for 'หน่วยงานที่โอน' dropdowns
+  useEffect(() => {
+    if (formData.effectiveMonth && formData.effectiveYear) {
+      const yearNum = parseInt(formData.effectiveYear) - 543;
+      const monthIndex = months.indexOf(formData.effectiveMonth) + 1;
+      const monthStr = monthIndex.toString().padStart(2, '0');
+      const effectiveDate = `${yearNum}-${monthStr}-01`;
+
+      fetch(`/api/units/all?effectiveDate=${effectiveDate}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.data) {
+            setAllUnits(data.data);
+          }
+        })
+        .catch(err => console.error('Error fetching all units:', err));
+    }
+  }, [formData.effectiveMonth, formData.effectiveYear]);
+
+
+  useEffect(() => {
+    if (detailFormData.fileOption === 'existing' && formData.effectiveMonth && formData.effectiveYear) {
+      const fetchFiles = async () => {
+        try {
+          let empId = 'SYSTEM';
+          const userDataStr = localStorage.getItem('user_data');
+          if (userDataStr) {
+            try {
+              const userData = JSON.parse(userDataStr);
+              empId = userData.employeeID || 'SYSTEM';
+            } catch (e) {
+              console.error("Failed to parse user_data", e);
+            }
+          }
+
+          if (empId === 'SYSTEM') return; // Don't fetch if not logged in properly
+
+          const url = `/api/transactions/files?effectiveMonth=${encodeURIComponent(formData.effectiveMonth)}&effectiveYear=${formData.effectiveYear}&employeeId=${empId}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 200) {
+              setExistingFiles(data.data || []);
+            }
+          }
+        } catch (err) {
+          console.error('Error fetching existing files:', err);
+        }
+      };
+      fetchFiles();
+    }
+  }, [detailFormData.fileOption, formData.effectiveMonth, formData.effectiveYear]);
+
+  // Fetch Level Groups when unitTransfer changes
+  useEffect(() => {
+    if (detailFormData.unitTransfer) {
+      const fetchLevels = async () => {
+        try {
+          // Construct check date (e.g. format YYYYMMDD)
+          const yearNum = parseInt(formData.effectiveYear) - 543;
+          const monthIndex = months.indexOf(formData.effectiveMonth) + 1;
+          const monthStr = monthIndex.toString().padStart(2, '0');
+          const checkDate = `${yearNum}${monthStr}01`; 
+          
+          const unit = detailFormData.unitTransfer;
+          // Get the selected user group from localStorage
+          const userGroupNo = localStorage.getItem('selected_usergroup') || '04';
+
+          const url = `/api/units/levels?checkDate=${checkDate}&unit=${unit}&userGroupNo=${userGroupNo}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+              setLevels(data.data.map((l: { id: string; name: string; nameEN: string; order: number; top: number }) => ({
+                id: l.id,
+                name: l.name
+              })));
+            }
+          }
+        } catch (err) {
+          console.error('Error fetching levels:', err);
+        }
+      };
+      fetchLevels();
+    } else {
+      setLevels([]);
+    }
+  }, [detailFormData.unitTransfer, formData.effectiveMonth, formData.effectiveYear]);
+
+
+  const getDepartmentName = (id: string, resolvedName?: string) =>
+    resolvedName ||
+    units.find((u) => u.id === id)?.unitText ||
+    units.find((u) => u.id === id)?.name ||
+    allUnits.find((u) => u.id === id)?.unitText ||
+    allUnits.find((u) => u.id === id)?.name ||
+    departments.find((d) => d.id === id)?.name ||
+    id;
+  const getLevelName = (id: string, resolvedName?: string) => resolvedName || levels.find((l) => l.id === id)?.name || id;
+  const getUnitName = (id: string, resolvedName?: string) =>
+    resolvedName ||
+    units.find((l) => l.id === id)?.unitText ||
+    units.find((l) => l.id === id)?.name ||
+    allUnits.find((u) => u.id === id)?.unitText ||
+    allUnits.find((u) => u.id === id)?.name ||
+    id;
+  const getTransactionTypeName = (type: TransactionTypeEnum) => transactionTypes.find((t) => t.id === type)?.label || '';
+
+  const getTitleColorClass = (type: TransactionTypeEnum) => {
+    const item = transactionTypes.find((t) => t.id === type);
+    switch (item?.color) {
+      case 'pink': return 'bg-pink-100 text-pink-700 border-pink-300';
+      case 'indigo': return 'bg-indigo-100 text-indigo-700 border-indigo-300';
+      case 'cyan': return 'bg-cyan-100 text-cyan-700 border-cyan-300';
+      case 'blue': return 'bg-blue-100 text-blue-700 border-blue-300';
+      case 'purple': return 'bg-purple-100 text-purple-700 border-purple-300';
+      case 'gray': return 'bg-gray-100 text-gray-700 border-gray-300';
+      case 'orange': return 'bg-orange-100 text-orange-700 border-orange-300';
+      default: return 'bg-blue-100 text-blue-700 border-blue-300';
+    }
+  };
+  const generateTransactionDesc = (tx: TransactionFormData, dt: DetailFormData) => {
+    let desc = '';
+    const type = tx.transactionType;
+    const unitTrans = getUnitName(dt.unitTransfer, dt.unitTransferName);
+    const unitRecv = getDepartmentName(tx.unitReceive, dt.unitReceiveName);
+    const levelTo = getLevelName(dt.levelGroupTo, dt.levelGroupToName);
+    const levelFrom = getLevelName(dt.levelGroupFrom, dt.levelGroupFromName);
+
+    if (type === 1 || type === 2) {
+      desc = `${dt.conclusionNo} : หน่วยงาน${unitTrans}โอนย้ายอัตรากำลังให้หน่วยงาน ${unitRecv} ที่${levelTo} จำนวน ${dt.amount} อัตรา`;
+    } else if (type === 3) {
+      desc = `${dt.conclusionNo} : ปรับเปลี่ยนอัตรากำลัง จำนวน ${dt.amount} อัตรา จาก ${levelFrom} ไปที่ ${levelTo} ของหน่วยงาน ${unitTrans}`;
+    } else if (type === 4) {
+      if (dt.transferInd > 0) {
+        desc = `${dt.conclusionNo} : เพิ่มกรอบอัตรากำลัง จำนวน ${dt.amount} อัตรา ${levelTo} ของหน่วยงาน ${unitTrans}`;
+      } else if (dt.transferInd < 0) {
+        desc = `${dt.conclusionNo} : ลดกรอบอัตรากำลัง จำนวน ${dt.amount} อัตรา ${levelTo} ของหน่วยงาน ${unitTrans}`;
+      }
+    } else if (type === 5) {
+      desc = `Remark ของหน่วยงาน ${unitRecv}`;
+    } else if (type === 6) {
+      desc = `${dt.conclusionNo} : หน่วยงาน${unitTrans} ให้หน่วยงาน ${unitRecv} ยืมอัตรากำลังที่${levelTo} จำนวน ${dt.amount} อัตรา`;
+    }
+
+    if (tx.poolRsFlag === 1) desc += ' (Pool Resources)';
+    else if (tx.poolRsFlag === 2) desc += ' (Secondment Pool)';
+
+    return desc;
+  };
+
+  // --- HANDLERS ---
+  const handleTabChange = (type: TransactionTypeEnum | null) => {
+    setActiveTab(type);
+    if (type) {
+      setFormData({
+        transactionType: type,
+        effectiveMonth: formData.effectiveMonth,
+        effectiveYear: formData.effectiveYear,
+        poolRsFlag: 0,
+        strgFlag: 0,
+        bsType: 0,
+        specFlag: 0,
+        unitReceive: '',
+        remark: '',
+        lineStaffFlag: 0,
+        policyFlag: (typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04') ? 1 : 0,
+        pastFlag: 0,
+      });
+    } else {
+      setFormData({
+        transactionType: null,
+        effectiveMonth: formData.effectiveMonth,
+        effectiveYear: formData.effectiveYear,
+        poolRsFlag: 0,
+        strgFlag: 0,
+        bsType: 0,
+        specFlag: 0,
+        unitReceive: '',
+        remark: '',
+        lineStaffFlag: 0,
+        policyFlag: (typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04') ? 1 : 0,
+        pastFlag: 0,
+      });
+    }
+    resetDetailForm();
+  };
+
+  const handleFileUploadChange = (file: File | null) => {
+    if (file) {
+      const fileId = Date.now().toString() + '_' + file.name;
+      setUploadedFiles([...uploadedFiles, { id: fileId, name: file.name, fileObj: file }]);
+      setDetailFormData({ ...detailFormData, file: file, selectedFileId: fileId, fileOption: 'new' });
+    } else {
+      setDetailFormData({ ...detailFormData, file: null, selectedFileId: ''});
+    }
+  };
+
+  const resetDetailForm = () => {
+    setDetailFormData({
+      levelGroupTo: '',
+      levelGroupFrom: '',
+      amount: 1,
+      conclusionNo: '',
+      conclusionDate: '',
+      unitTransfer: '',
+      transferInd: 1,
+      fileOption: 'new',
+      selectedFileId: '',
+      file: null,
+    });
+  };
+
+  const shouldShowExtraFields = () => formData.poolRsFlag === 2;
+
+  const isFormValid = () => {
+    if (!activeTab) return false;
+    if (!formData.effectiveMonth || !formData.effectiveYear) return false;
+
+    if (activeTab !== 5) {
+      if (!formData.unitReceive) return false;
+      if (!detailFormData.amount || detailFormData.amount <= 0) return false;
+      if (!detailFormData.conclusionNo || !detailFormData.conclusionDate) return false;
+      if (formData.lineStaffFlag === 0) return false;
+      if (formData.poolRsFlag === 2 && (formData.strgFlag == null || formData.bsType == null || formData.bsType === 0)) return false;
+
+      if (activeTab === 1 || activeTab === 2 || activeTab === 6) {
+        if (!detailFormData.unitTransfer || !detailFormData.levelGroupTo) return false;
+      }
+      if (activeTab === 3) {
+        if (!detailFormData.unitTransfer || !detailFormData.levelGroupFrom || !detailFormData.levelGroupTo) return false;
+      }
+      if (activeTab === 4) {
+        if (!detailFormData.unitTransfer || !detailFormData.levelGroupTo) return false;
+      }
+      if (detailFormData.fileOption === 'new' && !detailFormData.file) return false;
+      if (detailFormData.fileOption === 'existing' && !detailFormData.selectedFileId) return false;
+    } else {
+      if (!formData.unitReceive) return false;
+      if (!formData.remark.trim()) return false;
+    }
+
+    return true;
+  };
+
+  const handleSave = async () => {
+    try {
+      // Get employeeId (username) from localStorage user_data
+      let employeeId = 'SYSTEM';
+      const userDataStr = localStorage.getItem('user_data');
+      if (userDataStr) {
+        try {
+          const userData = JSON.parse(userDataStr);
+          employeeId = userData.employeeID || 'SYSTEM';
+        } catch (e) {
+          console.error("Failed to parse user_data", e);
+        }
+      }
+
+      // Find names for payload — unitTransfer comes from allUnits, so search both
+      const unitReceiveName =
+        units.find(u => u.id === formData.unitReceive)?.unitText ||
+        units.find(u => u.id === formData.unitReceive)?.name ||
+        allUnits.find(u => u.id === formData.unitReceive)?.unitText ||
+        allUnits.find(u => u.id === formData.unitReceive)?.name || '';
+      const finalUnitTransferName =
+        allUnits.find(u => u.id === detailFormData.unitTransfer)?.unitText ||
+        allUnits.find(u => u.id === detailFormData.unitTransfer)?.name ||
+        units.find(u => u.id === detailFormData.unitTransfer)?.unitText ||
+        units.find(u => u.id === detailFormData.unitTransfer)?.name || '';
+      
+      let levelGroupFromName = levels.find(l => l.id === detailFormData.levelGroupFrom)?.name || '';
+      const levelGroupToName = levels.find(l => l.id === detailFormData.levelGroupTo)?.name || '';
+      let submitLevelGroupFrom = detailFormData.levelGroupFrom;
+
+      if (formData.transactionType !== 2) {
+        submitLevelGroupFrom = detailFormData.levelGroupTo;
+        levelGroupFromName = levelGroupToName;
+      }
+
+      // Find matching existing file details if selected
+      let existingFileName = '';
+      let existingFileUrl = '';
+      let existingFileId: string | null = null;
+      if (detailFormData.fileOption === 'existing' && detailFormData.selectedFileId) {
+        const foundFile = existingFiles.find(f => f.id.toString() === detailFormData.selectedFileId);
+        if (foundFile) {
+          existingFileName = foundFile.name;
+          existingFileUrl = foundFile.fileUrl;
+          existingFileId = foundFile.id.toString();
+        }
+      }
+
+      // Construct JSON payload (without the file object)
+      const payload = {
+        ...formData,
+        employeeId,
+        unitReceiveName,
+        detailData: {
+          ...detailFormData,
+          unitTransferName: finalUnitTransferName,
+          levelGroupFrom: submitLevelGroupFrom,
+          levelGroupFromName,
+          levelGroupToName,
+          existingFileName, // Add to payload for backend
+          existingFileUrl,  // Add to payload for backend
+          existingFileId,   // Use this as RefID in DB
+          file: null,  // exclude file from JSON - sent separately
+        }
+      };
+
+      // Build FormData so we can send actual file bytes alongside JSON payload
+      const formDataPayload = new FormData();
+      formDataPayload.append('payload', JSON.stringify(payload));
+      if (detailFormData.file) {
+        formDataPayload.append('file', detailFormData.file);
+      }
+
+      const response = await fetch('/api/transactions/draft', {
+        method: 'POST',
+        // Let browser set Content-Type with boundary automatically for FormData
+        body: formDataPayload
+      });
+
+      if (!response.ok) {
+        let errData;
+        try {
+          errData = await response.json();
+        } catch {
+          throw new Error('Failed to save draft and failed to parse response');
+        }
+        throw new Error(errData.message || errData.error || 'Failed to save draft');
+      }
+      
+      const responseData = await response.json();
+
+      const newTransaction: SavedTransaction = {
+        id: responseData.data?.transactionNo || Date.now().toString(),
+        transactionData: { ...formData },
+        detailData: { 
+          ...detailFormData,
+          unitTransferName: finalUnitTransferName,
+          unitReceiveName,
+          levelGroupToName,
+          levelGroupFrom: submitLevelGroupFrom,
+          levelGroupFromName
+        },
+        createdAt: new Date(),
+      };
+      setSavedTransactions([...savedTransactions, newTransaction]);
+      
+      setAlertInfo({ show: true, title: 'สำเร็จ', message: 'บันทึก Transaction สำเร็จ (Draft)', type: 'success' });
+      // Optional: reset form fields here if needed
+      
+    } catch (error) {
+      console.error('Error saving transaction:', error);
+      setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล', type: 'error' });
+    }
+  };
+
+  const handleDeleteTransaction = (id: string) => {
+    setTransactionToDelete(id);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDeleteTransaction = async () => {
+    if (!transactionToDelete) return;
+    
+    try {
+      let employeeId = 'SYSTEM';
+      const userDataStr = localStorage.getItem('user_data');
+      if (userDataStr) {
+        try {
+          const userData = JSON.parse(userDataStr);
+          employeeId = userData.employeeID || 'SYSTEM';
+        } catch (e) {
+          console.error("Failed to parse user_data", e);
+        }
+      }
+
+      const response = await fetch(`/api/transactions/draft/${transactionToDelete}?employeeId=${employeeId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.message || 'Failed to delete transaction');
+      }
+
+      setSavedTransactions(savedTransactions.filter((t) => t.id !== transactionToDelete));
+    } catch (error) {
+      console.error('Error deleting transaction:', error);
+      setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: 'เกิดข้อผิดพลาดในการลบรายการ', type: 'error' });
+    } finally {
+      setIsDeleteModalOpen(false);
+      setTransactionToDelete(null);
+    }
+  };
+
+  const handleRequest = async () => {
+    if (savedTransactions.length === 0) {
+      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาเพิ่ม Transaction อย่างน้อย 1 รายการ', type: 'warning' });
+      return;
+    }
+
+    try {
+      // Read the user's currently selected group from header
+      const defaultUserGroup = localStorage.getItem('selected_usergroup') || '02';
+
+      // --- USER GROUP 04 AUTO-APPROVE BYPASS ---
+      if (defaultUserGroup === '04') {
+        const transactionNos = savedTransactions.map(t => t.id);
+        const userDataStr = localStorage.getItem('user_data');
+        let updateBy = 'SYSTEM';
+        if (userDataStr) {
+          try {
+            updateBy = JSON.parse(userDataStr).employeeID || 'SYSTEM';
+          } catch (e) {
+            console.error(e);
+          }
+        }
+
+        const resp = await fetch('/api/transactions/direct-approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transactionNos, updateBy })
+        });
+
+        if (resp.ok) {
+          setAlertInfo({ show: true, title: 'สำเร็จ', message: 'ทำรายการและอนุมัติสำเร็จ', type: 'success' });
+          setSavedTransactions([]); // Clear drafted items
+          // Optionally re-fetch draft count
+          const countEvent = new Event('draftCountUpdated');
+          window.dispatchEvent(countEvent);
+        } else {
+          setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: 'ไม่สามารถทำรายการได้', type: 'error' });
+        }
+        return;
+      }
+      // --- END USER GROUP 04 BYPASS ---
+
+      const groupedDepts = getTransactionsByDept();
+      const approversData: Record<string, ApproverUser[]> = {};
+
+      for (const [deptId, txList] of Object.entries(groupedDepts)) {
+        approversData[deptId] = [];
+        
+        // We fetch for each transaction type in this dept
+        for (const tx of txList) {
+          if (tx.transactionData.transactionType === 5) continue; // skip remarks
+
+          const jobType = tx.transactionData.transactionType === 2 ? 2 : 1;
+          const userGroupReceive = defaultUserGroup;
+          const orgUnitNoReceive = deptId;
+          const orgUnitNoTransfer = tx.detailData.unitTransfer || null;
+          const effectiveDate = `${tx.transactionData.effectiveYear}-${months.indexOf(tx.transactionData.effectiveMonth) + 1}-01`;
+          const isRequirePolicy = tx.transactionData.policyFlag;
+
+          // Type 3 has distinct levelGroupFrom and levelGroupTo (ปรับสัดส่วน)
+          // All other types share the same level for both From and To
+          const levelGroupNoFrom = tx.transactionData.transactionType === 3
+            ? (tx.detailData.levelGroupFrom || '')
+            : (tx.detailData.levelGroupTo || '');
+          const levelGroupNoTo = tx.detailData.levelGroupTo || '';
+
+          const queryParams = new URLSearchParams({
+            jobType: jobType.toString(),
+            userGroupReceive,
+            orgUnitNoReceive,
+            levelGroupNoFrom,
+            ...(orgUnitNoTransfer ? { orgUnitNoTransfer } : {}),
+            levelGroupNoTo,
+            effectiveDate,
+            isRequirePolicy: isRequirePolicy.toString()
+          });
+
+          const resp = await fetch(`/api/transactions/approvers?${queryParams}&_t=${Date.now()}`);
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.data?.length > 0) {
+              approversData[deptId] = [...approversData[deptId], ...data.data];
+            }
+          }
+        }
+        
+        // Remove duplicates by EmployeeID
+        const uniqueSet = new Set();
+        approversData[deptId] = approversData[deptId].filter((item) => {
+          const isDuplicate = uniqueSet.has(item.EmployeeID);
+          uniqueSet.add(item.EmployeeID);
+          return !isDuplicate;
+        });
+      }
+
+      setDynamicApprovers(approversData);
+      setIsRequestModalOpen(true);
+    } catch (e) {
+      console.error("Failed to load approvers", e);
+      setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: 'เกิดข้อผิดพลาดในการโหลดรายชื่อผู้อนุมัติ', type: 'error' });
+    }
+  };
+
+  const confirmRequest = () => {
+    const activeDepts = Object.keys(getTransactionsByDept());
+    const missingDepts = activeDepts.filter(dept => !selectedApprovers[dept] || selectedApprovers[dept].length === 0);
+
+    if (missingDepts.length > 0) {
+      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: `กรุณาเลือกผู้ตรวจสอบสำหรับหน่วยงาน:\n${missingDepts.map(d => `- ${getDepartmentName(d)}`).join('\n')}`, type: 'warning' });
+      return;
+    }
+
+    setIsSubmitConfirmModalOpen(true);
+  };
+
+  const processSubmitDocument = async () => {
+    setIsSubmitConfirmModalOpen(false);
+    try {
+      let employeeId = 'SYSTEM';
+      let userGroupNo = '';
+      const userDataStr = localStorage.getItem('user_data');
+      if (userDataStr) {
+        try {
+          const userData = JSON.parse(userDataStr);
+          employeeId = userData.employeeID || 'SYSTEM';
+          userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
+        } catch { }
+      }
+
+      const itemsPayload = savedTransactions.map(tx => {
+        const deptId = tx.transactionData.unitReceive;
+        const selectedEmpIds = selectedApprovers[deptId] || [];
+        const deptApprovers = dynamicApprovers[deptId] || [];
+
+        const itemApproversList = selectedEmpIds.map(empId => deptApprovers.find(a => a.EmployeeID === empId))
+          .filter(a => !!a);
+          
+        // We must sort deterministically: first by PermissionOrder, then by UnitSide (UnitReceive comes before UnitTransfer)
+        itemApproversList.sort((a, b) => {
+             if (a!.PermissionOrder !== b!.PermissionOrder) {
+                 return a!.PermissionOrder - b!.PermissionOrder;
+             }
+             if (a!.UnitSide === 'UnitReceive' && b!.UnitSide !== 'UnitReceive') return -1;
+             if (a!.UnitSide !== 'UnitReceive' && b!.UnitSide === 'UnitReceive') return 1;
+             return 0;
+        });
+        
+        const itemApprovers = itemApproversList.map((a, index) => ({
+            seqno: index + 1,
+            employeeId: a!.EmployeeID,
+            fullname: a!.FullName,
+            email: a!.Email || '',
+            userGroupNo: a!.UserGroupNo,
+            unitSide: a!.UnitSide || ''
+        }));
+
+        return {
+          itemId: tx.id,
+          approvers: itemApprovers
+        };
+      });
+
+      const payload = {
+        documentType: 1, // งาน Transaction
+        userGroupNo: userGroupNo || undefined,
+        items: itemsPayload,
+        createBy: employeeId
+      };
+
+      const resp = await fetch('/api/documents/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!resp.ok) {
+        let errStr = 'Failed to submit document';
+        try {
+           const errData = await resp.json();
+           if (errData.error) errStr += '\\n' + errData.error;
+           else if (errData.message) errStr += '\\n' + errData.message;
+        } catch {}
+        throw new Error(errStr);
+      }
+
+      setAlertInfo({ show: true, title: 'สำเร็จ', message: 'ส่งขออนุมัติเรียบร้อย!', type: 'success' });
+      setIsRequestModalOpen(false);
+      
+      // Clear drafts and reload to simulate them moving to Next Step (or just refresh page)
+      setSavedTransactions([]);
+      
+    } catch (err: unknown) {
+      console.error('Submit Doc Error:', err);
+      const errMsg = err instanceof Error ? err.message : 'ไม่สามารถส่งขออนุมัติได้';
+      setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: errMsg, type: 'error' });
+    }
+  };
+
+  const getTransactionsByDept = () => {
+    const grouped: Record<string, SavedTransaction[]> = {};
+    savedTransactions.forEach((t) => {
+      const deptId = t.transactionData.unitReceive;
+      if (!grouped[deptId]) grouped[deptId] = [];
+      grouped[deptId].push(t);
+    });
+    return grouped;
+  };
+
+  const toggleApprover = (deptId: string, approverId: string) => {
+    setSelectedApprovers((prev) => {
+      const currentList = prev[deptId] || [];
+      if (currentList.includes(approverId)) {
+        return { ...prev, [deptId]: currentList.filter((id) => id !== approverId) };
+      } else {
+        return { ...prev, [deptId]: [...currentList, approverId] };
+      }
+    });
+  };
+
+  return (
+    <Main currentPath="/transaction/transaction">
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="rounded-xl bg-linear-to-r from-blue-600 to-blue-400 p-4 shadow-md text-white flex items-center gap-3">
+              <UserSwitchOutlined className="text-2xl" />
+            <h1 className="text-xl font-bold m-0 text-white">การเปลี่ยนแปลงกรอบอัตรากำลัง</h1>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          {/* Column 1: Form */}
+          <div className="lg:col-span-4">
+            <Card className="bg-white border-0 shadow-sm h-full py-0">
+              <CardContent className="p-6 space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">EFFECTIVE DATE</h4>
+                  <div className="grid grid-cols-[60%_40%] gap-3">
+                    <div className="flex gap-3 items-center">
+                      <label className="block text-sm font-medium text-gray-600 mb-1">เดือน</label>
+                      <select
+                        value={formData.effectiveMonth}
+                        onChange={(e) => setFormData({ ...formData, effectiveMonth: e.target.value })}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      >
+                        {months.map((month) => <option key={month} value={month}>{month}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-3 items-center w-45">
+                      <label className="block text-sm font-medium text-gray-600 mb-1">ปี</label>
+                      <select
+                        value={formData.effectiveYear}
+                        onChange={(e) => setFormData({ ...formData, effectiveYear: e.target.value })}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      >
+                        {years.map((year) => <option key={year} value={year}>{year}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-md font-medium text-blue-700 mb-2">
+                    การเปลี่ยนแปลงกรอบอัตรากำลัง <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={activeTab || ''}
+                    onChange={(e) => handleTabChange(e.target.value ? (parseInt(e.target.value) as TransactionTypeEnum) : null)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">เลือกประเภทการเปลี่ยนแปลง...</option>
+                    {transactionTypes.map((type) => <option key={type.id} value={type.id}>{type.label}</option>)}
+                  </select>
+                </div>
+
+                {/* Management Type - Show only when activeTab is selected */}
+                {activeTab && (
+                  <>
+
+                  {/* Additional Flags */}
+                                    <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">จัดการกรอบอัตรากำลัง <span className="text-red-500">*</span></label>
+                    <div className="flex flex-wrap gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="radio" name="poolRsFlag" value={0} checked={formData.poolRsFlag === 0}
+                            onChange={() => setFormData({ ...formData, poolRsFlag: 0, strgFlag: 0, bsType: 0 })}
+                            className="w-4 h-4 text-blue-600" />
+                          <span className="text-sm text-gray-700">ปกติ</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="radio" name="poolRsFlag" value={1} checked={formData.poolRsFlag === 1}
+                            onChange={() => setFormData({ ...formData, poolRsFlag: 1, strgFlag: 0, bsType: 0 })}
+                            className="w-4 h-4 text-blue-600" />
+                          <span className="text-sm text-gray-700">Pool Resources</span>
+                      </label>
+                      {activeTab !== 1 && (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="radio" name="poolRsFlag" value={2} checked={formData.poolRsFlag === 2}
+                            onChange={() => setFormData({ ...formData, poolRsFlag: 2 })} className="w-4 h-4 text-blue-600" />
+                          <span className="text-sm text-gray-700">Secondment Pool</span>
+                        </label>
+                      )}
+                    </div>
+                  </div>
+
+                  {shouldShowExtraFields() && (
+                    <>
+                      <div className="mt-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Strategic <span className="text-red-500">*</span></label>
+                        <div className="flex flex-wrap gap-4">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="radio" name="strgFlag" value={0} checked={formData.strgFlag === 0}
+                                onChange={() => setFormData({ ...formData, strgFlag: 0 })} className="w-4 h-4 text-blue-600" />
+                              <span className="text-sm text-gray-700">Non-Strategic</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="radio" name="strgFlag" value={1} checked={formData.strgFlag === 1}
+                                onChange={() => setFormData({ ...formData, strgFlag: 1 })} className="w-4 h-4 text-blue-600" />
+                              <span className="text-sm text-gray-700">Strategic</span>
+                          </label>
+                        </div>
+                      </div>
+                      <div className="mt-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Business Type <span className="text-red-500">*</span></label>
+                        <div className="flex flex-wrap gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="radio" name="bsType" value={1} checked={formData.bsType === 1}
+                                onChange={() => setFormData({ ...formData, bsType: 1 })} className="w-4 h-4 text-blue-600" />
+                              <span className="text-sm text-gray-700">Business</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="radio" name="bsType" value={2} checked={formData.bsType === 2}
+                                onChange={() => setFormData({ ...formData, bsType: 2 })} className="w-4 h-4 text-blue-600" />
+                              <span className="text-sm text-gray-700">Support</span>
+                            </label>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">อัตรากำลังเฉพาะตัว</label>
+                    <label className="inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={formData.specFlag === 1}
+                        onChange={(e) => setFormData({ ...formData, specFlag: e.target.checked ? 1 : 0 })}
+                      />
+                      <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      <span className="ms-3 text-sm font-medium text-gray-700">{formData.specFlag === 1 ? 'เป็นอัตรากำลังเฉพาะตัว' : 'ไม่เป็น'}</span>
+                    </label>
+                  </div>
+
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Line / Staff <span className="text-red-500">*</span></label>
+                    <div className="flex flex-wrap gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="lineStaffType" value={1} checked={formData.lineStaffFlag === 1}
+                          onChange={() => setFormData({ ...formData, lineStaffFlag: 1 })} className="w-4 h-4 text-blue-600" />
+                        <span className="text-sm text-gray-700">Line</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="lineStaffType" value={2} checked={formData.lineStaffFlag === 2}
+                          onChange={() => setFormData({ ...formData, lineStaffFlag: 2 })} className="w-4 h-4 text-blue-600" />
+                        <span className="text-sm text-gray-700">Staff</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        {activeTab === 6 ? 'หน่วยงานรับยืม' : (activeTab === 5 ? 'หน่วยงาน' : 'หน่วยงานที่รับโอน')} <span className="text-red-500">*</span>
+                    </label>
+                    <Popover open={openUnitReceive} onOpenChange={setOpenUnitReceive}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className={cn(
+                            "w-full justify-between h-9 px-3 py-2 text-sm border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-normal",
+                            !formData.unitReceive && "text-muted-foreground"
+                          )}
+                        >
+                          {formData.unitReceive
+                            ? units.find(
+                                (unit) => unit.id === formData.unitReceive
+                              )?.unitText || units.find((unit) => unit.id === formData.unitReceive)?.name
+                            : "เลือกหน่วยงาน..."}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[400px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="ค้นหาหน่วยงาน..." />
+                          <CommandList>
+                            <CommandEmpty>ไม่พบหน่วยงาน</CommandEmpty>
+                            <CommandGroup>
+                              {units
+                                .filter((unit) => {
+                                  if (formData.poolRsFlag === 2) {
+                                    return unit.IsSecondment === 1;
+                                  }
+                                  if (activeTab === 1) {
+                                    return unit.IsAssistant === 1 || unit.IsUnder === 1;
+                                  }
+                                  return true;
+                                })
+                                .map((unit) => (
+                                <CommandItem
+                                  key={unit.id}
+                                  value={unit.unitText || unit.name}
+                                  onSelect={() => {
+                                    setFormData({ ...formData, unitReceive: unit.id });
+                                    setOpenUnitReceive(false);
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      formData.unitReceive === unit.id ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  {unit.unitText || unit.name}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Column 2: Detail Form */}
+          <div className="lg:col-span-4">
+            <Card className="bg-white border-0 shadow-sm h-full py-0">
+              <CardContent className="p-6 space-y-4">
+                {!activeTab ? (
+                  <div className="flex items-center justify-center h-64 text-center text-gray-400">
+                    <p>กรุณาเลือกประเภทการเปลี่ยนแปลง<br /><span className="text-sm">เพื่อแสดงฟอร์มรายละเอียด</span></p>
+                  </div>
+                ) : (
+                  <>
+                    {/* --- DYNAMIC FORM FIELDS BASED ON TAB --- */}
+                    {/* (Transfer Deceased & Transfer Other Share Similar Fields) */}
+                    {(activeTab === 1 || activeTab === 2) && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">หน่วยงานที่โอน <span className="text-red-500">*</span></label>
+                          <Popover open={openUnitTransfer} onOpenChange={setOpenUnitTransfer}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                className={cn(
+                                  "w-full justify-between h-9 px-3 py-2 text-sm border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-normal",
+                                  !detailFormData.unitTransfer && "text-muted-foreground"
+                                )}
+                              >
+                                {detailFormData.unitTransfer
+                                  ? allUnits.find(
+                                      (unit) => unit.id === detailFormData.unitTransfer
+                                    )?.unitText || allUnits.find((unit) => unit.id === detailFormData.unitTransfer)?.name
+                                  : "เลือกหน่วยงาน..."}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[400px] p-0" align="start">
+                              <Command>
+                                <CommandInput placeholder="ค้นหาหน่วยงาน..." />
+                                <CommandList>
+                                  <CommandEmpty>ไม่พบหน่วยงาน</CommandEmpty>
+                                  <CommandGroup>
+                                    {allUnits
+                                      .filter((unit) => unit.id !== formData.unitReceive)
+                                      .map((unit) => (
+                                      <CommandItem
+                                        key={unit.id}
+                                        value={unit.unitText || unit.name}
+                                        onSelect={() => {
+                                          setDetailFormData({ ...detailFormData, unitTransfer: unit.id });
+                                          setOpenUnitTransfer(false);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            detailFormData.unitTransfer === unit.id ? "opacity-100" : "opacity-0"
+                                          )}
+                                        />
+                                        {unit.unitText || unit.name}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">ระดับตำแหน่ง <span className="text-red-500">*</span></label>
+                          <select value={detailFormData.levelGroupTo} onChange={(e) => setDetailFormData({ ...detailFormData, levelGroupTo: e.target.value })}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="">เลือกระดับตำแหน่ง...</option>
+                            {levels.map((lvl) => <option key={lvl.id} value={lvl.id}>{lvl.name}</option>)}
+                          </select>
+                        </div>
+                      </>
+                    )}
+
+                    {activeTab === 4 && (
+                      <>
+                        <div className="mb-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">หน่วยงานที่โอน <span className="text-red-500">*</span></label>
+                          <Popover open={openUnitTransfer} onOpenChange={setOpenUnitTransfer}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                className={cn(
+                                  "w-full justify-between h-9 px-3 py-2 text-sm border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-normal",
+                                  !detailFormData.unitTransfer && "text-muted-foreground"
+                                )}
+                              >
+                                {detailFormData.unitTransfer
+                                  ? units.find(
+                                      (unit) => unit.id === detailFormData.unitTransfer
+                                    )?.unitText || units.find((unit) => unit.id === detailFormData.unitTransfer)?.name
+                                  : "เลือกหน่วยงาน..."}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[400px] p-0" align="start">
+                              <Command>
+                                <CommandInput placeholder="ค้นหาหน่วยงาน..." />
+                                <CommandList>
+                                  <CommandEmpty>ไม่พบหน่วยงาน</CommandEmpty>
+                                  <CommandGroup>
+                                    {units.map((unit) => (
+                                      <CommandItem
+                                        key={unit.id}
+                                        value={unit.unitText || unit.name}
+                                        onSelect={() => {
+                                          setDetailFormData({ ...detailFormData, unitTransfer: unit.id });
+                                          setOpenUnitTransfer(false);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            detailFormData.unitTransfer === unit.id ? "opacity-100" : "opacity-0"
+                                          )}
+                                        />
+                                        {unit.unitText || unit.name}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">เลือกประเภท <span className="text-red-500">*</span></label>
+                          <div className="flex gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="radio" name="transferInd" value={1} checked={detailFormData.transferInd === 1}
+                                onChange={() => setDetailFormData({ ...detailFormData, transferInd: 1 })} className="w-4 h-4 text-blue-600" />
+                              <span className="text-sm text-gray-700">เพิ่ม</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="radio" name="transferInd" value={-1} checked={detailFormData.transferInd === -1}
+                                onChange={() => setDetailFormData({ ...detailFormData, transferInd: -1 })} className="w-4 h-4 text-blue-600" />
+                              <span className="text-sm text-gray-700">ลด</span>
+                            </label>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">ระดับตำแหน่ง <span className="text-red-500">*</span></label>
+                          <select value={detailFormData.levelGroupTo} onChange={(e) => setDetailFormData({ ...detailFormData, levelGroupTo: e.target.value })}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="">เลือกระดับตำแหน่ง...</option>
+                            {levels.map((lvl) => <option key={lvl.id} value={lvl.id}>{lvl.name}</option>)}
+                          </select>
+                        </div>
+                      </>
+                    )}
+
+                    {activeTab === 3 && (
+                      <>
+                        <div className="mb-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">หน่วยงานที่โอน <span className="text-red-500">*</span></label>
+                          <Popover open={openUnitTransfer} onOpenChange={setOpenUnitTransfer}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                className={cn(
+                                  "w-full justify-between h-9 px-3 py-2 text-sm border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-normal",
+                                  !detailFormData.unitTransfer && "text-muted-foreground"
+                                )}
+                              >
+                                {detailFormData.unitTransfer
+                                  ? allUnits.find(
+                                      (unit) => unit.id === detailFormData.unitTransfer
+                                    )?.unitText || allUnits.find((unit) => unit.id === detailFormData.unitTransfer)?.name
+                                  : "เลือกหน่วยงาน..."}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[400px] p-0" align="start">
+                              <Command>
+                                <CommandInput placeholder="ค้นหาหน่วยงาน..." />
+                                <CommandList>
+                                  <CommandEmpty>ไม่พบหน่วยงาน</CommandEmpty>
+                                  <CommandGroup>
+                                    {allUnits
+                                      .filter((unit) => unit.id !== formData.unitReceive)
+                                      .map((unit) => (
+                                      <CommandItem
+                                        key={unit.id}
+                                        value={unit.unitText || unit.name}
+                                        onSelect={() => {
+                                          setDetailFormData({ ...detailFormData, unitTransfer: unit.id });
+                                          setOpenUnitTransfer(false);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            detailFormData.unitTransfer === unit.id ? "opacity-100" : "opacity-0"
+                                          )}
+                                        />
+                                        {unit.unitText || unit.name}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">จากระดับตำแหน่ง <span className="text-red-500">*</span></label>
+                          <select value={detailFormData.levelGroupFrom} onChange={(e) => setDetailFormData({ ...detailFormData, levelGroupFrom: e.target.value })}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="">เลือกระดับตำแหน่ง...</option>
+                            {levels.map((lvl) => <option key={lvl.id} value={lvl.id}>{lvl.name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">ไปที่ระดับตำแหน่ง <span className="text-red-500">*</span></label>
+                          <select value={detailFormData.levelGroupTo} onChange={(e) => setDetailFormData({ ...detailFormData, levelGroupTo: e.target.value })}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="">เลือกระดับตำแหน่ง...</option>
+                            {levels.map((lvl) => <option key={lvl.id} value={lvl.id}>{lvl.name}</option>)}
+                          </select>
+                        </div>
+                      </>
+                    )}
+
+                    {/* ✅ ยืมอัตรากำลัง */}
+                    {activeTab === 6 && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">หน่วยงานที่ให้ยืม <span className="text-red-500">*</span></label>
+                          <Popover open={openUnitTransfer} onOpenChange={setOpenUnitTransfer}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                className={cn(
+                                  "w-full justify-between h-9 px-3 py-2 text-sm border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-normal",
+                                  !detailFormData.unitTransfer && "text-muted-foreground"
+                                )}
+                              >
+                                {detailFormData.unitTransfer
+                                  ? allUnits.find(
+                                      (unit) => unit.id === detailFormData.unitTransfer
+                                    )?.unitText || allUnits.find((unit) => unit.id === detailFormData.unitTransfer)?.name
+                                  : "เลือกหน่วยงาน..."}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[400px] p-0" align="start">
+                              <Command>
+                                <CommandInput placeholder="ค้นหาหน่วยงาน..." />
+                                <CommandList>
+                                  <CommandEmpty>ไม่พบหน่วยงาน</CommandEmpty>
+                                  <CommandGroup>
+                                    {allUnits
+                                      .filter((unit) => unit.id !== formData.unitReceive)
+                                      .map((unit) => (
+                                      <CommandItem
+                                        key={unit.id}
+                                        value={unit.unitText || unit.name}
+                                        onSelect={() => {
+                                          setDetailFormData({ ...detailFormData, unitTransfer: unit.id });
+                                          setOpenUnitTransfer(false);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            detailFormData.unitTransfer === unit.id ? "opacity-100" : "opacity-0"
+                                          )}
+                                        />
+                                        {unit.unitText || unit.name}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">ระดับตำแหน่ง <span className="text-red-500">*</span></label>
+                          <select value={detailFormData.levelGroupTo} onChange={(e) => setDetailFormData({ ...detailFormData, levelGroupTo: e.target.value })}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="">เลือกระดับตำแหน่ง...</option>
+                            {levels.map((lvl) => <option key={lvl.id} value={lvl.id}>{lvl.name}</option>)}
+                          </select>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Common Fields (Count, Date, File, etc.) */}
+                    {activeTab !== 5 && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm font-medium text-gray-700 whitespace-nowrap">จำนวนกรอบ <span className="text-red-500">*</span></label>
+                          <input type="number" value={detailFormData.amount} onChange={(e) => setDetailFormData({ ...detailFormData, amount: Number(e.target.value) })}
+                            className="w-24 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" min="1" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">เลขที่มติ <span className="text-red-500">*</span></label>
+                            <input type="text" value={detailFormData.conclusionNo} onChange={(e) => setDetailFormData({ ...detailFormData, conclusionNo: e.target.value })}
+                              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">วันที่มติ <span className="text-red-500">*</span></label>
+                            <BDatePicker
+                              locale={customLocale}
+                              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                              format="DD/MM/BBBB"
+                              value={detailFormData.conclusionDate ? dayjs(detailFormData.conclusionDate) : null}
+                              onChange={(date) => {
+                                setDetailFormData({
+                                  ...detailFormData,
+                                  conclusionDate: date ? date.format('YYYY-MM-DD') : ''
+                                });
+                              }}
+                              placeholder="เลือกวันที่"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">หมายเหตุ <span className="text-red-500"></span></label>
+                          <textarea value={formData.remark} onChange={(e) => setFormData({ ...formData, remark: e.target.value })} rows={2}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg resize-none" />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">File <span className="text-red-500">*</span></label>
+                          <div className="flex gap-4 mb-2">
+                             <label className="flex items-center gap-2 cursor-pointer">
+                               <input type="radio" name="fileOption" value="new" checked={detailFormData.fileOption === 'new'}
+                                 onChange={() => setDetailFormData({ ...detailFormData, fileOption: 'new' })} className="w-4 h-4 text-blue-600" />
+                               <span className="text-sm text-gray-700">อัปโหลดไฟล์ใหม่</span>
+                             </label>
+                             <label className="flex items-center gap-2 cursor-pointer">
+                               <input type="radio" name="fileOption" value="existing" checked={detailFormData.fileOption === 'existing'}
+                                 onChange={() => setDetailFormData({ ...detailFormData, fileOption: 'existing' })} className="w-4 h-4 text-blue-600" />
+                               <span className="text-sm text-gray-700">เลือกไฟล์ที่มีอยู่แล้ว</span>
+                             </label>
+                          </div>
+
+                          {detailFormData.fileOption === 'new' ? (
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-start gap-3">
+                                <div className="flex-1">
+                                  <input type="file" accept=".pdf" onChange={(e) => handleFileUploadChange(e.target.files?.[0] || null)}
+                                    className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 border border-gray-300 rounded-lg bg-gray-50 p-2 cursor-pointer focus:outline-none" />
+                                  <p className="text-xs text-gray-500 mt-1">Max 15MB, PDF only</p>
+                                </div>
+                              </div>
+                              {detailFormData.fileUrl && (
+                                <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 p-2 rounded-lg border border-blue-100 w-fit">
+                                  <a href={`/api/${detailFormData.fileUrl}`} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1">
+                                    <FileText className="w-4 h-4" /> ดูไฟล์ที่แนบไว้แล้ว ({detailFormData.fileUrl})
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex gap-2 items-center">
+                              <select value={detailFormData.selectedFileId} onChange={(e) => {
+                                  // For existing files we just store the selected string ID and leave file as null
+                                  setDetailFormData({ ...detailFormData, selectedFileId: e.target.value, file: null })
+                                }}
+                                className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="">เลือกไฟล์...</option>
+                                {existingFiles.map((file) => <option key={file.id} value={file.id.toString()}>{file.conclusionNo ? `${file.conclusionNo} - ` : ''}{file.name}</option>)}
+                              </select>
+                              {detailFormData.selectedFileId && (() => {
+                                const selectedFile = existingFiles.find(f => f.id.toString() === detailFormData.selectedFileId);
+                                return selectedFile?.fileUrl ? (
+                                  <a
+                                    href={`/api/${selectedFile.fileUrl}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="ดูไฟล์"
+                                    className="flex items-center justify-center w-9 h-9 rounded-lg border border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors shrink-0"
+                                  >
+                                    <FileText className="w-4 h-4" />
+                                  </a>
+                                ) : null;
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {activeTab === 5 && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">หมายเหตุ <span className="text-red-500">*</span></label>
+                        <textarea value={formData.remark} onChange={(e) => setFormData({ ...formData, remark: e.target.value })} rows={4}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg resize-none" />
+                      </div>
+                    )}
+
+                    <div className="pt-4">
+                      <Button onClick={handleSave} disabled={!isFormValid()} className="w-full px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                        <Save className="h-5 w-5" /><span>SAVE</span>
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Column 3: List */}
+          <div className="lg:col-span-4">
+            <Card className="bg-white border-0 shadow-sm h-full py-0">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">รายการ Transaction ({savedTransactions.length})</h3>
+                  {savedTransactions.length > 0 && (
+                    <Button 
+                      onClick={handleRequest} 
+                      className={`px-4 py-2 text-white rounded-lg font-semibold text-sm ${typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-500 hover:bg-blue-600'}`}
+                    >
+                      {typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04' ? 'อนุมัติรายการ' : 'REQUEST'}
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
+                  {savedTransactions.length === 0 ? (
+                    <div className="text-center py-12 text-gray-400"><p>ยังไม่มีรายการ Transaction</p></div>
+                  ) : (
+                    savedTransactions.map((t, idx) => (
+                      <div key={t.id} className={`border-2 rounded-lg p-4 ${t.transactionData.transactionType ? getTitleColorClass(t.transactionData.transactionType) : ''}`}>
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-semibold text-sm">#{idx + 1}</span>
+                              <span className="text-xs font-medium">{t.transactionData.transactionType ? getTransactionTypeName(t.transactionData.transactionType) : ''}</span>
+                            </div>
+                            <div className="text-xs mt-1">
+                              <span>
+                                {generateTransactionDesc(t.transactionData, t.detailData)}
+                              </span>
+                            </div>
+                          </div>
+                          <button onClick={() => handleDeleteTransaction(t.id)} className="text-red-500 hover:bg-red-50 rounded p-1"><Trash2 className="h-4 w-4" /></button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* --- REQUEST MODAL --- */}
+        {isRequestModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="px-6 py-2 border-b bg-linear-gradient-to-r from-blue-200 to-blue-700 flex justify-between items-center bg-blue-50">
+                <h2 className="text-lg font-bold text-blue-900">ยืนยันการส่งขออนุมัติ</h2>
+                <button onClick={() => setIsRequestModalOpen(false)} className="text-white hover:bg-white/20 rounded-full p-1"><X className="w-6 h-6" /></button>
+              </div>
+
+              <div className="p-6 overflow-y-auto flex-1 space-y-6 bg-gray-50">
+                {Object.entries(getTransactionsByDept()).map(([deptId, transactions]) => {
+                  const groupedByType = transactions.reduce((acc, curr) => {
+                    const type = curr.transactionData.transactionType as TransactionTypeEnum;
+                    if (type === 5) return acc;
+                    if (!acc[type]) acc[type] = [];
+                    acc[type].push(curr);
+                    return acc;
+                  }, {} as Record<TransactionTypeEnum, SavedTransaction[]>);
+
+                  // Group dynamic approvers
+                  const dynamicList = dynamicApprovers[deptId] || [];
+                  const approverGroups = Array.from(new Set(dynamicList.map(u => `${u.UnitSide}-${u.PermissionOrder}`))).map(groupKey => {
+                    const groupUsers = dynamicList.filter(u => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
+                    const sample = groupUsers[0];
+                    let title = '';
+                    let icon = User;
+                    let color = 'text-gray-600 bg-gray-50 border-gray-200';
+
+                    // Parse role string from backend, usually "HRUSER" or "HRVERIFY"
+                    const rawRole = sample.UserGroupRole || '';
+                    const roleLabel = rawRole.toUpperCase().includes('HRUSER') ? 'HR USER' : rawRole.toUpperCase().includes('HRVERIFY') ? 'HR VERIFY' : rawRole;
+                    
+                    const sideLabel = sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom' ? 'ฝั่งรับ' : 'ฝั่งให้';
+                    const unitName = sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom' ? getDepartmentName(sample.OrgUnitNo) : getUnitName(sample.OrgUnitNo);
+
+                    title = `${roleLabel} (${sideLabel}: ${unitName})`;
+
+                    if (sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom') {
+                      icon = ShieldCheck;
+                      color = 'text-green-600 bg-green-50 border-green-200';
+                    } else if ((sample.UnitSide === 'UnitTransfer' || sample.UnitSide === 'UnitTo') && roleLabel === 'HR USER') {
+                      icon = User;
+                      color = 'text-blue-600 bg-blue-50 border-blue-200';
+                    } else if ((sample.UnitSide === 'UnitTransfer' || sample.UnitSide === 'UnitTo') && roleLabel === 'HR VERIFY') {
+                      icon = ShieldCheck;
+                      color = 'text-indigo-600 bg-indigo-50 border-indigo-200';
+                    }
+
+                    return {
+                      title,
+                      icon,
+                      color,
+                      users: groupUsers.map(u => {
+                        const rec = u as unknown as Record<string, string | undefined>;
+                        const gName = rec.UserGroupName || rec.userGroupName || rec.UsergroupName || rec.GroupName || rec.usergroupname || rec.Groupname || rec.groupName;
+                        const finalRole = gName && String(gName).trim() !== '' ? String(gName).trim() : `Group: ${u.UserGroupNo}`;
+                        
+                        return {
+                          id: u.EmployeeID,
+                          name: u.FullName,
+                          role: finalRole
+                        };
+                      })
+                    };
+                  });
+
+                  // Check if at least one person is selected for each approver group
+                  const isAllGroupsSelected = approverGroups.length > 0 && approverGroups.every(g => 
+                    g.users.some(u => selectedApprovers[deptId]?.includes(u.id))
+                  );
+
+                  const transactionCount = transactions.filter(t => t.transactionData.transactionType !== 5).length;
+                  const isCollapsed = collapsedDepts[deptId] === true;
+                  return (
+                    <div key={deptId} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden transition-all duration-300">
+                      <div 
+                        className="bg-gray-100 px-4 py-3 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-200 transition-colors select-none"
+                        onClick={() => toggleDeptCollapse(deptId)}
+                      >
+                        <span className="font-semibold text-sm text-gray-700 flex items-center gap-2">
+                          {isCollapsed ? <ChevronDown className="w-5 h-5 text-gray-400" /> : <ChevronUp className="w-5 h-5 text-gray-400" />}
+                          🏢 {getDepartmentName(deptId)}
+                          {isAllGroupsSelected && (
+                            <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-green-100 text-green-700 font-bold border border-green-300 ml-2 animate-in fade-in zoom-in duration-300">
+                              <CheckCircle className="h-4 w-4" /> เลือกครบถ้วน
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-xs bg-white px-2 py-1 rounded border text-gray-600 font-bold">{transactionCount} รายการ</span>
+                      </div>
+
+                      {!isCollapsed && (
+                        <div className="p-3 grid grid-cols-1 md:grid-cols-[60%_40%] gap-4 animate-in slide-in-from-top-2 duration-200">
+                          {/* LEFT: Transaction List */}
+                          <div className="space-y-4 border-r border-gray-100 pr-3">
+                          {Object.entries(groupedByType).map(([type, typeList]) => (
+                            <div key={type} className="mb-4">
+                              <div className="flex items-center gap-2 mb-2 pl-1">
+                                <span className="text-lg">📁</span>
+                                <h4 className="text-sm font-bold text-gray-700">{getTransactionTypeName(parseInt(type) as TransactionTypeEnum)}</h4>
+                                <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full font-medium">
+                                  {typeList.length}
+                                </span>
+                              </div>
+                              <div className={`rounded-md border-2 overflow-hidden ${getTitleColorClass(parseInt(type) as TransactionTypeEnum)}`}>
+                                <div className="divide-y divide-black/10">
+                                  {typeList.map((t, idx) => (
+                                    <div key={t.id} className="p-2 hover:bg-white/20">
+                                      <div className="flex items-center gap-2 text-xs">
+                                        <span className="font-bold bg-white/80 px-1.5 rounded">#{idx + 1}</span>
+                                        <span className="text-xs leading-relaxed opacity-90">{generateTransactionDesc(t.transactionData, t.detailData)}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* RIGHT: Approver Selection (Dynamic) */}
+                        <div className="pl-2 space-y-4">
+                          <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                            <Users className="w-4 h-4" /> เลือกผู้อนุมัติ
+                          </h3>
+
+                          {approverGroups.length === 0 ? (
+                            <div className="text-red-500 text-sm p-4 bg-red-50 rounded text-center">ไม่พบรายชื่อผู้อนุมัติที่เกี่ยวข้อง</div>
+                          ) : (
+                            approverGroups.map((group, groupIdx) => (
+                              <div key={groupIdx} className={`rounded-lg border overflow-hidden ${group.color}`}>
+                                <div className="px-3 py-2 bg-white/50 border-b border-inherit flex items-center gap-2">
+                                  <group.icon className="w-4 h-4 opacity-70" />
+                                  <span className="text-xs font-bold uppercase tracking-wider">{group.title}</span>
+                                </div>
+                                <div className="p-2 space-y-2 bg-white">
+                                  {group.users.map((user) => {
+                                    const isSelected = (selectedApprovers[deptId] || []).includes(user.id);
+                                    return (
+                                      <label key={user.id} className={`flex items-center gap-3 p-2 rounded-md border cursor-pointer transition-all hover:shadow-sm
+                                                                        ${isSelected ? 'border-green-500 bg-green-50' : 'border-gray-100 hover:bg-gray-50'}`}>
+                                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0
+                                                                            ${isSelected ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}>
+                                          {isSelected && <CheckCircle className="w-3 h-3 text-white" />}
+                                        </div>
+                                        <input type="checkbox" className="hidden" checked={isSelected} onChange={() => toggleApprover(deptId, user.id)} />
+                                        <div className="min-w-0">
+                                          <p className="text-sm font-medium text-gray-700 truncate">{user.name}</p>
+                                          <p className="text-[10px] text-gray-400">{user.role}</p>
+                                        </div>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="px-6 py-4 border-t border-gray-200 bg-white flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setIsRequestModalOpen(false)} className="px-6 font-bold">CANCEL</Button>
+                <Button onClick={confirmRequest} className="bg-green-600 hover:bg-green-700 font-bold text-white px-8 gap-2"><CheckCircle className="h-5 w-5" /> CONFIRM</Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- SUBMIT CONFIRM MODAL --- */}
+        {isSubmitConfirmModalOpen && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+              <div className="p-6 text-center">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-3xl">📤</span>
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">ยืนยันการส่งขออนุมัติ</h3>
+                <p className="text-gray-500 text-sm">คุณแน่ใจหรือไม่ที่จะส่งรายการ Transaction <br/>ทั้งหมด เพื่อขออนุมัติ?</p>
+              </div>
+              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3 rounded-b-xl">
+                <Button variant="outline" onClick={() => setIsSubmitConfirmModalOpen(false)} className="px-4 font-semibold text-gray-600 hover:bg-gray-100">ยกเลิก</Button>
+                <Button onClick={processSubmitDocument} className="bg-blue-600 hover:bg-blue-700 text-white px-6 font-semibold shadow-sm">ยืนยันส่ง</Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- DELETE CONFIRM MODAL --- */}
+        {isDeleteModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+              <div className="p-6 text-center">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="h-8 w-8 text-red-500" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">ยืนยันการลบรายการ</h3>
+                <p className="text-gray-500 text-sm">คุณแน่ใจหรือไม่ว่าต้องการลบรายการนี้?</p>
+              </div>
+              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3 rounded-b-xl">
+                <Button variant="outline" onClick={() => setIsDeleteModalOpen(false)} className="px-4 font-semibold">ยกเลิก</Button>
+                <Button onClick={confirmDeleteTransaction} className="bg-red-600 hover:bg-red-700 text-white px-4 font-semibold">ลบรายการ</Button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* --- CUSTOM ALERT MODAL --- */}
+        {alertInfo.show && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+              <div className="p-6 text-center">
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${
+                  alertInfo.type === 'success' ? 'bg-green-100' :
+                  alertInfo.type === 'error' ? 'bg-red-100' :
+                  alertInfo.type === 'warning' ? 'bg-orange-100' : 'bg-blue-100'
+                }`}>
+                  {alertInfo.type === 'success' && <CheckCircle className="h-8 w-8 text-green-500" />}
+                  {alertInfo.type === 'error' && <X className="h-8 w-8 text-red-500" />}
+                  {alertInfo.type === 'warning' && <AlertCircle className="h-8 w-8 text-orange-500" />}
+                  {alertInfo.type === 'info' && <Info className="h-8 w-8 text-blue-500" />}
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">{alertInfo.title}</h3>
+                <p className="text-gray-500 text-sm whitespace-pre-wrap text-left">{alertInfo.message}</p>
+              </div>
+              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-center rounded-b-xl">
+                <Button onClick={closeAlert} className="px-8 font-semibold w-full bg-blue-600 hover:bg-blue-700 text-white">ตกลง</Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </Main>
+  );
+}
