@@ -13,7 +13,8 @@ interface DecodedToken {
 }
 
 export function getUserFromToken(token?: string) {
-    if (typeof window === 'undefined') return null;
+    if (!token && typeof window === 'undefined') return null;
+
 
     if (!token) {
         // Try to get from cookie first

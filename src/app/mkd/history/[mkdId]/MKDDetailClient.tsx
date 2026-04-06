@@ -85,7 +85,8 @@ interface MKDFile {
 interface MKDDetailClientProps {
     mkdId: string;
     token: string;
-    currentUser: CurrentUser;
+    currentUser: CurrentUser | null;
+
     initialData: {
         header: MKDHeader;
         keys: MKDKey[];
