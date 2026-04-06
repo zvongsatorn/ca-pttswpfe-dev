@@ -10,7 +10,7 @@ export interface CalendarConfig {
 }
 
 async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
-    const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const authHeader: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
     const res = await fetch(`${API_BASE_URL}${url}`, {
         ...options,
         headers: {

@@ -1,7 +1,7 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
-    const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const authHeader: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
     const res = await fetch(`${API_BASE_URL}${url}`, {
         ...options,
         headers: {
@@ -63,7 +63,7 @@ export const uploadFilePIR = async (file: File, fileName: string, effYear: strin
     formData.append('effYear', effYear);
     formData.append('user', user);
 
-    const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const authHeader: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
     const res = await fetch(`${API_BASE_URL}/api/pir/file/upload`, {
         method: 'POST',
         headers: { ...authHeader },
@@ -114,7 +114,7 @@ export const exportExcel = async (params: { effectiveMonth?: string, effectiveYe
 };
 
 export const downloadPIRTemplate = async (token?: string) => {
-    const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const authHeader: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
     const res = await fetch(`${API_BASE_URL}/api/pir/template`, {
         headers: { ...authHeader }
     });

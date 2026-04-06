@@ -167,7 +167,7 @@ export default function HistoryApproveDetailClient({ mkdId, token, currentUser, 
             title: (parseInt(year) + (parseInt(year) < 2400 ? 543 : 0)).toString(),
             key: year,
             align: 'right' as const,
-            render: (_, record: any) => {
+            render: (_: any, record: any) => {
                 const sum = record.subItems.reduce((acc: number, curr: any) => {
                     const val = Number(curr.years[year]) || 0;
                     const coef = Number(curr.coefficient) || 1;

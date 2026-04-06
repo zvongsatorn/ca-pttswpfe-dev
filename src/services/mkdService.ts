@@ -80,7 +80,7 @@ export const getMKDHeadcount = async (id: string, effectiveYear?: number, token?
     return await fetchWithAuth(`/api/mkd/${id}/headcount${query}`, token);
 };
 
-export const saveMKDHeadcount = async (id: string, data: { positionId: string, headcount: number }[], token?: string) => {
+export const saveMKDHeadcount = async (id: string, data: any[], token?: string) => {
     return await fetchWithAuth(`/api/mkd/${id}/headcount`, token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
