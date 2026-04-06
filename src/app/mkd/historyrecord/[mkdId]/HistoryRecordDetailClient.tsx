@@ -276,9 +276,9 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
         <div className="w-full bg-slate-50 min-h-screen p-6">
             <div className="max-w-[1600px] mx-auto">
                 {/* Header Section */}
-                <Card className="mb-6 shadow-sm border-0" bodyStyle={{ padding: '24px' }}>
+                <Card className="mb-6 shadow-sm border-0" styles={{ body: { padding: '24px' } }}>
                     <div className="flex justify-between items-start mb-6">
-                        <Space direction="vertical" size={0}>
+                        <Space orientation="vertical" size={0}>
                             <Title level={2} className="m-0 text-blue-800">Manpower Key Driver (Record)</Title>
                             <Space split={<Divider type="vertical" />} className="text-slate-500 text-sm">
                                 <span>Request No: <Text strong>{header.RequestNo || '-'}</Text></span>
@@ -302,7 +302,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                 </Card>
 
                 {/* Tabs Section */}
-                <Card className="shadow-sm border-0" bodyStyle={{ padding: 0 }}>
+                <Card className="shadow-sm border-0" styles={{ body: { padding: 0 } }}>
                     <Tabs
                         activeKey={activeTab}
                         onChange={setActiveTab}

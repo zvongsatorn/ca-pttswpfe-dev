@@ -15,7 +15,7 @@ export default function HistoryLoading() {
                     <Skeleton.Button active style={{ width: 120 }} />
                 </div>
             </Card>
-            <Card className="shadow-sm border-slate-200" bodyStyle={{ padding: 0 }}>
+            <Card className="shadow-sm border-slate-200" styles={{ body: { padding: 0 } }}>
                 <Skeleton active paragraph={{ rows: 12 }} className="p-6" />
             </Card>
         </div>

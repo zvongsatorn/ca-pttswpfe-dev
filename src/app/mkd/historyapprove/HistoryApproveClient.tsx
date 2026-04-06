@@ -267,10 +267,10 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
         <div className="w-full bg-slate-50 min-h-screen p-6">
             <div className="max-w-[1600px] mx-auto">
                 {/* Search Card */}
-                <Card className="mb-6 shadow-sm border-0" bodyStyle={{ padding: '20px' }}>
+                <Card className="mb-6 shadow-sm border-0" styles={{ body: { padding: '20px' } }}>
                     <Title level={3} className="m-0 mb-6 text-blue-800">History Manpower Key Driver (Approved)</Title>
                     <div className="flex flex-wrap gap-6 items-end">
-                        <Space direction="vertical" size={4}>
+                        <Space orientation="vertical" size={4}>
                             <Text strong type="secondary">สายงาน (Division)</Text>
                             <Select
                                 showSearch
@@ -290,7 +290,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                             </Select>
                         </Space>
 
-                        <Space direction="vertical" size={4}>
+                        <Space orientation="vertical" size={4}>
                             <Text strong type="secondary">ปี (Year)</Text>
                             <Select
                                 style={{ width: 150 }}
@@ -317,7 +317,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                 </Card>
 
                 {/* Records Table */}
-                <Card className="shadow-sm border-0 overflow-hidden" bodyStyle={{ padding: 0 }}>
+                <Card className="shadow-sm border-0 overflow-hidden" styles={{ body: { padding: 0 } }}>
                     <div className="p-4 bg-slate-100/50 border-b border-slate-200">
                         <div className="text-slate-500 font-medium text-sm">
                             <HistoryOutlined className="mr-2" />

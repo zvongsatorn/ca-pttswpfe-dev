@@ -58,7 +58,3 @@ Thumbs.db
 
 # Docker
 .dockerignore
-
-# AI Agent Context (Hidden from Git)
-AGENTS.md
-.agents/

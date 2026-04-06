@@ -22,7 +22,7 @@ export const getMKDDetails = async (id: string, token?: string) => {
     return await fetchWithAuth(`/api/mkd/${id}/details`, token);
 };
 
-export const saveMainKey = async (id: string, data: any, token?: string) => {
+export const saveMainKey = async (id: string, data: { KeyManID: string, KeyManValue: number, user: string, effectiveYear: number }, token?: string) => {
     return await fetchWithAuth(`/api/mkd/${id}/keys/main`, token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -30,7 +30,7 @@ export const saveMainKey = async (id: string, data: any, token?: string) => {
     });
 };
 
-export const saveDetailKey = async (id: string, data: any, token?: string) => {
+export const saveDetailKey = async (id: string, data: { KeyManID: string, KeyManDetailID: string, KeyManDetailValue: number, user: string, effectiveYear: number }, token?: string) => {
     return await fetchWithAuth(`/api/mkd/${id}/keys/detail`, token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -80,7 +80,7 @@ export const getMKDHeadcount = async (id: string, effectiveYear?: number, token?
     return await fetchWithAuth(`/api/mkd/${id}/headcount${query}`, token);
 };
 
-export const saveMKDHeadcount = async (id: string, data: any[], token?: string) => {
+export const saveMKDHeadcount = async (id: string, data: { positionId: string, headcount: number }[], token?: string) => {
     return await fetchWithAuth(`/api/mkd/${id}/headcount`, token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -116,7 +116,19 @@ export const getFlowHistory = async (id: string, approveId: string, token?: stri
     return await fetchWithAuth(`/api/mkd/${id}/flow-history?approveId=${approveId}`, token);
 };
 
-export const approveManDriver = async (id: string, data: any, token?: string) => {
+export interface ApproveManDriverData {
+    status: number;
+    user?: string;
+    updateBy?: string;
+    comment?: string;
+    file?: File;
+    approveId?: string;
+    conclusionNo?: string;
+    mkdApproveCount?: number;
+    remark?: string;
+}
+
+export const approveManDriver = async (id: string, data: ApproveManDriverData, token?: string) => {
     const formData = new FormData();
     Object.entries(data).forEach(([key, value]) => {
         if (value instanceof File) {
@@ -140,7 +152,12 @@ export const requestApproveMKD = async (id: string, user: string, token?: string
     });
 };
 
-export const createMasterKey = async (data: { KeyManName: string, CreateBy: string }, token?: string) => {
+export interface MasterKeyCreateData {
+    KeyManName: string;
+    CreateBy: string;
+}
+
+export const createMasterKey = async (data: MasterKeyCreateData, token?: string) => {
     return await fetchWithAuth('/api/mkd/master-keys', token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

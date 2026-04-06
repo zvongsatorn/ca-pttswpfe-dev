@@ -6,7 +6,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import {
   ChevronDown,
   ClockAlert,
-  FileClock,
   FileSpreadsheet,
   Search,
   Send,
@@ -46,7 +45,6 @@ const currentMonth = months[currentDate.getMonth()];
 const currentYearStr = (currentDate.getFullYear() + 543).toString();
 
 // Types
-type TabType = 'overview' | 'progress';
 
 interface HRCenterItem {
   OrgUnitNo: string;
@@ -97,17 +95,12 @@ interface HRCenterItem {
   SapStatus: string;
 }
 
-interface ProgressItem {
-  id: string;
-  type: 'ภายใต้ ผช.' | 'โอนกรอบอื่นๆ';
-  id2: string;
-  detail: string;
-  status: 'Complete' | 'Pending' | 'Rejected';
-  remarks: string;
-  file: string;
-  createdDate: string;
-  isRejected?: boolean;
-}
+
+const sapTypes = [
+  { title: "All", id: "" },
+  { title: 'Update', id: 'Update' },
+  { title: 'Sent', id: 'Sent' }
+];
 
 // --- Helper Component: MultiSelect Filter ---
 interface MultiSelectFilterProps {
@@ -171,7 +164,7 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = "
             </span>
           )}
         </div>
-        <ChevronDown className="h-4 w-4 text-gray-400 flex-shrink-0" />
+        <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
       </div>
 
       {isOpen && (
@@ -276,10 +269,8 @@ const truncateText = (text: string | null | undefined, max: number) => {
 export default function HRCenterPage() {
   const years = useSyncExternalStore(emptySubscribe, getClientYearsSnapshot, getServerYearsSnapshot);
 
-  const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [selectedYear, setSelectedYear] = useState(currentYearStr);
-  const [searchDivision, setSearchDivision] = useState('');
   const [viewMode, setViewMode] = useState<
     'all' | 'department' | 'department-level'
   >('all');
@@ -291,6 +282,7 @@ export default function HRCenterPage() {
   // Filter States
   const [selectedBusinessUnits, setSelectedBusinessUnits] = useState<string[]>([]);
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
+  const [searchSapStatus, setSearchSapStatus] = useState('');
 
   // Define distinct keys for visibility toggling
   const [visibleColumns, setVisibleColumns] = useState({
@@ -427,46 +419,14 @@ export default function HRCenterPage() {
       if (selectedDepartments.length > 0 && !selectedDepartments.includes(item.UnitName)) {
         return false;
       }
+      // Filter by SAP Status
+      if (searchSapStatus && item.SapStatus !== searchSapStatus) {
+        return false;
+      }
       return true;
     });
-  }, [departmentData, selectedBusinessUnits, selectedDepartments]);
+  }, [departmentData, selectedBusinessUnits, selectedDepartments, searchSapStatus]);
 
-  // Progress data
-  const [progressData] = useState<ProgressItem[]>([
-    {
-      id: '1',
-      type: 'ภายใต้ ผช.',
-      id2: 'ผยญ.24/2568 : หน่วยงานส่วนงบประมาณดำเนินการ (งค.ผยญ.)โอนย้ายอัตรากำสังให้หน่วยงาน ส่วนงบประมาณลงทุน (งล.ผยญ.) ที่ระดับ 9-10 จำนวน 1 อัตรา',
-      detail: 'ผยญ.24/2568 ...',
-      status: 'Complete',
-      remarks: 'ผยญ.24/2568 งค.ผยญ...',
-      file: '📄',
-      createdDate: '11/11/2025 14:04:15',
-      isRejected: false,
-    },
-    {
-      id: '2',
-      type: 'ภายใต้ ผช.',
-      id2: 'ผคล.22/2568 ...',
-      detail: 'ผคล.22/2568 ...',
-      status: 'Complete',
-      remarks: 'บันทึก ผคล. 22/2568...',
-      file: '📄',
-      createdDate: '10/11/2025 16:08:40',
-      isRejected: true,
-    },
-    {
-      id: '3',
-      type: 'โอนกรอบอื่นๆ',
-      id2: 'ผคล.22/2568 ...',
-      detail: 'ผคล.22/2568 ...',
-      status: 'Complete',
-      remarks: 'บันทึก ผคล. 22/2568...',
-      file: '📄',
-      createdDate: '10/11/2025 16:07:45',
-      isRejected: true,
-    },
-  ]);
 
   // Calculate totals
   const calculateTotals = () => {
@@ -544,14 +504,6 @@ export default function HRCenterPage() {
 
   const totals = calculateTotals();
 
-  const filteredProgressData = progressData.filter((item) => {
-    if (viewMode === 'all') return true;
-    if (viewMode === 'department') return !item.isRejected;
-    if (viewMode === 'department-level') return item.isRejected;
-    return true;
-  });
-
-  const progressCount = progressData.length;
   const levelColSpan = getLevelGroupColSpan();
 
   return (
@@ -709,7 +661,7 @@ export default function HRCenterPage() {
       size="icon"
       className="h-9 w-9 rounded-full text-green-600 border-gray-200 hover:bg-green-50 hover:border-green-200 hover:text-green-700"
     >
-      <FileSpreadsheet className="!h-5 !w-5" />
+      <FileSpreadsheet className="h-5! w-5!" />
     </Button>
 
     {/* Settings Button & Menu */}
@@ -720,7 +672,7 @@ export default function HRCenterPage() {
         onClick={() => setShowColumnMenu(!showColumnMenu)}
         className={`h-9 w-9 rounded-full hover:bg-blue-50 hover:text-blue-600 ${showColumnMenu ? 'bg-blue-50 text-blue-600' : 'text-gray-500'}`}
       >
-        <Settings className="!h-5 !w-5" />
+        <Settings className="h-5! w-5!" />
       </Button>
 
       {showColumnMenu && (
@@ -750,8 +702,7 @@ export default function HRCenterPage() {
 </div>
 
         {/* Overview Tab */}
-        {activeTab === 'overview' && (
-          <Card className="bg-white border-0 shadow-sm py-0 overflow-visible">
+        <Card className="bg-white border-0 shadow-sm py-0 overflow-visible">
             <CardContent className="p-0 relative">
              
 
@@ -831,11 +782,20 @@ export default function HRCenterPage() {
                           <input type="text" className="w-20 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm" />
                         </th>
                       )}
+                      {/* SAP Status Search Select */}
                       {visibleColumns.sapStatusColumn && (
                         <th className="px-0 py-2">
-                          <div className="relative flex-1 max-w-md">
-                            <input type="text" className="w-15 px-0 py-1 border border-gray-300 rounded-lg" />
-                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                          <div className="relative flex-1 max-w-md px-1">
+                             <select 
+                                value={searchSapStatus}
+                                onChange={(e) => setSearchSapStatus(e.target.value)}
+                                className="w-full px-1 py-1 text-xs bg-white border border-gray-300 rounded shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 appearance-none pr-6 font-semibold"
+                             >
+                               {sapTypes.map(type => (
+                                 <option key={type.id} value={type.id}>{type.title}</option>
+                               ))}
+                             </select>
+                            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400 pointer-events-none" />
                           </div>
                         </th>
                       )}
@@ -884,7 +844,15 @@ export default function HRCenterPage() {
                         )}
                         {visibleColumns.sapStatusColumn && (
                           <td className="px-4 py-3 text-center justify-items-center">
-                            <ClockAlert className="h-5 w-5 text-red-400" />
+                            {dept.SapStatus === 'Update' && (
+                              <ClockAlert className="h-5 w-5 text-orange-500" />
+                            )}
+                            {dept.SapStatus === 'Sent' && (
+                              <Check className="h-5 w-5 text-green-600 font-bold" />
+                            )}
+                            {!dept.SapStatus && (
+                               <div className="h-5 w-5"></div>
+                            )}
                           </td>
                         )}
                       </tr>
@@ -937,7 +905,6 @@ export default function HRCenterPage() {
               </div>
             </CardContent>
           </Card>
-        )}
 
        
       </div>

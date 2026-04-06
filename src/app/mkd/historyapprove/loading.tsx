@@ -8,13 +8,13 @@ export default function HistoryApproveLoading() {
         <div className="w-full bg-slate-50 min-h-screen p-6">
             <div className="max-w-[1600px] mx-auto">
                 {/* Search Card Skeleton */}
-                <Card className="mb-6 shadow-sm border-0" bodyStyle={{ padding: '20px' }}>
+                <Card className="mb-6 shadow-sm border-0" styles={{ body: { padding: '20px' } }}>
                     <Skeleton.Input active style={{ width: 400, height: 32 }} className="mb-6" />
                     <div className="flex flex-wrap gap-6 items-end">
-                        <Space direction="vertical" size={4}>
+                        <Space orientation="vertical" size={4}>
                             <Skeleton.Input active style={{ width: 400 }} />
                         </Space>
-                        <Space direction="vertical" size={4}>
+                        <Space orientation="vertical" size={4}>
                             <Skeleton.Input active style={{ width: 150 }} />
                         </Space>
                         <Skeleton.Button active style={{ width: 120, height: 40 }} />
@@ -22,7 +22,7 @@ export default function HistoryApproveLoading() {
                 </Card>
 
                 {/* Table Card Skeleton */}
-                <Card className="shadow-sm border-0 overflow-hidden" bodyStyle={{ padding: 0 }}>
+                <Card className="shadow-sm border-0 overflow-hidden" styles={{ body: { padding: 0 } }}>
                     <div className="p-4 bg-slate-100/50 border-b border-slate-200">
                         <Skeleton.Input active style={{ width: 250 }} />
                     </div>

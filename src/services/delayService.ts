@@ -37,13 +37,13 @@ const MOCK_DATA: DelayRetirementDataType[] = [
     },
 ];
 
-export const getDelayRetirementData = async () => {
+export const getDelayRetirementData = async (token?: string) => {
     // Simulate network delay
     await new Promise(resolve => setTimeout(resolve, 500));
     return { success: true, data: MOCK_DATA };
 };
 
-export const getEmployeeOptions = async () => {
+export const getEmployeeOptions = async (token?: string) => {
     return {
         success: true,
         data: [

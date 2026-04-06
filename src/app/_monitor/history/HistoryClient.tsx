@@ -325,7 +325,7 @@ export default function HistoryClient({
                 </div>
             </Card>
 
-            <Card className="shadow-sm border-slate-200 overflow-hidden" bodyStyle={{ padding: 0 }}>
+            <Card className="shadow-sm border-slate-200 overflow-hidden" styles={{ body: { padding: 0 } }}>
                 <div className="bg-slate-800 text-white px-4 py-2 font-bold flex items-center gap-2">
                     <FileText size={16} />
                     <span className="text-xs uppercase tracking-widest font-mono">LOG DATA</span>

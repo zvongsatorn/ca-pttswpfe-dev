@@ -391,7 +391,7 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
                 </div>
             </Card>
 
-            <Card className="shadow-sm border-slate-200 overflow-hidden" bodyStyle={{ padding: 0 }}>
+            <Card className="shadow-sm border-slate-200 overflow-hidden" styles={{ body: { padding: 0 } }}>
                 <Table
                     columns={columns}
                     dataSource={filteredData}
@@ -423,7 +423,7 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
                 ]}
                 width={800}
                 centered
-                bodyStyle={{ padding: '0 24px 24px' }}
+                styles={{ body: { padding: '0 24px 24px' } }}
             >
                 <div className="flex gap-4 mb-4">
                     <Input 

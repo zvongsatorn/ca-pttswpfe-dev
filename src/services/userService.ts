@@ -1,8 +1,16 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
-export const getUserOther = async () => {
+const getHeaders = (token?: string) => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+};
+
+export const getUserOther = async (token?: string) => {
     try {
-        const response = await fetch(`${API_URL}/api/users/other`);
+        const response = await fetch(`${API_URL}/api/users/other`, {
+            headers: getHeaders(token)
+        });
         return await response.json();
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
@@ -11,11 +19,11 @@ export const getUserOther = async () => {
     }
 };
 
-export const insertUserOther = async (employeeId: string, fullName: string, createBy: string) => {
+export const insertUserOther = async (employeeId: string, fullName: string, createBy: string, token?: string) => {
     try {
         const response = await fetch(`${API_URL}/api/users/other`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getHeaders(token),
             body: JSON.stringify({ employeeId, fullName, createBy })
         });
         return await response.json();
@@ -26,10 +34,11 @@ export const insertUserOther = async (employeeId: string, fullName: string, crea
     }
 };
 
-export const deleteUserOther = async (employeeId: string, updateBy: string) => {
+export const deleteUserOther = async (employeeId: string, updateBy: string, token?: string) => {
     try {
         const response = await fetch(`${API_URL}/api/users/other/${employeeId}?updateBy=${updateBy}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: getHeaders(token)
         });
         return await response.json();
     } catch (error: unknown) {

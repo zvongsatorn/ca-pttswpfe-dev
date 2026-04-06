@@ -263,7 +263,7 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
         <div className="w-full bg-slate-50 min-h-screen p-6">
             <div className="max-w-[1400px] mx-auto">
                 {/* Header Card */}
-                <Card className="mb-6 shadow-sm border-0 bg-blue-700" bodyStyle={{ padding: '20px' }}>
+                <Card className="mb-6 shadow-sm border-0 bg-blue-700" styles={{ body: { padding: '20px' } }}>
                     <div className="flex justify-between items-center">
                         <Title level={3} className="m-0 text-white">History Manpower Key Driver (Record)</Title>
                         <Button 
@@ -279,9 +279,9 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                 </Card>
 
                 {/* Filter section */}
-                <Card className="mb-6 shadow-sm border-0" bodyStyle={{ padding: '20px' }}>
+                <Card className="mb-6 shadow-sm border-0" styles={{ body: { padding: '20px' } }}>
                     <Space size={24} align="end">
-                        <Space direction="vertical" size={4}>
+                        <Space orientation="vertical" size={4}>
                             <Text strong type="secondary">Year (ปี)</Text>
                             <Select
                                 style={{ width: 200 }}
@@ -306,7 +306,7 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                 </Card>
 
                 {/* Table section */}
-                <Card className="shadow-sm border-0" bodyStyle={{ padding: 0 }}>
+                <Card className="shadow-sm border-0" styles={{ body: { padding: 0 } }}>
                     <Table 
                         columns={columns} 
                         dataSource={records}
@@ -329,7 +329,7 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                 okButtonProps={{ className: 'bg-blue-600' }}
             >
                 <div className="py-4">
-                    <Space direction="vertical" className="w-full" size={16}>
+                    <Space orientation="vertical" className="w-full" size={16}>
                         <div>
                             <Text strong className="block mb-2">ปี (Effective Year)</Text>
                             <Tag color="blue" className="px-4 py-1 text-base">{selectedYear}</Tag>

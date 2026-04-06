@@ -16,7 +16,6 @@ export default function MainLayout({ children, currentPath }: MainProps) {
   const [currentBreakpoint, setCurrentBreakpoint] = useState<
     'mobile' | 'tablet' | 'desktop'
   >('desktop');
-  const [isMobile, setIsMobile] = useState(false);
   const pathname = usePathname();
 
   // Auto-collapse based on screen size และติดตาม breakpoint
@@ -25,8 +24,6 @@ export default function MainLayout({ children, currentPath }: MainProps) {
       const isMobile = window.innerWidth < 768; // md breakpoint
       const isTablet = window.innerWidth >= 768 && window.innerWidth < 1024; // md-lg breakpoint
       const isDesktop = window.innerWidth >= 1024; // lg+ breakpoint
-
-      setIsMobile(isMobile);
 
       if (isMobile) {
         setCurrentBreakpoint('mobile');
@@ -95,7 +92,7 @@ export default function MainLayout({ children, currentPath }: MainProps) {
         {/* Main Content */}
         <main
           className={`
-          flex-1 transition-all duration-300 p-6
+          flex-1 min-w-0 transition-all duration-300 p-6
           ${!sidebarVisible ? 'ml-0' : sidebarCollapsed ? 'ml-16' : 'ml-64'}
         `}
         >

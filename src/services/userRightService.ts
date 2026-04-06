@@ -43,6 +43,10 @@ export const fetchUserGroupMembers = async (userGroupNo: string, token?: string)
     return await fetchWithAuth(`/api/usergroup/members?userGroupNo=${userGroupNo}`, token);
 };
 
+export const fetchLineCombo = async (month: string, year: string, token?: string) => {
+    return await fetchWithAuth(`/api/user-rights/combo/line?effectiveMonth=${month}&effectiveYear=${year}`, token);
+};
+
 export const copyOrgRights = async (data: {
     UserGroupNo: string;
     EmployeeIDFrom: string;
