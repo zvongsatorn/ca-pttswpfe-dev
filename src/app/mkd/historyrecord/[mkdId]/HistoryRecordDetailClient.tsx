@@ -38,14 +38,7 @@ import {
 } from '@ant-design/icons';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
-import { 
-    saveMainKeyAction, 
-    saveDetailKeyAction, 
-    deleteMainKeyAction, 
-    updateStatusAction, 
-    updateNoteAction 
-} from '../actions';
-import { saveMKDHeadcount } from '@/services/mkdService';
+import { saveMKDHeadcount, updateManDriverStatus } from '@/services/mkdService';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -193,7 +186,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
             onOk: async () => {
                 try {
                     setLoading(true);
-                    await updateStatusAction(mkdId, 2, currentUser.employeeID, token);
+                    await updateManDriverStatus(mkdId, 2, currentUser.employeeID, token);
                     message.success('ยืนยันข้อมูลเรียบร้อยแล้ว');
                     router.push('/mkd/historyrecord');
                 } catch (error) {
