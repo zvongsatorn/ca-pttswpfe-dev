@@ -195,7 +195,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
             key: 'createBy',
             render: (_: any, r: any) => (
                 <div className="flex flex-col">
-                    <Text size="small">{r.EmpName || r.CreateBy}</Text>
+                    <Text className="text-sm">{r.EmpName || r.CreateBy}</Text>
                     <Text type="secondary" className="text-[10px]">{r.CreateDateBD}</Text>
                 </div>
             )
