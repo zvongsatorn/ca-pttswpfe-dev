@@ -2,7 +2,6 @@ import React from 'react';
 import { cookies } from 'next/headers';
 import { getUserFromToken } from '@/utils/auth';
 import { getMKDDetails, getMasterKeys } from '@/services/mkdService';
-import { App as AntdApp } from 'antd';
 import HistoryApproveDetailClient from './HistoryApproveDetailClient';
 import Main from '@/components/layout/main';
 
@@ -29,15 +28,13 @@ export default async function HistoryApproveDetailPage({ params }: { params: Pro
 
     return (
         <Main currentPath="/mkd/transaction">
-            <AntdApp>
-                <HistoryApproveDetailClient 
-                    mkdId={mkdId}
-                    token={token}
-                    currentUser={user}
-                    initialData={initialData}
-                    masterKeys={masterKeys}
-                />
-            </AntdApp>
+            <HistoryApproveDetailClient 
+                mkdId={mkdId}
+                token={token}
+                currentUser={user}
+                initialData={initialData}
+                masterKeys={masterKeys}
+            />
         </Main>
     );
 }

@@ -2,7 +2,6 @@ import React from 'react';
 import { cookies } from 'next/headers';
 import { getUserFromToken } from '@/utils/auth';
 import { getMKDDetails, getMasterKeys, getMKDHeadcount } from '@/services/mkdService';
-import { App as AntdApp } from 'antd';
 import HistoryRecordDetailClient from './HistoryRecordDetailClient';
 import Main from '@/components/layout/main';
 
@@ -31,15 +30,13 @@ export default async function HistoryRecordDetailPage({ params }: { params: Prom
 
     return (
         <Main currentPath="/mkd/transaction">
-            <AntdApp>
-                <HistoryRecordDetailClient 
-                    mkdId={mkdId}
-                    token={token}
-                    currentUser={user}
-                    initialData={initialData}
-                    masterKeys={masterKeys}
-                />
-            </AntdApp>
+            <HistoryRecordDetailClient 
+                mkdId={mkdId}
+                token={token}
+                currentUser={user}
+                initialData={initialData}
+                masterKeys={masterKeys}
+            />
         </Main>
     );
 }

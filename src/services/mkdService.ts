@@ -22,7 +22,19 @@ export const getMKDDetails = async (id: string, token?: string) => {
     return await fetchWithAuth(`/api/mkd/${id}/details`, token);
 };
 
-export const saveMainKey = async (id: string, data: { KeyManID: string, KeyManValue: number, user: string, effectiveYear: number }, token?: string) => {
+export interface SaveMainKeyData {
+    manDriverKeyId?: string;
+    keyManId?: string | number;
+    unit?: string;
+    keyType?: number;
+    weight?: number;
+    user?: string;
+    insertType?: number;
+    effectiveYear?: number;
+    parentId?: string | number;
+}
+
+export const saveMainKey = async (id: string, data: SaveMainKeyData, token?: string) => {
     return await fetchWithAuth(`/api/mkd/${id}/keys/main`, token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -30,7 +42,16 @@ export const saveMainKey = async (id: string, data: { KeyManID: string, KeyManVa
     });
 };
 
-export const saveDetailKey = async (id: string, data: { KeyManID: string, KeyManDetailID: string, KeyManDetailValue: number, user: string, effectiveYear: number }, token?: string) => {
+export interface SaveDetailKeyData {
+    manDriverKeyId: string | number;
+    definition?: string;
+    coefficient?: number;
+    remark?: string;
+    user?: string;
+    yearlyData?: any[];
+}
+
+export const saveDetailKey = async (id: string, data: SaveDetailKeyData, token?: string) => {
     return await fetchWithAuth(`/api/mkd/${id}/keys/detail`, token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
