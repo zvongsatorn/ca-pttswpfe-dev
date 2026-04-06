@@ -124,7 +124,7 @@ export default function MKDDetailPage() {
         modal.confirm({
             title: 'ยืนยันการส่งอนุมัติ', content: 'คุณต้องการส่งเอกสารนี้เพื่อขออนุมัติใช่หรือไม่?',
             onOk: async () => {
-                try { setLoading(true); const res = await requestApproveMKD(mkdId, currentUser?.employeeID, token);
+                try { setLoading(true); const res = await requestApproveMKD(mkdId, currentUser?.employeeID || 'SYSTEM', token);
                     if (res?.success) { message.success('ส่งคำขออนุมัติเรียบร้อยแล้ว'); router.push('/mkd/history'); }
                     else { message.error(res?.message || 'เกิดข้อผิดพลาดในการส่งคำขออนุมัติ'); }
                 } catch { message.error('เกิดข้อผิดพลาด'); } finally { setLoading(false); }
@@ -136,7 +136,7 @@ export default function MKDDetailPage() {
         modal.confirm({
             title: 'ยืนยันการยกเลิก', content: 'คุณต้องการยกเลิกเอกสารนี้ใช่หรือไม่? หลังจากยกเลิกแล้วจะไม่สามารถแก้ไขได้อีก', okType: 'danger',
             onOk: async () => {
-                try { setLoading(true); await updateManDriverStatus(mkdId, 0, currentUser?.employeeID, token); message.success('ยกเลิกเอกสารเรียบร้อยแล้ว'); router.push('/mkd/history'); }
+                try { setLoading(true); await updateManDriverStatus(mkdId, 0, currentUser?.employeeID || 'SYSTEM', token); message.success('ยกเลิกเอกสารเรียบร้อยแล้ว'); router.push('/mkd/history'); }
                 catch { message.error('เกิดข้อผิดพลาด'); } finally { setLoading(false); }
             }
         });
