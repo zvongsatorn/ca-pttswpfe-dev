@@ -1,439 +1,747 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-    Table, 
-    Card, 
-    Button, 
-    Typography, 
-    Tag, 
-    Select, 
-    Space, 
-    Input, 
-    DatePicker, 
-    Modal, 
-    App, 
-    Tooltip,
-    Divider,
-    Descriptions,
-    Empty,
-    Badge
-} from 'antd';
-import { 
-    SearchOutlined, 
-    HistoryOutlined, 
-    TeamOutlined, 
-    FileSearchOutlined, 
-    BarChartOutlined,
-    CheckCircleFilled,
-    ClockCircleFilled,
-    CloseCircleFilled,
-    SyncOutlined
-} from '@ant-design/icons';
-import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import dayjs from 'dayjs';
-import { getHistoryManDriverApprove, getFlowHistory } from '@/services/mkdService';
+import buddhistEra from 'dayjs/plugin/buddhistEra';
+import TH_Locale from 'antd/es/date-picker/locale/th_TH';
+import generatePicker from 'antd/es/date-picker/generatePicker';
+import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs';
 
-const { Title, Text } = Typography;
+dayjs.extend(buddhistEra);
+
+// Override the date picker locale to support Buddhist Era year
+const customLocale = {
+  ...TH_Locale,
+  lang: {
+    ...TH_Locale.lang,
+    yearFormat: 'BBBB',
+  },
+};
+
+// Extend dayjs config to use BBBB for year rendering
+const customGenerateConfig = {
+  ...dayjsGenerateConfig,
+  getYear: (date: dayjs.Dayjs) => date.year(),
+  format: (locale: string, date: dayjs.Dayjs, format: string) => {
+    if (format === 'YYYY') return date.format('BBBB');
+    if (format === 'YYYY-MM') return date.format('BBBB-MM');
+    return date.format(format);
+  }
+};
+
+const BDatePicker = generatePicker<dayjs.Dayjs>(customGenerateConfig);
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Search,
+  User,
+  BarChart3,
+  Check,
+  ChevronsUpDown,
+  FileText,
+} from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { cn } from '@/lib/utils';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+
+interface CurrentUser {
+  employeeID?: string;
+  EmployeeID?: string;
+  userGroupNo?: string;
+  roleId?: string;
+  userGroups?: { userGroupNo: string }[];
+  [key: string]: unknown;
+}
+
+interface RawMKDRecord {
+  ManDriverStatus?: number;
+  ApproveHistStatus?: number | null;
+  AppStatusName?: string;
+  StatusName?: string;
+  datebd?: string | number | Date;
+  UnitAllName?: string;
+  OrgUnitName?: string;
+  fullRequestNo?: string;
+  RequestNo?: string;
+  ManDriverID: string | number;
+  ApproveID?: string | number;
+  BGName?: string;
+  OrgUnitNo?: string;
+  EmpName?: string;
+  CreateBy?: string;
+  CreateDateBD?: string;
+  Fullname?: string;
+  PrevAppDateBD?: string;
+  ConclusionNo?: string;
+  MKDApprove?: number;
+  FileUpload?: string | null;
+}
+
+interface MKDRecord {
+  no: number;
+  reqNo: string;
+  mkdID: string;
+  approveID?: string;
+  reqDate: string;
+  bu: string;
+  orgUnit?: string;
+  orgUnitOnly: string;
+  division: string;
+  orgUnitCode: string;
+  createBy: string;
+  createDate: string;
+  approveSteps?: {
+    step: string;
+    approver: string;
+    date: string;
+  };
+  noConclusion: string;
+  mkdCount: number;
+  hasEdit: boolean;
+  hasFlow: boolean;
+  status: string;
+  statusColor: string;
+  manDriverStatus: number;
+  approveHistStatus: number | null;
+  fileUpload: string | null;
+}
+
+const statusOptions = [
+  { value: 'ทั้งหมด', label: 'ทั้งหมด' },
+  { value: 'ยกเลิก', label: 'ยกเลิก' },
+  { value: 'รอขออนุมัติ', label: 'รอขออนุมัติ' },
+  { value: 'รอเห็นชอบ', label: 'รอเห็นชอบ' },
+  { value: 'เห็นชอบ', label: 'เห็นชอบ' },
+  { value: 'เห็นชอบแล้ว', label: 'เห็นชอบแล้ว' },
+  { value: 'อนุมัติแล้ว', label: 'อนุมัติแล้ว' },
+  { value: 'ไม่เห็นชอบ', label: 'ไม่เห็นชอบ' },
+  { value: 'ไม่อนุมัติ', label: 'ไม่อนุมัติ' },
+];
 
 interface HistoryApproveClientProps {
     token: string;
-    currentUser: any;
+    currentUser: CurrentUser | null;
     initialYears: string[];
-    initialUnits: { id: string; unitText: string }[];
+    initialUnits: { id: string; unitText: string; name?: string }[];
 }
 
 export default function HistoryApproveClient({ token, currentUser, initialYears, initialUnits }: HistoryApproveClientProps) {
-    const router = useRouter();
-    const { message } = App.useApp();
+  const router = useRouter();
+  const [year, setYear] = useState(() => {
+     if (typeof window !== 'undefined') {
+         return localStorage.getItem('mkd_historyapprove_year') || (dayjs().year() + 543).toString();
+     }
+     return (dayjs().year() + 543).toString();
+  });
+  const [statusFilter, setStatusFilter] = useState('ทั้งหมด');
+  
+  const [records, setRecords] = useState<MKDRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  
+  const [isMainComboboxOpen, setIsMainComboboxOpen] = useState(false);
+  const [selectedMainUnit, setSelectedMainUnit] = useState(() => {
+     if (typeof window !== 'undefined') {
+         return localStorage.getItem('mkd_historyapprove_unit') || '';
+     }
+     return '';
+  });
 
-    const [loading, setLoading] = useState(false);
-    const [selectedYear, setSelectedYear] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('mkd_historyapprove_year') || (dayjs().year() + 543).toString();
-        }
-        return (dayjs().year() + 543).toString();
-    });
-    const [selectedUnit, setSelectedUnit] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('mkd_historyapprove_unit') || '';
-        }
-        return '';
-    });
+  const [filterReqNo, setFilterReqNo] = useState('');
+  const [filterReqDate, setFilterReqDate] = useState('');
+  const [filterBU, setFilterBU] = useState('');
+  const [filterOrgUnit, setFilterOrgUnit] = useState('');
+  const [filterCreateBy, setFilterCreateBy] = useState('');
+  const [filterConclusion, setFilterConclusion] = useState('');
 
-    const [records, setRecords] = useState<any[]>([]);
-    
-    // In-table filters
-    const [filters, setFilters] = useState({
-        reqNo: '',
-        date: '',
-        bu: '',
-        unit: '',
-        createBy: '',
-        conclusion: ''
-    });
+  const [isFlowModalOpen, setIsFlowModalOpen] = useState(false);
+  const [flowData, setFlowData] = useState<{ Seqno: number; Fullname: string; posname?: string; StatusName?: string; ApproveHistStatus?: number; ApproveHistDateBD?: string; Remark?: string; }[]>([]);
+  const [flowLoading, setFlowLoading] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-    // Flow modal
-    const [isFlowModalOpen, setIsFlowModalOpen] = useState(false);
-    const [flowData, setFlowData] = useState<any[]>([]);
-    const [flowLoading, setFlowLoading] = useState(false);
+  useEffect(() => {
+    const storedStatus = localStorage.getItem('mkd_historyapprove_status');
+    if (storedStatus) setStatusFilter(storedStatus.trim());
+    setIsLoaded(true);
+  }, []);
 
-    // --- Data Fetching ---
-    const fetchHistory = useCallback(async () => {
-        if (!currentUser) return;
-        setLoading(true);
-        try {
-            const ceYear = parseInt(selectedYear) > 2500 ? (parseInt(selectedYear) - 543).toString() : selectedYear;
-            
-            const params = {
-                EffectiveYear: ceYear,
-                division: selectedUnit,
-                userGroupNo: currentUser.userGroupNo || currentUser.roleId || ''
-            };
+  useEffect(() => {
+    if (isLoaded) {
+      localStorage.setItem('mkd_historyapprove_year', year);
+      localStorage.setItem('mkd_historyapprove_unit', selectedMainUnit);
+      localStorage.setItem('mkd_historyapprove_status', statusFilter);
+    }
+  }, [year, selectedMainUnit, statusFilter, isLoaded]);
 
-            const res = await getHistoryManDriverApprove(params, token);
-            if (res?.success) {
-                setRecords(res.data.map((item: any, idx: number) => ({
-                    ...item,
-                    key: item.ManDriverID || idx,
-                    no: idx + 1
-                })));
-            }
-        } catch (error) {
-            message.error('ไม่สามารถดึงข้อมูลประวัติการอนุมัติได้');
-        } finally {
-            setLoading(false);
-        }
-    }, [selectedYear, selectedUnit, currentUser, token, message]);
+  const fetchHistory = useCallback(async () => {
+    setLoading(true);
+    try {
+      let employeeId = '';
+      let userGroupNo = '';
+      
+      if (currentUser) {
+          employeeId = currentUser.employeeID || '';
+          userGroupNo = localStorage.getItem('selected_usergroup') || currentUser.userGroupNo || currentUser.roleId || '';
+          if (!userGroupNo && currentUser.userGroups && currentUser.userGroups.length > 0) {
+            userGroupNo = currentUser.userGroups[0].userGroupNo;
+          }
+      }
 
-    useEffect(() => {
-        fetchHistory();
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('mkd_historyapprove_year', selectedYear);
-            localStorage.setItem('mkd_historyapprove_unit', selectedUnit);
-        }
-    }, [selectedYear, selectedUnit, fetchHistory]);
+      const numericYear = parseInt(year);
+      const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : year;
 
-    const handleOpenFlow = async (record: any) => {
-        if (!record.ApproveID || record.ApproveID === '0') return;
-        setFlowData([]);
-        setFlowLoading(true);
-        setIsFlowModalOpen(true);
-        try {
-            const res = await getFlowHistory(record.ManDriverID, record.ApproveID, token);
-            if (res?.success) setFlowData(res.data);
-        } catch (error) {
-            message.error('ไม่สามารถดึงข้อมูล Flow ได้');
-        } finally {
-            setFlowLoading(false);
-        }
-    };
+      const query = new URLSearchParams({
+        EffectiveYear: ceYear,
+        division: selectedMainUnit, 
+        EmployeeID: employeeId,
+        UserGroupNo: userGroupNo
+      });
 
-    // --- Filter Logic ---
-    const filteredRecords = useMemo(() => {
-        return records.filter(r => {
-            const reqNoMatch = !filters.reqNo || (r.fullRequestNo || r.RequestNo || '').toLowerCase().includes(filters.reqNo.toLowerCase());
-            const buMatch = !filters.bu || (r.BGName || '').toLowerCase().includes(filters.bu.toLowerCase());
-            const unitMatch = !filters.unit || (r.OrgUnitNo || '' + r.OrgUnitName || '').toLowerCase().includes(filters.unit.toLowerCase());
-            const createByMatch = !filters.createBy || (r.EmpName || r.CreateBy || '').toLowerCase().includes(filters.createBy.toLowerCase());
-            const conclusionMatch = !filters.conclusion || (r.ConclusionNo || '').toLowerCase().includes(filters.conclusion.toLowerCase());
-            
-            let dateMatch = true;
-            if (filters.date && r.datebd) {
-                const searchDate = filters.date;
-                const recordDate = dayjs(r.datebd).format('DD/MM/YYYY');
-                dateMatch = recordDate.includes(searchDate);
-            }
+      const res = await fetch(`/api/mkd/history-approve?${query}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const result = await res.json();
+      if (result.success) {
+        const mapped = result.data.map((item: RawMKDRecord, index: number) => {
+          const str = (v: unknown): string => (v === null || v === undefined) ? '' : String(v);
+          const manStatus = Number(item.ManDriverStatus) || 0;
+          const appHistStatus = item.ApproveHistStatus !== null && item.ApproveHistStatus !== undefined 
+            ? Number(item.ApproveHistStatus) : null;
+          
+          let statusLabel = str(item.AppStatusName) || str(item.StatusName) || 'รอขออนุมัติ';
 
-            return reqNoMatch && buMatch && unitMatch && createByMatch && conclusionMatch && dateMatch;
+          if (manStatus === 2) {
+            statusLabel = 'เห็นชอบแล้ว';
+          } else if (manStatus === 1) {
+            if (appHistStatus === 1) statusLabel = 'เห็นชอบ';
+            else if (appHistStatus === -1) statusLabel = 'ไม่เห็นชอบ';
+          } else if (manStatus === 3) {
+            statusLabel = 'อนุมัติแล้ว';
+          } else if (manStatus === 0) {
+            statusLabel = 'ยกเลิก';
+          }
+          
+          let displayDate = '-';
+          if (item.datebd) {
+              const d = new Date(item.datebd as string | number | Date);
+              if (!isNaN(d.getTime())) {
+                  const dDay = String(d.getDate()).padStart(2, '0');
+                  const month = String(d.getMonth() + 1).padStart(2, '0');
+                  const yr = d.getFullYear();
+                  displayDate = `${dDay}/${month}/${yr}`;
+              } else if (typeof item.datebd === 'string') {
+                  displayDate = item.datebd;
+              }
+          }
+
+          const unitAllName = str(item.UnitAllName) || str(item.OrgUnitName);
+
+          return {
+            no: index + 1,
+            reqNo: str(item.fullRequestNo) || str(item.RequestNo) || '-',
+            mkdID: str(item.ManDriverID),
+            approveID: str(item.ApproveID),
+            reqDate: displayDate,
+            bu: str(item.BGName) || '-',
+            orgUnitCode: str(item.OrgUnitNo) || '-',
+            orgUnitOnly: unitAllName.replace(/\s*\([^)]*\)\s*$/, '') || '-',
+            division: unitAllName.match(/\(([^)]+)\)/)?.[1] || '',
+            createBy: str(item.EmpName) || str(item.CreateBy) || '-',
+            createDate: str(item.CreateDateBD) || '-',
+            approveSteps: item.ApproveID && item.Fullname ? {
+              step: str(item.Fullname),
+              approver: '',
+              date: str(item.PrevAppDateBD),
+            } : undefined,
+            noConclusion: str(item.ConclusionNo),
+            mkdCount: typeof item.MKDApprove === 'number' ? item.MKDApprove : 0,
+            hasEdit: item.ManDriverStatus === 2,
+            hasFlow: !!item.ApproveID,
+            status: statusLabel,
+            statusColor: manStatus === 3 ? 'text-green-700' : (manStatus === 1 ? 'text-purple-700' : 'text-blue-700'),
+            manDriverStatus: manStatus,
+            approveHistStatus: appHistStatus,
+            fileUpload: typeof item.FileUpload === 'string' ? item.FileUpload : null,
+          };
         });
-    }, [records, filters]);
+        setRecords(mapped);
+      }
+    } catch (error) {
+      console.error('Error fetching MKD history approve', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [year, selectedMainUnit, currentUser, token]);
 
-    // --- Renderers ---
-    const getStatusTag = (status: string) => {
-        if (status.includes('อนุมัติแล้ว')) return <Tag color="success" icon={<CheckCircleFilled />}>{status}</Tag>;
-        if (status.includes('รอ') || status.includes('ยัน')) return <Tag color="warning" icon={<ClockCircleFilled />}>{status}</Tag>;
-        if (status.includes('ยกเลิก')) return <Tag color="error" icon={<CloseCircleFilled />}>{status}</Tag>;
-        return <Tag color="processing" icon={<SyncOutlined spin />}>{status}</Tag>;
-    };
+  useEffect(() => {
+    if (isLoaded) {
+      fetchHistory();
+    }
+  }, [isLoaded, fetchHistory]);
 
-    const columns = [
-        {
-            title: 'No',
-            dataIndex: 'no',
-            key: 'no',
-            width: 50,
-            align: 'center' as const
-        },
-        {
-            title: 'Req.No',
-            key: 'reqNo',
-            render: (_: any, r: any) => <Text strong className="text-blue-700">{r.fullRequestNo || r.RequestNo || '-'}</Text>
-        },
-        {
-            title: 'Req.Date',
-            key: 'reqDate',
-            render: (_: any, r: any) => r.datebd ? dayjs(r.datebd).format('DD/MM/YYYY') : '-'
-        },
-        {
-            title: 'BU',
-            dataIndex: 'BGName',
-            key: 'bu'
-        },
-        {
-            title: 'OrgUnit',
-            key: 'orgUnit',
-            render: (_: any, r: any) => (
-                <div className="flex flex-col">
-                    <Text strong>{r.OrgUnitNo}</Text>
-                    <Text type="secondary" className="text-[11px]">{r.OrgUnitName}</Text>
-                </div>
-            )
-        },
-        {
-            title: 'Create By',
-            key: 'createBy',
-            render: (_: any, r: any) => (
-                <div className="flex flex-col">
-                    <Text className="text-sm">{r.EmpName || r.CreateBy}</Text>
-                    <Text type="secondary" className="text-[10px]">{r.CreateDateBD}</Text>
-                </div>
-            )
-        },
-        {
-            title: 'Approve Steps',
-            key: 'steps',
-            render: (_: any, r: any) => (
-                <Space>
-                    {r.Fullname && (
-                        <div className="flex flex-col">
-                            <Text className="text-[11px] text-slate-800">{r.Fullname}</Text>
-                            <Text type="secondary" className="text-[10px]">{r.PrevAppDateBD}</Text>
-                        </div>
-                    )}
-                    {r.ApproveID && (
-                        <Tooltip title="View Flow">
-                            <Button 
-                                type="text" 
-                                size="small" 
-                                icon={<TeamOutlined className="text-blue-500" />} 
-                                onClick={() => handleOpenFlow(r)}
+  const openFlowPopup = async (mkdID: string, approveID?: string) => {
+    if (!approveID || approveID === '0') return;
+    setFlowData([]);
+    setFlowLoading(true);
+    setIsFlowModalOpen(true);
+    try {
+      const res = await fetch(`/api/mkd/${mkdID}/flow-history?approveId=${approveID}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const result = await res.json();
+      if (result.success) setFlowData(result.data);
+    } catch (e) {
+      console.error('Error fetching flow history', e);
+    } finally {
+      setFlowLoading(false);
+    }
+  };
+
+  const getFlowStatusColor = (status?: number) => {
+    if (status === 1) return 'text-green-700';
+    if (status === -1) return 'text-red-700';
+    return 'text-gray-800 font-bold';
+  };
+
+  const filteredRecords = useMemo(() => {
+    return records.filter(r => {
+      if (filterReqNo && !r.reqNo.toLowerCase().includes(filterReqNo.toLowerCase())) return false;
+      if (filterReqDate && !r.reqDate.includes(filterReqDate)) return false; 
+      if (filterBU && !r.bu.toLowerCase().includes(filterBU.toLowerCase())) return false;
+      if (filterOrgUnit && !(r.orgUnitCode + r.orgUnitOnly).toLowerCase().includes(filterOrgUnit.toLowerCase())) return false;
+      if (filterCreateBy && !r.createBy.toLowerCase().includes(filterCreateBy.toLowerCase())) return false;
+      if (filterConclusion && !r.noConclusion.toLowerCase().includes(filterConclusion.toLowerCase())) return false;
+      if (statusFilter !== 'ทั้งหมด') {
+         const option = statusOptions.find(o => o.value === statusFilter);
+         if (option && r.status !== option.label) return false;
+      }
+      return true;
+    });
+  }, [records, filterReqNo, filterReqDate, filterBU, filterOrgUnit, filterCreateBy, filterConclusion, statusFilter]);
+
+  const handleSearch = () => {
+    fetchHistory();
+  };
+
+  const handleViewDetail = (mkdId: string) => {
+    router.push(`/mkd/historyapprove/${mkdId}`);
+  };
+
+  const handleViewDashboard = (mkdId: string) => {
+    router.push(`/mkd/dashboard/${mkdId}`);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <Card className="bg-linear-to-r from-blue-600 to-blue-700 border-0 shadow-lg py-2">
+        <CardContent>
+          <h1 className="text-2xl font-bold text-white">
+            History Manpower Key Driver (Approved)
+          </h1>
+        </CardContent>
+      </Card>
+
+      {/* Filter Section */}
+      <Card className="bg-white border-0 shadow-sm py-2">
+        <CardContent className="p-4">
+          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end">
+            <div className="w-full lg:w-auto"> 
+              <Label className="text-sm font-medium text-gray-700 mb-2 block">
+                Filter : สายงาน
+              </Label>
+              <div className="relative w-80">
+                <Popover open={isMainComboboxOpen} onOpenChange={setIsMainComboboxOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={isMainComboboxOpen}
+                      className="w-full justify-between font-normal bg-white"
+                    >
+                      {selectedMainUnit
+                        ? initialUnits.find((unit) => unit.id === selectedMainUnit)?.unitText || selectedMainUnit
+                        : "เลือกสายงาน..."}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[400px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="พิมพ์รหัสหรือชื่อสายงาน..." />
+                      <CommandList>
+                        <CommandEmpty>ไม่พบสายงาน</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem
+                            value=""
+                            onSelect={() => {
+                              setSelectedMainUnit('');
+                              setIsMainComboboxOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                selectedMainUnit === '' ? "opacity-100" : "opacity-0"
+                              )}
                             />
-                        </Tooltip>
-                    )}
-                </Space>
-            )
-        },
-        {
-            title: 'Conclusion',
-            dataIndex: 'ConclusionNo',
-            key: 'conclusion'
-        },
-        {
-            title: 'Status',
-            key: 'status',
-            align: 'center' as const,
-            render: (_: any, r: any) => getStatusTag(r.StatusName || r.AppStatusName || '-')
-        },
-        {
-            title: 'Action',
-            key: 'action',
-            align: 'center' as const,
-            render: (_: any, r: any) => (
-                <Space>
-                    <Tooltip title="View Detail">
-                        <Button 
-                            type="primary" 
-                            shape="circle" 
-                            icon={<FileSearchOutlined />} 
-                            onClick={() => router.push(`/mkd/historyapprove/${r.ManDriverID}`)}
-                        />
-                    </Tooltip>
-                    {r.ManDriverStatus > 1 && (
-                        <Tooltip title="View Charts">
-                            <Button 
-                                shape="circle" 
-                                icon={<BarChartOutlined className="text-green-600" />} 
-                                onClick={() => router.push(`/mkd/dashboard/${r.ManDriverID}`)}
-                            />
-                        </Tooltip>
-                    )}
-                </Space>
-            )
-        }
-    ];
-
-    return (
-        <div className="w-full bg-slate-50 min-h-screen p-6">
-            <div className="max-w-[1600px] mx-auto">
-                {/* Search Card */}
-                <Card className="mb-6 shadow-sm border-0" styles={{ body: { padding: '20px' } }}>
-                    <Title level={3} className="m-0 mb-6 text-blue-800">History Manpower Key Driver (Approved)</Title>
-                    <div className="flex flex-wrap gap-6 items-end">
-                        <Space orientation="vertical" size={4}>
-                            <Text strong type="secondary">สายงาน (Division)</Text>
-                            <Select
-                                showSearch
-                                style={{ width: 400 }}
-                                placeholder="เลือกสายงาน..."
-                                value={selectedUnit}
-                                onChange={setSelectedUnit}
-                                optionFilterProp="children"
-                                allowClear
+                            ทั้งหมด
+                          </CommandItem>
+                          {initialUnits.map((unit) => (
+                            <CommandItem
+                              key={unit.id}
+                              value={`${unit.id} ${unit.unitText}`}
+                              onSelect={() => {
+                                setSelectedMainUnit(unit.id);
+                                setIsMainComboboxOpen(false);
+                              }}
                             >
-                                <Select.Option value="">ทั้งหมด (All)</Select.Option>
-                                {initialUnits.map(u => (
-                                    <Select.Option key={u.id} value={u.id}>
-                                        {u.id} - {u.unitText}
-                                    </Select.Option>
-                                ))}
-                            </Select>
-                        </Space>
-
-                        <Space orientation="vertical" size={4}>
-                            <Text strong type="secondary">ปี (Year)</Text>
-                            <Select
-                                style={{ width: 150 }}
-                                value={selectedYear}
-                                onChange={setSelectedYear}
-                            >
-                                {initialYears.map(y => (
-                                    <Select.Option key={y} value={y}>{y}</Select.Option>
-                                ))}
-                            </Select>
-                        </Space>
-
-                        <Button 
-                            type="primary" 
-                            size="large" 
-                            icon={<SearchOutlined />} 
-                            onClick={fetchHistory}
-                            loading={loading}
-                            className="bg-blue-600 px-8"
-                        >
-                            SEARCH
-                        </Button>
-                    </div>
-                </Card>
-
-                {/* Records Table */}
-                <Card className="shadow-sm border-0 overflow-hidden" styles={{ body: { padding: 0 } }}>
-                    <div className="p-4 bg-slate-100/50 border-b border-slate-200">
-                        <div className="text-slate-500 font-medium text-sm">
-                            <HistoryOutlined className="mr-2" />
-                            Approved Unit Framework History Records
-                        </div>
-                    </div>
-                    
-                    {/* Inline Filters */}
-                    <div className="grid grid-cols-12 gap-2 p-2 bg-blue-50/50 border-b border-blue-100">
-                        <div className="col-span-1" />
-                        <div className="col-span-2">
-                            <Input 
-                                size="small" 
-                                placeholder="Req.No..." 
-                                value={filters.reqNo}
-                                onChange={e => setFilters({...filters, reqNo: e.target.value})}
-                                prefix={<SearchOutlined className="text-slate-300" />}
-                            />
-                        </div>
-                        <div className="col-span-2">
-                             <Input 
-                                size="small" 
-                                placeholder="DD/MM/YYYY..." 
-                                value={filters.date}
-                                onChange={e => setFilters({...filters, date: e.target.value})}
-                                prefix={<SearchOutlined className="text-slate-300" />}
-                            />
-                        </div>
-                        <div className="col-span-1">
-                            <Input 
-                                size="small" 
-                                placeholder="BU..." 
-                                value={filters.bu}
-                                onChange={e => setFilters({...filters, bu: e.target.value})}
-                            />
-                        </div>
-                        <div className="col-span-2">
-                            <Input 
-                                size="small" 
-                                placeholder="OrgUnit..." 
-                                value={filters.unit}
-                                onChange={e => setFilters({...filters, unit: e.target.value})}
-                            />
-                        </div>
-                        <div className="col-span-2">
-                            <Input 
-                                size="small" 
-                                placeholder="Creator..." 
-                                value={filters.createBy}
-                                onChange={e => setFilters({...filters, createBy: e.target.value})}
-                            />
-                        </div>
-                        <div className="col-span-2">
-                             <Input 
-                                size="small" 
-                                placeholder="Conclusion..." 
-                                value={filters.conclusion}
-                                onChange={e => setFilters({...filters, conclusion: e.target.value})}
-                            />
-                        </div>
-                    </div>
-
-                    <Table 
-                        columns={columns} 
-                        dataSource={filteredRecords}
-                        loading={loading}
-                        pagination={{ pageSize: 10 }}
-                        className="custom-history-table"
-                        size="middle"
-                    />
-                </Card>
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  selectedMainUnit === unit.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              {unit.unitText}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
 
-            {/* Flow Modal */}
-            <Modal
-                title={<Space><TeamOutlined className="text-blue-700" /> Approval Flow History</Space>}
-                open={isFlowModalOpen}
-                onCancel={() => setIsFlowModalOpen(false)}
-                footer={[<Button key="close" onClick={() => setIsFlowModalOpen(false)}>CLOSE</Button>]}
-                width={800}
-            >
-                <Table
-                    loading={flowLoading}
-                    dataSource={flowData}
-                    rowKey={(r, i) => i || 0}
-                    pagination={false}
-                    size="small"
-                    columns={[
-                        { title: 'Seq', dataIndex: 'Seqno', width: 50, align: 'center' },
-                        { title: 'Name', dataIndex: 'Fullname' },
-                        { title: 'Position', dataIndex: 'posname', ellipsis: true },
-                        { 
-                            title: 'Status', 
-                            dataIndex: 'StatusName',
-                            render: (text, r) => (
-                                <Text strong color={r.ApproveHistStatus === 1 ? 'success' : r.ApproveHistStatus === -1 ? 'danger' : 'default'}>
-                                    {text}
-                                </Text>
-                            )
-                        },
-                        { title: 'Date', dataIndex: 'ApproveHistDateBD' },
-                        { title: 'Remark', dataIndex: 'Remark', ellipsis: true }
-                    ]}
-                />
-            </Modal>
+            <div className="w-full lg:w-auto">
+              <Label className="text-sm font-medium text-gray-700 mb-2 block">
+                Year
+              </Label>
+              <Select value={year} onValueChange={setYear}>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {initialYears.map(y => (
+                    <SelectItem key={y} value={y}>{y}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-            <style jsx global>{`
-                .custom-history-table .ant-table-thead > tr > th {
-                    background: #f1f5f9 !important;
-                    font-weight: 600 !important;
-                    font-size: 13px;
-                }
-                .custom-history-table .ant-table-row:hover > td {
-                    background: #f8fafc !important;
-                }
-            `}</style>
-        </div>
-    );
+            <Button
+              onClick={handleSearch}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-8 cursor-pointer font-bold"
+            >
+              OK
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {loading && <div className="text-center text-sm text-gray-500 py-4">Loading...</div>}
+
+      {/* Table Section */}
+      <Card className="bg-white border-0 shadow-sm">
+        <CardContent className="p-0">
+          <div className="overflow-x-auto max-h-[600px] overflow-y-auto relative">
+            <table className="w-full border-collapse">
+              <thead className="sticky top-0 z-20 bg-blue-100 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">
+                <tr className="bg-blue-100 border-b-2 border-blue-200">
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700 w-16">
+                    No
+                  </th>
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">
+                    Req.No
+                  </th>
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">
+                    Req.Date
+                  </th>
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">
+                    BU
+                  </th>
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">
+                    OrgUnit
+                  </th>
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">
+                    Create By
+                  </th>
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">
+                    Approve Steps
+                  </th>
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">
+                    Conclusion No.
+                  </th>
+                  <th className="px-4 py-4 text-center text-sm font-semibold text-gray-700">
+                    MKD
+                    <br />
+                    (อนุมัติ)
+                  </th>
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">
+                    Status
+                  </th>
+                  <th className="px-4 py-4 text-center text-sm font-semibold text-gray-700">
+                    Detail
+                  </th>
+                </tr>
+                {/* Filter Row */}
+                <tr className="bg-blue-50 border-b z-20 shadow-sm">
+                  <th className="px-4 py-3"></th>
+                  <th className="px-4 py-3 w-40">
+                    <Input 
+                      className="bg-white h-9 text-xs" 
+                      value={filterReqNo}
+                      onChange={(e) => setFilterReqNo(e.target.value)}
+                      placeholder=""
+                    />
+                  </th>
+                  <th className="px-4 py-3 w-40">
+                    <BDatePicker 
+                      locale={customLocale}
+                      className="w-full h-9 text-xs" 
+                      format="DD/MM/BBBB"
+                      placeholder=""
+                      value={filterReqDate ? dayjs(filterReqDate, 'DD/MM/BBBB') : null}
+                      onChange={(date, dateString) => {
+                        setFilterReqDate(Array.isArray(dateString) ? dateString[0] : (dateString || ''));
+                      }}
+                      allowClear
+                    />
+                  </th>
+                  <th className="px-4 py-3">
+                    <Input 
+                      className="bg-white h-9 text-xs w-20" 
+                      value={filterBU}
+                      onChange={(e) => setFilterBU(e.target.value)}
+                      placeholder=""
+                    />
+                  </th>
+                  <th className="px-4 py-3">
+                    <Input 
+                      className="bg-white h-9 text-xs" 
+                      value={filterOrgUnit}
+                      onChange={(e) => setFilterOrgUnit(e.target.value)}
+                      placeholder=""
+                    />
+                  </th>
+                  <th className="px-4 py-3">
+                    <Input 
+                      className="bg-white h-9 text-xs" 
+                      value={filterCreateBy}
+                      onChange={(e) => setFilterCreateBy(e.target.value)}
+                      placeholder=""
+                    />
+                  </th>
+                  <th className="px-4 py-3"></th>
+                  <th className="px-4 py-3">
+                    <Input 
+                      className="bg-white h-9 text-xs" 
+                      value={filterConclusion}
+                      onChange={(e) => setFilterConclusion(e.target.value)}
+                      placeholder=""
+                    />
+                  </th>
+                  <th className="px-4 py-3"></th>
+                  <th className="px-4 py-3">
+                    <Select
+                      value={statusFilter}
+                      onValueChange={setStatusFilter}
+                    >
+                      <SelectTrigger className="bg-white h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {statusOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </th>
+                  <th className="px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody className="bg-white">
+
+                {filteredRecords.map((record) => (
+                  <tr
+                    key={record.no}
+                    className="border-b hover:bg-gray-50 transition-colors"
+                  >
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {record.no}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {record.reqNo}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {record.reqDate}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {record.bu}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700">
+                      <div className="space-y-1">
+                        <div className="font-medium">
+                          {record.orgUnitCode} {record.division && `(${record.division})`}
+                        </div>
+                        <div className="text-xs">
+                          {record.orgUnitOnly}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="space-y-1">
+                        <div className="text-gray-900 text-xs">{record.createBy}</div>
+                        <div className="text-xs text-gray-500">
+                          {record.createDate}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {record.approveSteps && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openFlowPopup(record.mkdID, record.approveID)}
+                            className="p-1 hover:bg-blue-50 rounded-full transition-colors cursor-pointer"
+                            title="View Approval Flow"
+                          >
+                            <User className="h-5 w-5 text-blue-500" />
+                          </button>
+                          <div className="space-y-1">
+                            <div className="text-green-600 font-medium">
+                              {record.approveSteps.step}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {record.approveSteps.date}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {record.noConclusion}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <span className="text-sm font-medium">{record.manDriverStatus === 3 ? record.mkdCount : ''}</span>
+                        {record.fileUpload && (
+                          <button
+                            onClick={() => window.open(`/api/mkd/${record.mkdID}/files/${record.fileUpload}`, '_blank')}
+                            className="p-1 hover:bg-blue-100 rounded transition-colors"
+                            title="View Document"
+                          >
+                            <FileText className="h-5 w-5 text-blue-500 cursor-pointer" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`font-semibold text-sm ${record.statusColor}`}>
+                        {record.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleViewDetail(record.mkdID)}
+                          className="p-1 hover:bg-gray-100 rounded transition-colors"
+                          title="View Details"
+                        >
+                          <Search className="h-5 w-5 text-blue-600 cursor-pointer" />
+                        </button>
+                        {(record.manDriverStatus === 2 || record.manDriverStatus === 3) && (
+                          <button
+                            onClick={() => handleViewDashboard(record.mkdID)}
+                            className="p-1 hover:bg-gray-100 rounded transition-colors"
+                            title="View Dashboard"
+                          >
+                            <BarChart3 className="h-5 w-5 text-gray-600 cursor-pointer" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filteredRecords.length === 0 && !loading && (
+                <div className="text-center py-8 text-gray-500">ไม่พบข้อมูล</div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Flow History Modal */}
+      <Dialog open={isFlowModalOpen} onOpenChange={setIsFlowModalOpen}>
+        <DialogContent className="sm:max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-blue-700">Approval Flow History</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-auto flex-1 my-4">
+            {flowLoading ? (
+              <div className="text-center py-8 text-gray-400">Loading...</div>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead className="sticky top-0 bg-gray-100 z-10">
+                  <tr>
+                    <th className="p-2 border text-center w-12 text-sm">Seq.</th>
+                    <th className="p-2 border text-sm">Name</th>
+                    <th className="p-2 border text-center text-sm">Position</th>
+                    <th className="p-2 border text-center text-sm w-28">Status</th>
+                    <th className="p-2 border text-center text-sm w-28">Date</th>
+                    <th className="p-2 border text-sm">Remark</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {flowData.map((row, i) => (
+                    <tr key={i} className="border-b text-xs hover:bg-gray-50">
+                      <td className="p-2 border text-center">{row.Seqno}</td>
+                      <td className="p-2 border">{row.Fullname}</td>
+                      <td className="p-2 border text-center">{row.posname}</td>
+                      <td className={`p-2 border text-center ${getFlowStatusColor(row.ApproveHistStatus)}`}>
+                        {row.StatusName}
+                      </td>
+                      <td className="p-2 border text-center">{row.ApproveHistDateBD}</td>
+                      <td className="p-2 border whitespace-pre-wrap">{row.Remark}</td>
+                    </tr>
+                  ))}
+                  {flowData.length === 0 && !flowLoading && (
+                    <tr>
+                      <td colSpan={6} className="text-center text-gray-400 py-8">No data found</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsFlowModalOpen(false)}>CLOSE</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+    </div>
+  );
 }

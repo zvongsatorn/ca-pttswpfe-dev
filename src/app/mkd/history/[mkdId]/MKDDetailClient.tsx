@@ -75,6 +75,14 @@ interface MKDYear {
     [key: string]: unknown;
 }
 
+interface MKDSummary {
+    ManDriverKeyID: number | string;
+    KeyYear: number | string;
+    KeySumAmount: number;
+    ImpRate?: number;
+    [key: string]: unknown;
+}
+
 interface MKDFile {
     FileName?: string;
     fileName?: string;
@@ -92,6 +100,7 @@ interface MKDDetailClientProps {
         keys: MKDKey[];
         years: MKDYear[];
         files: MKDFile[];
+        summary: MKDSummary[];
     };
     masterKeys: MasterKey[];
 }
@@ -132,6 +141,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
     const [localKeys, setLocalKeys] = useState<MKDKey[]>(initialData.keys || []);
     const [localYears, setLocalYears] = useState<MKDYear[]>(initialData.years || []);
     const [localFiles, setLocalFiles] = useState<MKDFile[]>(initialData.files || []);
+    const [localSummary, setLocalSummary] = useState<MKDSummary[]>(initialData.summary || []);
 
     const effectiveYear = header.EffectiveYear || 0;
     const isReadOnly = header.ManDriverStatus !== 1;
@@ -168,6 +178,23 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
     const [fileForm, setFileForm] = useState<{file: File | null, customName: string}>({ file: null, customName: '' });
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Confirm Dialog State
+    const [confirmState, setConfirmState] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        onConfirm: () => void;
+    }>({
+        isOpen: false,
+        title: '',
+        message: '',
+        onConfirm: () => {}
+    });
+
+    const openConfirm = (title: string, message: string, onConfirm: () => void) => {
+        setConfirmState({ isOpen: true, title, message, onConfirm });
+    };
+
     const refreshData = async () => {
         try {
             const res = await getMKDDetails(mkdId, token);
@@ -176,6 +203,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                 setLocalKeys((res.data.keys as MKDKey[]) || []);
                 setLocalYears((res.data.years as MKDYear[]) || []);
                 setLocalFiles((res.data.files as MKDFile[]) || []);
+                setLocalSummary((res.data.summary as MKDSummary[]) || []);
             }
         } catch (error) {
             console.error("Failed to refresh data", error);
@@ -220,6 +248,12 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                 mainYearIds[Number(y.KeyYear)] = (y.ManDriverKeyYearID || 0).toString();
             });
 
+            if (!isUniform) {
+                allYears.forEach(y => {
+                    mainYears[y] = subItems.reduce((acc, curr) => acc + ((curr.years[y] || 0) * (Number(curr.coefficient) || 1)), 0);
+                });
+            }
+
             return {
                 id: mk.ManDriverKeyID.toString(),
                 keyManId: mk.KeyManID?.toString() || '',
@@ -236,7 +270,18 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                 subItems
             };
         });
-    }, [localKeys, localYears]);
+    }, [localKeys, localYears, allYears]);
+
+    // Build summary lookup: { ManDriverKeyID -> { year -> KeySumAmount } }
+    const summaryMap = useMemo(() => {
+        const map: Record<string, Record<number, number>> = {};
+        localSummary.forEach((s: MKDSummary) => {
+            const keyId = s.ManDriverKeyID?.toString();
+            if (!map[keyId]) map[keyId] = {};
+            map[keyId][Number(s.KeyYear)] = Number(s.KeySumAmount) || 0;
+        });
+        return map;
+    }, [localSummary]);
 
     const formatYearBE = (year: number) => {
         return year < 2400 ? (year + 543).toString() : year.toString();
@@ -313,26 +358,28 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
 
     // Sub Key Actions
     const openAddSubKey = async (parentId: string) => {
-        if (!confirm('ต้องการเพิ่มรายการย่อยใช่หรือไม่?')) return;
-        try {
-            setLoading(true);
-            const payload = {
-                manDriverKeyId: parentId,
-                insertType: 2,
-                definition: '',
-                coefficient: 1,
-                remark: '',
-                user: currentUser?.employeeID || 'SYSTEM',
-                yearlyData: allYears.map(y => ({ id: 0, year: y.toString(), amount: 0 }))
-            };
-            await saveDetailKey(mkdId, payload, token);
-            toast.success('เพิ่มรายการย่อยเรียบร้อย');
-            refreshData();
-        } catch {
-            toast.error('เกิดข้อผิดพลาดในการเพิ่มรายการย่อย');
-        } finally {
-            setLoading(false);
-        }
+        openConfirm('ยืนยันบันทึกข้อมูล', 'ต้องการเพิ่มรายการย่อยใช่หรือไม่?', async () => {
+            try {
+                setLoading(true);
+                const payload = {
+                    manDriverKeyId: parentId,
+                    insertType: 2,
+                    definition: '',
+                    coefficient: 1,
+                    remark: '',
+                    user: currentUser?.employeeID || 'SYSTEM',
+                    effectiveYear: header?.EffectiveYear,
+                    yearlyData: allYears.map(y => ({ id: 0, year: y.toString(), amount: 0 }))
+                };
+                await saveDetailKey(mkdId, payload, token);
+                toast.success('เพิ่มรายการย่อยเรียบร้อย');
+                refreshData();
+            } catch {
+                toast.error('เกิดข้อผิดพลาดในการเพิ่มรายการย่อย');
+            } finally {
+                setLoading(false);
+            }
+        });
     };
 
     const openEditSubKey = (subItem: MappedSubItem, parentId: string) => {
@@ -351,10 +398,10 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
     const handleSaveSubKey = async () => {
         try {
             setLoading(true);
-            const yearlyDataArray = Object.keys(subKeyForm.yearlyData).map(y => ({
-                id: Number(subKeyForm.yearlyIds?.[Number(y)]) || 0,
-                year: y,
-                amount: Number(subKeyForm.yearlyData[Number(y)]) || 0
+            const yearlyDataArray = allYears.map(y => ({
+                id: Number(subKeyForm.yearlyIds?.[y]) || 0,
+                year: y.toString(),
+                amount: Number(subKeyForm.yearlyData[y]) || 0
             }));
             const payload = {
                 manDriverKeyId: subKeyForm.manDriverKeyId || subKeyForm.parentId,
@@ -363,6 +410,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                 coefficient: parseFloat(subKeyForm.coefficient as string) || 1,
                 remark: subKeyForm.remark,
                 user: currentUser?.employeeID || 'SYSTEM',
+                effectiveYear: header?.EffectiveYear,
                 yearlyData: yearlyDataArray
             };
             await saveDetailKey(mkdId, payload, token);
@@ -378,17 +426,18 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
 
     // Delete Key Action
     const handleDeleteKey = async (keyId: string) => {
-        if (!confirm("คุณต้องการลบรายการนี้ใช่หรือไม่?")) return;
-        try {
-            setLoading(true);
-            await deleteMainKey(mkdId, keyId, token);
-            toast.success("ลบข้อมูลสำเร็จ");
-            refreshData();
-        } catch {
-            toast.error("ลบข้อมูลไม่สำเร็จ");
-        } finally {
-            setLoading(false);
-        }
+        openConfirm('ยืนยันการลบ', 'คุณต้องการลบรายการนี้ใช่หรือไม่?', async () => {
+            try {
+                setLoading(true);
+                await deleteMainKey(mkdId, keyId, token);
+                toast.success("ลบข้อมูลสำเร็จ");
+                refreshData();
+            } catch {
+                toast.error("ลบข้อมูลไม่สำเร็จ");
+            } finally {
+                setLoading(false);
+            }
+        });
     };
 
     // File Actions
@@ -429,17 +478,18 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
     };
 
     const handleDeleteFile = async (fileId: string) => {
-        if (!confirm("คุณต้องการลบไฟล์นี้ใช่หรือไม่?")) return;
-        try {
-            setLoading(true);
-            await deleteMKDFile(mkdId, fileId, token);
-            toast.success("ลบไฟล์สำเร็จ");
-            refreshData();
-        } catch {
-            toast.error("ลบไฟล์ไม่สำเร็จ");
-        } finally {
-            setLoading(false);
-        }
+        openConfirm('ยืนยันการลบ', 'คุณต้องการลบไฟล์นี้ใช่หรือไม่?', async () => {
+            try {
+                setLoading(true);
+                await deleteMKDFile(mkdId, fileId, token);
+                toast.success("ลบไฟล์สำเร็จ");
+                refreshData();
+            } catch {
+                toast.error("ลบไฟล์ไม่สำเร็จ");
+            } finally {
+                setLoading(false);
+            }
+        });
     };
 
     // Actions
@@ -461,9 +511,9 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
             toast.error(`Weight รวมเกิน 100% (ปัจจุบัน: ${totalWeight}%) กรุณาแก้ไขก่อนส่งอนุมัติ`);
             return; 
         }
-        if (confirm('คุณต้องการส่งเอกสารนี้เพื่อขออนุมัติใช่หรือไม่?')) {
+        openConfirm('ยืนยันส่งอนุมัติ', 'คุณต้องการส่งเอกสารนี้เพื่อขออนุมัติใช่หรือไม่?', () => {
             requestApproveAction();
-        }
+        });
     };
 
     const requestApproveAction = async () => {
@@ -484,9 +534,9 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
     };
 
     const handleCancel = () => {
-         if (confirm('คุณต้องการยกเลิกเอกสารนี้ใช่หรือไม่? หลังจากยกเลิกแล้วจะไม่สามารถแก้ไขได้อีก')) {
+         openConfirm('ยืนยันการยกเลิก', 'คุณต้องการยกเลิกเอกสารนี้ใช่หรือไม่? หลังจากยกเลิกแล้วจะไม่สามารถแก้ไขได้อีก', () => {
              cancelAction();
-         }
+         });
     };
 
     const cancelAction = async () => {
@@ -521,7 +571,10 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                     sumMap = driver.mainYears;
                 } else {
                     allYears.forEach(y => {
-                        sumMap[y] = driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
+                        const summaryValue = summaryMap[driver.id]?.[y];
+                        sumMap[y] = summaryValue !== undefined 
+                            ? summaryValue 
+                            : driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
                     });
                 }
                 const rowData = [driver.name, driver.unit, driver.weight, ...allYears.map(y => sumMap[y] || 0)];
@@ -622,31 +675,31 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                 {activeTab === 'MANPOWER' && (
                     <div className="animate-in fade-in duration-300">
                         <div className="flex justify-between items-center mb-4">
-                            {!isReadOnly ? (
-                                <Button className="bg-blue-600 hover:bg-blue-700" onClick={openAddMainKey}>
-                                    <Plus className="w-4 h-4 mr-2" /> Add Manpower Key Driver
+                             {!isReadOnly ? (
+                                <Button className="bg-blue-600 hover:bg-blue-700 font-bold shadow-sm transition-all" onClick={openAddMainKey}>
+                                    <Plus className="w-4 h-4 mr-2" /> Add Manpower
                                 </Button>
                             ) : <div></div>}
                         </div>
-                        <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-                            <div className="max-h-[calc(100vh-380px)] overflow-y-auto overflow-x-hidden relative">
-                                <Table className="w-full text-[10.5px] table-fixed border-collapse">
-                                    <TableHeader className="bg-slate-200 border-b border-slate-400 sticky top-0 z-30 shadow-sm">
+                        <div className="max-h-[calc(100vh-380px)] overflow-y-auto overflow-x-hidden border border-slate-200 rounded-md bg-white">
+                            <div className="relative">
+                                 <Table className="w-full text-[12px] table-fixed border-collapse">
+                                    <TableHeader className="bg-slate-100 border-b border-slate-200 sticky top-0 z-30 shadow-xs">
                                         <TableRow className="hover:bg-transparent">
                                             <TableHead className="w-[40px]"></TableHead>
                                             <TableHead className="font-bold text-slate-800 min-w-[150px]">Manpower Key Driver</TableHead>
-                                            <TableHead className="font-bold text-slate-800 text-center border-l w-[80px]">Unit</TableHead>
-                                            <TableHead className="font-bold text-slate-800 text-center border-l w-[80px]">Type</TableHead>
-                                            <TableHead className="font-bold text-slate-800 border-l min-w-[120px] px-2">Definition</TableHead>
-                                            <TableHead className="font-bold text-slate-800 text-center border-l w-[70px] px-1">Coeff.</TableHead>
-                                            <TableHead className="font-bold text-slate-800 text-center border-l w-[60px] px-1">Weight</TableHead>
+                                            <TableHead className="font-bold text-slate-800 text-center border-l border-slate-200 w-[80px]">Unit</TableHead>
+                                            <TableHead className="font-bold text-slate-800 text-center border-l border-slate-200 w-[80px]">Type</TableHead>
+                                            <TableHead className="font-bold text-slate-800 border-l border-slate-200 min-w-[120px] px-2">Definition</TableHead>
+                                            <TableHead className="font-bold text-slate-800 text-center border-l border-slate-200 w-[70px] px-1">Coeff.</TableHead>
+                                            <TableHead className="font-bold text-slate-800 text-center border-l border-slate-200 w-[60px] px-1">Weight(%)</TableHead>
                                             {allYears.map(y => (
-                                                <TableHead key={y} className={`font-bold text-right border-l w-[65px] px-1 whitespace-nowrap leading-tight ${getYearColor(y)}`}>
+                                                <TableHead key={y} className={`font-bold text-right border-l border-slate-200 w-[65px] px-1 whitespace-nowrap leading-tight ${getYearColor(y)}`}>
                                                     {getYearLabel(y)}
                                                 </TableHead>
                                             ))}
-                                            <TableHead className="font-bold text-slate-800 border-l min-w-[100px] px-2 truncate">Remark</TableHead>
-                                            <TableHead className="w-[60px] border-l text-center">Edit</TableHead>
+                                            <TableHead className="font-bold text-slate-800 border-l border-slate-200 min-w-[100px] px-2 truncate">Remark</TableHead>
+                                            <TableHead className="w-[60px] border-l border-slate-200 text-center">Edit</TableHead>
                                             <TableHead className="w-[60px] text-center">Delete</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -668,22 +721,36 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                         </TableCell>
                                                         <TableCell className="font-bold text-blue-800 line-clamp-2">{driver.name}</TableCell>
                                                         <TableCell className="text-center font-medium border-l border-slate-100">{driver.unit}</TableCell>
-                                                        <TableCell className="text-center border-l border-slate-100">
-                                                            <Badge variant={isIndex ? 'default' : 'secondary'} className="bg-slate-200 text-slate-700 hover:bg-slate-300 rounded font-medium text-[10px] px-1.5 uppercase tracking-wide">
+                                                         <TableCell className="text-center border-l border-slate-100">
+                                                            <Badge 
+                                                                variant="outline" 
+                                                                className={`rounded-sm font-bold text-[10px] px-1.5 uppercase tracking-wide border ${
+                                                                    isIndex 
+                                                                    ? 'bg-blue-50 text-blue-700 border-blue-200' 
+                                                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                }`}
+                                                            >
                                                                 {driver.type}
                                                             </Badge>
                                                         </TableCell>
                                                         
-                                                        <TableCell className="border-l border-slate-100 px-2"></TableCell>
-                                                        <TableCell className="text-right border-l border-slate-100 font-medium text-purple-700 px-1">{isIndex ? '1' : ''}</TableCell>
+                                                        <TableCell className="border-l border-slate-100 px-2" title={driver.definition}>
+                                                            <div className="truncate max-w-[120px]">{driver.definition}</div>
+                                                        </TableCell>
+                                                        <TableCell className="text-right border-l border-slate-100 font-medium text-purple-700 px-1">
+                                                            {(Number(driver.coefficient) || 0).toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})}
+                                                        </TableCell>
                                                         
                                                         <TableCell className="text-center font-bold border-l border-slate-100 px-1">{driver.weight}</TableCell>
                                                         
-                                                        {allYears.map(y => (
-                                                            <TableCell key={y} className={`text-right font-semibold border-l border-slate-100 px-1 ${getYearColor(y)}`}>
-                                                                {(!isIndex ? (driver.mainYears[y] || 0) : 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
-                                                            </TableCell>
-                                                        ))}
+                                                        {allYears.map(y => {
+                                                            const displayValue = driver.mainYears[y] || 0;
+                                                            return (
+                                                                <TableCell key={y} className={`text-right border-l border-slate-100 px-1 ${getYearColor(y)}`}>
+                                                                    {displayValue.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                                                                </TableCell>
+                                                            );
+                                                        })}
                                                         
                                                         <TableCell className="border-l border-slate-100 truncate max-w-[100px] px-2" title={driver.remark}>
                                                             {driver.remark}
@@ -722,7 +789,9 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                             <TableCell className="border-l border-slate-100"></TableCell>
                                                             <TableCell className="border-l border-slate-100"></TableCell>
                                                             <TableCell className="border-l border-slate-100 px-2">{sk.definition}</TableCell>
-                                                            <TableCell className="text-right border-l border-slate-100 font-medium text-purple-700 px-1">{sk.coefficient}</TableCell>
+                                                            <TableCell className="text-right border-l border-slate-100 font-medium text-purple-700 px-1">
+                                                                {(Number(sk.coefficient) || 0).toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})}
+                                                            </TableCell>
                                                             <TableCell className="border-l border-slate-100"></TableCell>
                                                             {allYears.map(y => (
                                                                 <TableCell key={y} className={`text-right border-l border-slate-100 font-medium px-1 ${getYearColor(y)}`}>
@@ -743,7 +812,10 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                         <TableRow className="bg-[#f1e8e1]">
                                                             <TableCell colSpan={7}></TableCell>
                                                             {allYears.map(y => {
-                                                                const sum = driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
+                                                                const summaryValue = summaryMap[driver.id]?.[y];
+                                                                const sum = summaryValue !== undefined 
+                                                                    ? summaryValue 
+                                                                    : driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
                                                                 return (
                                                                     <TableCell key={y} className={`text-right font-bold border-l border-white/50 px-1 ${getYearColor(y)}`}>
                                                                         {sum.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
@@ -774,13 +846,13 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                     <div className="animate-in fade-in duration-300">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-lg font-bold text-slate-800">Summary</h3>
-                            <Button className="bg-green-600 hover:bg-green-700" onClick={handleExportExcel}>
+                            <Button className="bg-green-600 hover:bg-green-700 font-bold" onClick={handleExportExcel}>
                                 <FileSpreadsheet className="w-4 h-4 mr-2" /> Export to Excel
                             </Button>
                         </div>
-                        <div className="overflow-x-auto border border-slate-200 rounded-md">
-                            <Table className="text-[13px] min-w-max">
-                                <TableHeader className="bg-slate-200 border-b border-slate-400">
+                        <div className="max-h-[calc(100vh-380px)] overflow-y-auto overflow-x-hidden border border-slate-200 rounded-md bg-white">
+                            <Table className="w-full text-[12px] table-fixed border-collapse">
+                                <TableHeader className="bg-slate-100 border-b border-slate-200">
                                     <TableRow>
                                         <TableHead className="font-bold text-slate-800 min-w-[200px]">Manpower Key Driver</TableHead>
                                         <TableHead className="font-bold text-slate-800 text-center border-l">Unit</TableHead>
@@ -799,7 +871,10 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                             sumMap = driver.mainYears;
                                         } else {
                                             allYears.forEach(y => {
-                                                sumMap[y] = driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
+                                                const summaryValue = summaryMap[driver.id]?.[y];
+                                                sumMap[y] = summaryValue !== undefined 
+                                                    ? summaryValue 
+                                                    : driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
                                             });
                                         }
                                         return (
@@ -827,25 +902,25 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                 )}
 
                 {activeTab === 'FILES' && (
-                    <div className="animate-in fade-in duration-300">
+                    <div className="animate-in fade-in duration-300 w-[800px]">
                         <div className="flex justify-between items-center mb-6">
                             <div className="text-slate-600 text-sm">
                                 <p className="font-bold text-slate-700">*Remark:</p>
-                                <ul className="list-disc pl-5 mt-1 space-y-1">
+                                <ul className="list-disc pl-5 mt-1 space-y-1 text-xs">
                                     <li>Maximum File Size: 15MB</li>
                                     <li>Extension: PDF</li>
                                     <li>เอกสารเพื่อประกอบการกรอกข้อมูล MKD ที่ได้รับอนุมัติหรือเป็นไปตามแผนงานของสายงาน</li>
                                 </ul>
                             </div>
                             {!isReadOnly && (
-                                <Button className="bg-blue-600 hover:bg-blue-700 shadow-sm" onClick={() => setIsFileModalOpen(true)}>
+                                <Button className="bg-blue-600 hover:bg-blue-700 shadow-sm font-bold" onClick={() => setIsFileModalOpen(true)}>
                                     <Upload className="w-4 h-4 mr-2" /> Add File
                                 </Button>
                             )}
                         </div>
                         
-                        <div className="overflow-x-auto border border-slate-200 rounded-md w-[800px]">
-                            <Table className="text-[13px] ">
+                        <div className="max-h-[calc(100vh-380px)] overflow-y-auto overflow-x-hidden border border-slate-200 rounded-md bg-white">
+                            <Table className="w-full text-[13px] table-fixed border-collapse">
                                 <TableHeader className="bg-slate-200 border-b border-slate-400">
                                     <TableRow>
                                         <TableHead className="w-[60px] text-center font-bold text-slate-800">NO</TableHead>
@@ -862,9 +937,8 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                 <TableCell className="text-center font-medium">{idx + 1}</TableCell>
                                                 <TableCell className="border-l font-medium">{file.FileName || file.fileName}</TableCell>
                                                 <TableCell className="border-l text-center">
-                                                    <Button variant="ghost" className="h-auto p-2 hover:bg-blue-50 flex flex-col items-center justify-center space-y-1 mx-auto" onClick={() => window.open(`/api/files-proxy?path=${header.RequestNo}/${file.FileUpload}`, '_blank')}>
-                                                        <FileText className="w-6 h-6 text-blue-500" />
-                                                        <span className="text-[10px] text-slate-500 font-semibold">{ext}</span>
+                                                    <Button variant="ghost" className="h-auto hover:bg-blue-50 flex flex-col items-center justify-center space-y-1 mx-auto" onClick={() => window.open(`/api/files-proxy?path=${header.RequestNo}/${file.FileUpload}`, '_blank')}>
+                                                        <FileText className="w-6! h-6! text-blue-500" />
                                                     </Button>
                                                 </TableCell>
                                                 {!isReadOnly && (
@@ -895,8 +969,8 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                         <div className="bg-slate-50 border border-slate-200 rounded-lg p-2 mb-2 shadow-inner">
                             <Textarea
                                 className="w-full bg-transparent border-0 focus-visible:ring-0 resize-y min-h-[200px] p-4 text-slate-700 text-[14px]"
-                                placeholder="ไม่มีหมายเหตุอธิบาย MKD"
-                                value={note}
+                                placeholder="ระบุถ้ามีบันทึกเพิ่มเติม..."
+                                value={note || ''}
                                 onChange={(e) => setNote(e.target.value)}
                                 disabled={isReadOnly}
                                 maxLength={500}
@@ -986,7 +1060,14 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                             </SelectContent>
                                                         </Select>
                                                     ) : (
-                                                        <Badge variant={driver.type === 'Index' ? 'default' : 'secondary'} className="bg-slate-200 text-slate-700 font-medium text-[11px] px-1.5 uppercase tracking-wide">
+                                                        <Badge 
+                                                            variant="outline" 
+                                                            className={`rounded font-bold text-[10px] px-1.5 uppercase tracking-wider border ${
+                                                                driver.type === 'Index' 
+                                                                ? 'bg-blue-50 text-blue-700 border-blue-200' 
+                                                                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            }`}
+                                                        >
                                                             {driver.type}
                                                         </Badge>
                                                     )}
@@ -996,7 +1077,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                         <Input 
                                                             type="number" 
                                                             className="h-8 text-center shadow-inner" 
-                                                            value={mainKeyForm.weight} 
+                                                            value={mainKeyForm.weight || '0'} 
                                                             onChange={e => setMainKeyForm(prev => ({...prev, weight: e.target.value}))} 
                                                             onFocus={(e) => e.target.select()}
                                                         />
@@ -1048,7 +1129,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                 </Select>
                                             </TableCell>
                                             <TableCell className="text-center">
-                                                <Input className="h-8 shadow-inner text-center" value={mainKeyForm.unit} onChange={e => setMainKeyForm(prev => ({...prev, unit: e.target.value}))} />
+                                                <Input className="h-8 shadow-inner text-center" value={mainKeyForm.unit || ''} onChange={e => setMainKeyForm(prev => ({...prev, unit: e.target.value}))} />
                                             </TableCell>
                                             <TableCell className="text-center">
                                                 <Select value={mainKeyForm.keyType} onValueChange={v => setMainKeyForm(prev => ({...prev, keyType: v}))}>
@@ -1063,7 +1144,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                 <Input 
                                                     type="number" 
                                                     className="h-8 text-center shadow-inner" 
-                                                    value={mainKeyForm.weight} 
+                                                    value={mainKeyForm.weight || '0'} 
                                                     onChange={e => setMainKeyForm(prev => ({...prev, weight: e.target.value}))} 
                                                     onFocus={(e) => e.target.select()}
                                                 />
@@ -1153,7 +1234,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                 <Textarea 
                                                     id="definition" 
                                                     className="mt-1 shadow-inner max-h-[80px]"
-                                                    value={subKeyForm.definition} 
+                                                    value={subKeyForm.definition || ''} 
                                                     onChange={(e) => setSubKeyForm(prev => ({...prev, definition: e.target.value}))} 
                                                     placeholder="ระบุรายละเอียด..."
                                                 />
@@ -1163,7 +1244,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                 <select 
                                                     id="coefficient" 
                                                     className="mt-1 h-8 w-1/3 shadow-inner rounded-md border border-input bg-background px-3 text-sm"
-                                                    value={subKeyForm.coefficient} 
+                                                    value={subKeyForm.coefficient || '1'} 
                                                     onChange={(e) => setSubKeyForm(prev => ({...prev, coefficient: e.target.value}))} 
                                                 >
                                                     <option value="0.5">0.5</option>
@@ -1180,7 +1261,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                 <Textarea 
                                                     id="remark" 
                                                     className="mt-1 shadow-inner max-h-[80px]"
-                                                    value={subKeyForm.remark} 
+                                                    value={subKeyForm.remark || ''} 
                                                     maxLength={200}
                                                     onChange={(e) => setSubKeyForm(prev => ({...prev, remark: e.target.value}))} 
                                                 />
@@ -1203,7 +1284,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                 </TableHeader>
                                                 <TableBody>
                                                     {allYears.map((y, index) => (
-                                                        <TableRow key={y} className="hover:bg-slate-50 [&:not(:last-child)]:border-b border-slate-100">
+                                                        <TableRow key={y} className="hover:bg-slate-50 not-last:border-b border-slate-100">
                                                             <TableCell className="text-center font-semibold w-1/2 bg-slate-50/50">
                                                                 <span className={getYearColor(y)}>{getYearLabel(y)}</span>
                                                             </TableCell>
@@ -1263,15 +1344,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                         <DialogTitle>Upload File Attachment</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
-                        <div className="grid gap-2">
-                            <Label htmlFor="customName" className="font-semibold text-slate-700">File Name (Optional Label)</Label>
-                            <Input 
-                                id="customName" 
-                                value={fileForm.customName} 
-                                onChange={(e) => setFileForm(prev => ({...prev, customName: e.target.value}))} 
-                                placeholder="ชื่อเอกสาร..."
-                            />
-                        </div>
+
                         <div className="grid gap-2">
                             <Label htmlFor="fileInput" className="font-semibold text-slate-700">Select PDF File</Label>
                             <Input 
@@ -1291,6 +1364,42 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                         <Button variant="outline" onClick={() => { setIsFileModalOpen(false); setFileForm({file: null, customName: ''}); }}>Cancel</Button>
                         <Button onClick={handleUploadFile} disabled={loading || !fileForm.file} className="bg-blue-600 hover:bg-blue-700">Upload</Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            {/* Confirm Dialog - Redesigned to match System Theme (AntD style) */}
+            <Dialog open={confirmState.isOpen} onOpenChange={(open) => !open && setConfirmState(prev => ({...prev, isOpen: false}))}>
+                <DialogContent className="sm:max-w-[420px] p-0 overflow-hidden border border-slate-200 shadow-xl rounded-lg">
+                    <div className="p-5 border-b bg-white">
+                        <div className="flex items-center gap-3">
+                            <div className="shrink-0">
+                                <Info className="w-5 h-5 text-blue-600" />
+                            </div>
+                            <DialogHeader>
+                                <DialogTitle className="text-lg font-bold text-slate-800">{confirmState.title}</DialogTitle>
+                            </DialogHeader>
+                        </div>
+                    </div>
+                    <div className="p-6 bg-white">
+                        <p className="text-slate-600 text-[15px]">{confirmState.message}</p>
+                    </div>
+                    <div className="p-4 bg-slate-50 flex items-center justify-end gap-2 border-t text-right">
+                        <Button 
+                            variant="outline" 
+                            onClick={() => setConfirmState(prev => ({...prev, isOpen: false}))}
+                            className="h-9 px-6 text-slate-600 border-slate-300 hover:bg-slate-100"
+                        >
+                            ยกเลิก
+                        </Button>
+                        <Button 
+                            onClick={() => {
+                                setConfirmState(prev => ({...prev, isOpen: false}));
+                                confirmState.onConfirm();
+                            }}
+                            className="h-9 px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold font-prompt"
+                        >
+                            ยืนยัน
+                        </Button>
+                    </div>
                 </DialogContent>
             </Dialog>
         </div>

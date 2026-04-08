@@ -21,7 +21,8 @@ export default async function MKDDetailPage({ params }: { params: Promise<{ mkdI
         header: {},
         keys: [],
         years: [],
-        files: []
+        files: [],
+        summary: []
     };
 
     const masterKeys = masterKeysRes?.success ? masterKeysRes.data : [];

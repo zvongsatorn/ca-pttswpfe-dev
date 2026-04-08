@@ -10,8 +10,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { DatePicker } from 'antd';
 import dayjs from 'dayjs';
+import buddhistEra from 'dayjs/plugin/buddhistEra';
+import TH_Locale from 'antd/es/date-picker/locale/th_TH';
+import generatePicker from 'antd/es/date-picker/generatePicker';
+import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs';
+
+dayjs.extend(buddhistEra);
+
+// Override the date picker locale to support Buddhist Era year
+const customLocale = {
+  ...TH_Locale,
+  lang: {
+    ...TH_Locale.lang,
+    yearFormat: 'BBBB',
+  },
+};
+
+// Extend dayjs config to use BBBB for year rendering
+const customGenerateConfig = {
+  ...dayjsGenerateConfig,
+  getYear: (date: dayjs.Dayjs) => date.year(),
+  format: (locale: string, date: dayjs.Dayjs, format: string) => {
+    if (format === 'YYYY') return date.format('BBBB');
+    if (format === 'YYYY-MM') return date.format('BBBB-MM');
+    return date.format(format);
+  }
+};
+
+const BDatePicker = generatePicker<dayjs.Dayjs>(customGenerateConfig);
 import {
   Popover,
   PopoverContent,
@@ -763,17 +790,18 @@ const handleViewDashboard = (mkdId: string) => {
                         className="bg-white h-9 text-xs" 
                         value={filterReqNo}
                         onChange={(e) => setFilterReqNo(e.target.value)}
-                        placeholder="Req.No..."
+                        placeholder=""
                       />
                     </th>
                     <th className="px-4 py-3 w-40">
-                      <DatePicker 
+                      <BDatePicker 
+                        locale={customLocale}
                         className="w-full h-9 text-xs" 
-                        format="DD/MM/YYYY"
-                        placeholder="DD/MM/YYYY"
-                        value={filterReqDate ? dayjs(filterReqDate, 'DD/MM/YYYY') : null}
+                        format="DD/MM/BBBB"
+                        placeholder=""
+                        value={filterReqDate ? dayjs(filterReqDate, 'DD/MM/BBBB') : null}
                         onChange={(date, dateString) => {
-                          setFilterReqDate(Array.isArray(dateString) ? dateString[0] : dateString);
+                          setFilterReqDate(Array.isArray(dateString) ? dateString[0] : (dateString || ''));
                         }}
                         allowClear
                       />
@@ -783,7 +811,7 @@ const handleViewDashboard = (mkdId: string) => {
                         className="bg-white h-9 text-xs w-20" 
                         value={filterBU}
                         onChange={(e) => setFilterBU(e.target.value)}
-                        placeholder="BU..."
+                        placeholder=""
                       />
                     </th>
                     <th className="px-4 py-3">
@@ -791,7 +819,7 @@ const handleViewDashboard = (mkdId: string) => {
                         className="bg-white h-9 text-xs" 
                         value={filterOrgUnit}
                         onChange={(e) => setFilterOrgUnit(e.target.value)}
-                        placeholder="OrgUnit..."
+                        placeholder=""
                       />
                     </th>
                     <th className="px-4 py-3">
@@ -799,7 +827,7 @@ const handleViewDashboard = (mkdId: string) => {
                         className="bg-white h-9 text-xs" 
                         value={filterCreateBy}
                         onChange={(e) => setFilterCreateBy(e.target.value)}
-                        placeholder="Create By..."
+                        placeholder=""
                       />
                     </th>
                     <th className="px-4 py-3"></th>
@@ -808,7 +836,7 @@ const handleViewDashboard = (mkdId: string) => {
                         className="bg-white h-9 text-xs" 
                         value={filterConclusion}
                         onChange={(e) => setFilterConclusion(e.target.value)}
-                        placeholder="Conclusion..."
+                        placeholder=""
                       />
                     </th>
                     <th className="px-4 py-3"></th>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { cookies } from 'next/headers';
 import { getUserFromToken } from '@/utils/auth';
-import { getMKDDetails, getMasterKeys, getMKDHeadcount } from '@/services/mkdService';
+import { getMKDDetails, getMKDHeadcount, getMasterKeys } from '@/services/mkdService';
 import HistoryRecordDetailClient from './HistoryRecordDetailClient';
 import Main from '@/components/layout/main';
 
@@ -23,7 +23,7 @@ export default async function HistoryRecordDetailPage({ params }: { params: Prom
         keys: detailRes?.data?.keys || [],
         years: detailRes?.data?.years || [],
         files: detailRes?.data?.files || [],
-        headcount: headcountRes?.success ? headcountRes.data : { headCounts: [], years: [] }
+        headcount: headcountRes?.success ? (headcountRes.data || { headCounts: [], years: [] }) : { headCounts: [], years: [] }
     };
 
     const masterKeys = masterKeysRes?.success ? masterKeysRes.data : [];

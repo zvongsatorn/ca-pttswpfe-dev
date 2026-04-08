@@ -1,51 +1,90 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-    Table, 
-    Card, 
-    Button, 
-    Typography, 
-    Tag, 
-    Select, 
-    Space, 
-    Input, 
-    DatePicker, 
-    Modal, 
-    App, 
-    Tooltip,
-    Divider,
-    Descriptions,
-    Empty,
-    Badge,
-    InputNumber
-} from 'antd';
-import { 
-    SearchOutlined, 
-    PlusOutlined, 
-    EditOutlined, 
-    HistoryOutlined, 
-    FileTextOutlined,
-    BarChartOutlined,
-    CheckCircleFilled,
-    ClockCircleFilled,
-    DeleteOutlined,
-    ExclamationCircleOutlined
-} from '@ant-design/icons';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
+import buddhistEra from 'dayjs/plugin/buddhistEra';
+import TH_Locale from 'antd/es/date-picker/locale/th_TH';
+import generatePicker from 'antd/es/date-picker/generatePicker';
+import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs';
 
-const { Title, Text } = Typography;
+dayjs.extend(buddhistEra);
+
+// Override the date picker locale to support Buddhist Era year
+const customLocale = {
+  ...TH_Locale,
+  lang: {
+    ...TH_Locale.lang,
+    yearFormat: 'BBBB',
+  },
+};
+
+// Extend dayjs config to use BBBB for year rendering
+const customGenerateConfig = {
+  ...dayjsGenerateConfig,
+  getYear: (date: dayjs.Dayjs) => date.year(),
+  format: (locale: string, date: dayjs.Dayjs, format: string) => {
+    if (format === 'YYYY') return date.format('BBBB');
+    if (format === 'YYYY-MM') return date.format('BBBB-MM');
+    return date.format(format);
+  }
+};
+
+const BDatePicker = generatePicker<dayjs.Dayjs>(customGenerateConfig);
+import { 
+    Search, 
+    BarChart3
+} from 'lucide-react';
+
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { toast } from 'sonner';
 
 interface HistoryRecordClientProps {
     token: string;
-    currentUser: any;
+    currentUser: {
+        employeeID?: string;
+        EmployeeID?: string;
+        userGroupNo?: string;
+        roleId?: string;
+    } | null;
     initialYears: string[];
+}
+
+interface HistoryRecord {
+    no: number;
+    ManDriverID: string | number;
+    RequestNo?: string;
+    fullRequestNo?: string;
+    datebd?: string;
+    OrgUnitName?: string;
+    EmpName?: string;
+    CreateBy?: string;
+    CreateDateBD?: string;
+    StatusName?: string;
+    AppStatusName?: string;
+    ManDriverStatus?: string | number;
+    status: string;
+    manStatus: number;
 }
 
 export default function HistoryRecordClient({ token, currentUser, initialYears }: HistoryRecordClientProps) {
     const router = useRouter();
-    const { message, modal } = App.useApp();
 
     const [loading, setLoading] = useState(false);
     const [selectedYear, setSelectedYear] = useState(() => {
@@ -55,20 +94,27 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
         return (dayjs().year() + 543).toString();
     });
 
-    const [records, setRecords] = useState<any[]>([]);
+    const [records, setRecords] = useState<HistoryRecord[]>([]);
     const [isNewModalOpen, setIsNewModalOpen] = useState(false);
     const [newUnitName, setNewUnitName] = useState('');
+
+    // Column Filters
+    const [filterReqNo, setFilterReqNo] = useState('');
+    const [filterReqDate, setFilterReqDate] = useState('');
+    const [filterOrgUnit, setFilterOrgUnit] = useState('');
+    const [filterCreateBy, setFilterCreateBy] = useState('');
 
     // --- Data Fetching ---
     const fetchHistory = useCallback(async () => {
         if (!currentUser) return;
         setLoading(true);
         try {
-            const ceYear = parseInt(selectedYear) > 2500 ? (parseInt(selectedYear) - 543).toString() : selectedYear;
+            const numericYear = parseInt(selectedYear);
+            const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : selectedYear;
             
             const query = new URLSearchParams({
                 EffectiveYear: ceYear,
-                EmployeeID: currentUser.employeeID || 'SYSTEM',
+                EmployeeID: currentUser.employeeID || currentUser.EmployeeID || 'SYSTEM',
                 UserGroupNo: currentUser.userGroupNo || currentUser.roleId || '',
                 OrgUnitNo: '', 
                 RequestType: '2' 
@@ -77,20 +123,22 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
             const res = await fetch(`/api/mkd/history?${query}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            const result = await res.json();
+            const result = (await res.json()) as { success: boolean; data: Omit<HistoryRecord, 'no' | 'status' | 'manStatus'>[] };
             if (result.success) {
-                setRecords(result.data.map((item: any, idx: number) => ({
+                setRecords(result.data.map((item: Omit<HistoryRecord, 'no' | 'status' | 'manStatus'>, idx: number): HistoryRecord => ({
                     ...item,
-                    key: item.ManDriverID || idx,
-                    no: idx + 1
+                    no: idx + 1,
+                    status: item.StatusName || item.AppStatusName || '-',
+                    manStatus: Number(item.ManDriverStatus) || 0
                 })));
             }
-        } catch (error) {
-            message.error('ไม่สามารถดึงข้อมูลประวัติได้');
+        } catch (error: unknown) {
+            console.error('Error fetching history:', error);
+            toast.error('ไม่สามารถดึงข้อมูลประวัติได้');
         } finally {
             setLoading(false);
         }
-    }, [selectedYear, currentUser, token, message]);
+    }, [selectedYear, currentUser, token]);
 
     useEffect(() => {
         fetchHistory();
@@ -101,53 +149,21 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
 
     // --- Actions ---
     const handleCreateRecord = async () => {
+        if (!currentUser) {
+            toast.error('ไม่พบข้อมูลผู้ใช้งาน');
+            return;
+        }
         if (!newUnitName.trim()) {
-            message.warning('กรุณาระบุชื่อหน่วยงาน');
+            toast.warning('กรุณาระบุชื่อหน่วยงาน');
             return;
         }
 
         try {
             setLoading(true);
-            const ceYear = parseInt(selectedYear) > 2500 ? (parseInt(selectedYear) - 543).toString() : selectedYear;
+            const numericYear = parseInt(selectedYear);
+            const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : selectedYear;
             
-            // 1. Check duplicate
-            const checkRes = await fetch('/api/mkd/check-dup', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    EffectiveYear: ceYear,
-                    RequestType: 2,
-                    OrgUnitNo: '',
-                    OrgUnitName: newUnitName
-                })
-            });
-            const checkResult = await checkRes.json();
-            
-            if (checkResult.success && checkResult.isDuplicate) {
-                modal.confirm({
-                    title: 'พบข้อมูลซ้ำ',
-                    icon: <ExclamationCircleOutlined />,
-                    content: 'ข้อมูลในหน่วยงานนี้ ปีนี้ มีข้อมูลอยู่แล้ว ท่านต้องการที่จะดำเนินการต่อหรือไม่?',
-                    okText: 'ดำเนินการต่อ',
-                    cancelText: 'ยกเลิก',
-                    onOk: () => executeCreate(ceYear)
-                });
-            } else {
-                executeCreate(ceYear);
-            }
-        } catch (error) {
-            message.error('เกิดข้อผิดพลาดในการตรวจสอบข้อมูล');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const executeCreate = async (ceYear: string) => {
-        try {
-            setLoading(true);
+            // 1. Create New
             const res = await fetch('/api/mkd', {
                 method: 'POST',
                 headers: { 
@@ -159,201 +175,201 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                     RequestType: 2,
                     OrgUnitNo: '',
                     OrgUnitName: newUnitName,
-                    CreateBy: currentUser.employeeID
+                    CreateBy: currentUser.employeeID || currentUser.EmployeeID
                 })
             });
-            const result = await res.json();
+            const result = (await res.json()) as { success: boolean; message?: string; data?: { ManDriverID: string | number } | { ManDriverID: string | number }[] };
             if (result.success) {
-                message.success('สร้างรายการสำเร็จ');
+                toast.success('สร้างรายการสำเร็จ');
                 setIsNewModalOpen(false);
                 setNewUnitName('');
-                const newId = result.data?.ManDriverID || (Array.isArray(result.data) && result.data[0]?.ManDriverID);
+                const newId = (result.data as { ManDriverID: string | number })?.ManDriverID || (Array.isArray(result.data) && result.data[0]?.ManDriverID);
                 if (newId) router.push(`/mkd/historyrecord/${newId}`);
             } else {
-                message.error(result.message || 'สร้างรายการไม่สำเร็จ');
+                toast.error(result.message || 'สร้างรายการไม่สำเร็จ');
             }
-        } catch (error) {
-            message.error('เกิดข้อผิดพลาด');
+        } catch (error: unknown) {
+            console.error('Error creating record:', error);
+            toast.error('เกิดข้อผิดพลาด');
         } finally {
             setLoading(false);
         }
     };
 
-    // --- Renderers ---
-    const getStatusTag = (status: number, name: string) => {
-        if (status === 2) return <Tag color="success" icon={<CheckCircleFilled />}>{name}</Tag>;
-        if (status === 1) return <Tag color="processing" icon={<ClockCircleFilled />}>{name}</Tag>;
-        if (status <= 0) return <Tag color="error" icon={<DeleteOutlined />}>{name}</Tag>;
-        return <Tag color="default">{name}</Tag>;
+    const getStatusColor = (status: number) => {
+        if (status === 2 || status === 3) return 'text-green-700';
+        if (status === 1) return 'text-blue-700';
+        if (status <= 0) return 'text-red-700';
+        return 'text-slate-600';
     };
 
-    const columns = [
-        {
-            title: 'No.',
-            dataIndex: 'no',
-            key: 'no',
-            width: 60,
-            align: 'center' as const
-        },
-        {
-            title: 'Req.No',
-            key: 'reqNo',
-            render: (_: any, r: any) => <Text strong className="text-blue-700">{r.fullRequestNo || r.RequestNo || '-'}</Text>
-        },
-        {
-            title: 'Req.Date',
-            key: 'reqDate',
-            render: (_: any, r: any) => r.datebd ? dayjs(r.datebd).format('DD/MM/YYYY') : '-'
-        },
-        {
-            title: 'OrgUnit',
-            key: 'unit',
-            render: (_: any, r: any) => (
-                <div className="flex flex-col">
-                    <Text strong>{r.OrgUnitName || r.OrgUnitNo}</Text>
-                    <Text type="secondary" className="text-[11px]">{r.OrgUnitNo}</Text>
-                </div>
-            )
-        },
-        {
-            title: 'Create By',
-            key: 'createBy',
-            render: (_: any, r: any) => (
-                <div className="flex flex-col">
-                    <Text>{r.EmpName || r.CreateBy}</Text>
-                    <Text type="secondary" className="text-[10px]">{r.CreateDateBD}</Text>
-                </div>
-            )
-        },
-        {
-            title: 'Status',
-            key: 'status',
-            align: 'center' as const,
-            render: (_: any, r: any) => getStatusTag(r.ManDriverStatus, r.StatusName || r.AppStatusName || '-')
-        },
-        {
-            title: 'Action',
-            key: 'action',
-            align: 'center' as const,
-            render: (_: any, r: any) => (
-                <Space>
-                    <Tooltip title="Edit / View Detail">
-                        <Button 
-                            type="primary" 
-                            shape="circle" 
-                            icon={<EditOutlined />} 
-                            onClick={() => router.push(`/mkd/historyrecord/${r.ManDriverID}`)}
-                        />
-                    </Tooltip>
-                    {r.ManDriverStatus === 2 && (
-                        <Tooltip title="View Dashboard">
-                            <Button 
-                                shape="circle" 
-                                icon={<BarChartOutlined className="text-green-600" />} 
-                                onClick={() => router.push(`/mkd/dashboard/${r.ManDriverID}`)}
-                            />
-                        </Tooltip>
-                    )}
-                </Space>
-            )
-        }
-    ];
+    const filteredRecords = useMemo(() => {
+        return records.filter(r => {
+            const reqNo = (r.fullRequestNo || r.RequestNo || '').toLowerCase();
+            const reqDate = r.datebd ? dayjs(r.datebd).format('DD/MM/YYYY') : '';
+            const orgUnit = (r.OrgUnitName || '').toLowerCase();
+            const createBy = (r.EmpName || r.CreateBy || '').toLowerCase();
+
+            if (filterReqNo && !reqNo.includes(filterReqNo.toLowerCase())) return false;
+            if (filterReqDate && !reqDate.includes(filterReqDate)) return false;
+            if (filterOrgUnit && !orgUnit.includes(filterOrgUnit.toLowerCase())) return false;
+            if (filterCreateBy && !createBy.includes(filterCreateBy.toLowerCase())) return false;
+            return true;
+        });
+    }, [records, filterReqNo, filterReqDate, filterOrgUnit, filterCreateBy]);
 
     return (
         <div className="w-full bg-slate-50 min-h-screen p-6">
-            <div className="max-w-[1400px] mx-auto">
+            <div className="max-w-[1400px] mx-auto space-y-4">
                 {/* Header Card */}
-                <Card className="mb-6 shadow-sm border-0 bg-blue-700" styles={{ body: { padding: '20px' } }}>
-                    <div className="flex justify-between items-center">
-                        <Title level={3} className="m-0 text-white">History Manpower Key Driver (Record)</Title>
-                        <Button 
-                            type="primary" 
-                            size="large" 
-                            icon={<PlusOutlined />} 
-                            onClick={() => setIsNewModalOpen(true)}
-                            className="bg-green-600 hover:bg-green-700 border-none shadow-md px-8"
-                        >
-                            NEW RECORD
-                        </Button>
-                    </div>
+                <Card className="bg-linear-to-r from-blue-600 to-blue-700 border-0 shadow-lg py-2 text-white">
+                    <CardContent>
+                        <h1 className="text-2xl font-bold">History Manpower Key Driver (Record)</h1>
+                    </CardContent>
                 </Card>
 
-                {/* Filter section */}
-                <Card className="mb-6 shadow-sm border-0" styles={{ body: { padding: '20px' } }}>
-                    <Space size={24} align="end">
-                        <Space orientation="vertical" size={4}>
-                            <Text strong type="secondary">Year (ปี)</Text>
-                            <Select
-                                style={{ width: 200 }}
-                                value={selectedYear}
-                                onChange={setSelectedYear}
-                            >
-                                {initialYears.map(y => (
-                                    <Select.Option key={y} value={y}>{y}</Select.Option>
-                                ))}
-                            </Select>
-                        </Space>
-                        <Button 
-                            type="primary" 
-                            icon={<SearchOutlined />} 
-                            onClick={fetchHistory}
-                            loading={loading}
-                            className="bg-blue-600 px-8"
-                        >
-                            SEARCH
-                        </Button>
-                    </Space>
+                {/* Filter Section */}
+                <Card className="bg-white border-0 shadow-sm py-2">
+                    <CardContent className="p-4">
+                        <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end">
+                            <div className="w-full lg:w-auto">
+                                <Label className="text-sm font-medium text-gray-700 mb-2 block">Year</Label>
+                                <Select value={selectedYear} onValueChange={setSelectedYear}>
+                                    <SelectTrigger className="w-32">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {initialYears.map((y: string) => (
+                                            <SelectItem key={y} value={y}>{y}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <Button onClick={fetchHistory} className="bg-blue-600 hover:bg-blue-700 text-white px-8 font-bold" disabled={loading}>
+                                {loading ? '...' : 'OK'}
+                            </Button>
+
+                            <Button onClick={() => setIsNewModalOpen(true)} className="bg-green-600 hover:bg-green-700 text-white px-8 ml-auto font-bold">
+                                NEW RECORD
+                            </Button>
+                        </div>
+                    </CardContent>
                 </Card>
 
-                {/* Table section */}
-                <Card className="shadow-sm border-0" styles={{ body: { padding: 0 } }}>
-                    <Table 
-                        columns={columns} 
-                        dataSource={records}
-                        loading={loading}
-                        pagination={{ pageSize: 12 }}
-                        className="custom-record-table"
-                    />
+                {/* Table Section */}
+                <Card className="bg-white border-0 shadow-sm overflow-hidden">
+                    <CardContent className="p-0">
+                        <div className="overflow-x-auto max-h-[600px] overflow-y-auto relative">
+                            <table className="w-full border-collapse">
+                                <thead className="sticky top-0 z-20 bg-blue-100 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">
+                                    <tr className="bg-blue-100 border-b-2 border-blue-200">
+                                        <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700 w-16">No</th>
+                                        <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">Req.No</th>
+                                        <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">Req.Date</th>
+                                        <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">OrgUnit</th>
+                                        <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">Create By</th>
+                                        <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">Status</th>
+                                        <th className="px-4 py-4 text-center text-sm font-semibold text-gray-700 w-32">Detail</th>
+                                    </tr>
+                                    <tr className="bg-blue-50 border-b z-20 shadow-sm">
+                                        <th className="px-4 py-3"></th>
+                                        <th className="px-4 py-3">
+                                            <Input className="bg-white h-9 text-xs" value={filterReqNo} onChange={e => setFilterReqNo(e.target.value)} placeholder="" />
+                                        </th>
+                                        <th className="px-4 py-3">
+                                            <BDatePicker 
+                                                locale={customLocale}
+                                                className="w-full h-9 text-xs" 
+                                                format="DD/MM/BBBB"
+                                                placeholder=""
+                                                value={filterReqDate ? dayjs(filterReqDate, 'DD/MM/BBBB') : null}
+                                                onChange={(date, dateString) => {
+                                                    setFilterReqDate(Array.isArray(dateString) ? dateString[0] : (dateString || ''));
+                                                }}
+                                                allowClear
+                                            />
+                                        </th>
+                                        <th className="px-4 py-3">
+                                            <Input className="bg-white h-9 text-xs" value={filterOrgUnit} onChange={e => setFilterOrgUnit(e.target.value)} placeholder="" />
+                                        </th>
+                                        <th className="px-4 py-3">
+                                            <Input className="bg-white h-9 text-xs" value={filterCreateBy} onChange={e => setFilterCreateBy(e.target.value)} placeholder="" />
+                                        </th>
+                                        <th className="px-4 py-3"></th>
+                                        <th className="px-4 py-3"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredRecords.map((r, idx) => (
+                                        <tr key={r.ManDriverID || idx} className="border-b hover:bg-slate-50 transition-colors">
+                                            <td className="px-4 py-3 text-sm text-center font-medium text-gray-500">{r.no}</td>
+                                            <td className="px-4 py-3 text-sm font-bold text-blue-700">{r.fullRequestNo || r.RequestNo || '-'}</td>
+                                            <td className="px-4 py-3 text-sm text-gray-600">{r.datebd ? dayjs(r.datebd).format('DD/MM/YYYY') : '-'}</td>
+                                            <td className="px-4 py-3 text-sm text-gray-700 font-medium">{r.OrgUnitName || '-'}</td>
+                                            <td className="px-4 py-3 text-sm">
+                                                <div className="flex flex-col">
+                                                    <span className="text-gray-900 text-xs">{r.EmpName || r.CreateBy}</span>
+                                                    <span className="text-[10px] text-gray-400">{r.CreateDateBD}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <span className={`font-bold text-sm ${getStatusColor(r.manStatus)}`}>
+                                                    {r.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center justify-center gap-2">
+                                                    <button onClick={() => router.push(`/mkd/historyrecord/${r.ManDriverID}`)} className="p-1.5 hover:bg-blue-50 rounded-full transition-colors group">
+                                                        <Search className="h-5 w-5 text-blue-500 group-hover:text-blue-700 cursor-pointer" />
+                                                    </button>
+                                                    {(r.manStatus === 2 || r.manStatus === 3) && (
+                                                        <button onClick={() => router.push(`/mkd/dashboard/${r.ManDriverID}`)} className="p-1.5 hover:bg-emerald-50 rounded-full transition-colors group">
+                                                            <BarChart3 className="h-5 w-5 text-emerald-500 group-hover:text-emerald-700 cursor-pointer" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {filteredRecords.length === 0 && !loading && (
+                                        <tr>
+                                            <td colSpan={7} className="px-4 py-12 text-center text-gray-400 italic">ไม่พบข้อมูล</td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </CardContent>
                 </Card>
             </div>
 
             {/* New Record Modal */}
-            <Modal
-                title={<Space className="text-blue-700"><PlusOutlined /> สร้างรายการใหม่</Space>}
-                open={isNewModalOpen}
-                onCancel={() => setIsNewModalOpen(false)}
-                onOk={handleCreateRecord}
-                confirmLoading={loading}
-                okText="สร้าง (CREATE)"
-                cancelText="ยกเลิก (CANCEL)"
-                okButtonProps={{ className: 'bg-blue-600' }}
-            >
-                <div className="py-4">
-                    <Space orientation="vertical" className="w-full" size={16}>
+            <Dialog open={isNewModalOpen} onOpenChange={setIsNewModalOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold text-blue-700">สร้าง Manpower Key Driver (Record)</DialogTitle>
+                    </DialogHeader>
+                    <div className="py-6 space-y-6">
                         <div>
-                            <Text strong className="block mb-2">ปี (Effective Year)</Text>
-                            <Tag color="blue" className="px-4 py-1 text-base">{selectedYear}</Tag>
-                        </div>
-                        <div>
-                            <Text strong className="block mb-2 text-slate-700">หน่วยงาน (Organization Unit)</Text>
+                            <Label htmlFor="unitName" className="text-sm font-semibold text-gray-600 mb-2 block">หน่วยงาน (Unit Name)</Label>
                             <Input 
+                                id="unitName"
                                 placeholder="ระบุชื่อหน่วยงาน..." 
-                                size="large" 
                                 value={newUnitName}
                                 onChange={e => setNewUnitName(e.target.value)}
+                                className="h-11 border-gray-200 focus:border-blue-400 focus:ring-blue-400"
                             />
                         </div>
-                    </Space>
-                </div>
-            </Modal>
-
-            <style jsx global>{`
-                .custom-record-table .ant-table-thead > tr > th {
-                    background: #f1f5f9 !important;
-                    font-weight: 600 !important;
-                    font-size: 13px;
-                }
-            `}</style>
+                    </div>
+                    <div className="flex justify-end gap-3 mt-4">
+                        <Button variant="outline" onClick={() => setIsNewModalOpen(false)}>ยกเลิก (CANCEL)</Button>
+                        <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleCreateRecord} disabled={loading}>
+                            {loading ? 'กำลังสร้าง...' : 'สร้าง (CREATE)'}
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

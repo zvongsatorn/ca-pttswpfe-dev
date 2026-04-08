@@ -18,12 +18,50 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
 
   const [headerInfo, setHeaderInfo] = useState({ reqNo: "-", date: "-", orgUnit: "-" });
   const [effYear, setEffYear] = useState<number>(0);
-  const [years, setYears] = useState<{ ad: number; label: string }[]>([]);
+  const [years, setYears] = useState<{ ad: number; label: string; th: number }[]>([]);
   
-  const [summaryRows, setSummaryRows] = useState<any[]>([]);
-  const [chartData, setChartData] = useState<any[]>([]);
+  interface SummaryRow {
+    title: string;
+    isTotal: boolean;
+    data: Record<number, number>;
+  }
+
+  interface ChartDataItem {
+    year: string;
+    value: number;
+    type: string;
+    ad: number;
+  }
+
+  interface MKDDriver {
+    id: number;
+    name: string;
+    unit: string;
+    weight: number;
+    raw: Record<number, number>;
+    ratio: Record<number, number>;
+    headcount: Record<number, number>;
+  }
+
+  interface RawDashItem {
+    KeyYear: string | number;
+    SumHeadCount?: number;
+    Headcount?: number;
+    UnitHead?: number;
+    ImpRate?: number;
+    ManDriverKeyID?: number;
+    KeyManName?: string;
+    Unit?: string;
+    Weight?: number;
+    KeySumAmount?: number;
+    RatioCal?: number;
+    HeadCountCal?: number;
+  }
+
+  const [summaryRows, setSummaryRows] = useState<SummaryRow[]>([]);
+  const [chartData, setChartData] = useState<ChartDataItem[]>([]);
   const [productivityRate, setProductivityRate] = useState<Record<number, number>>({});
-  const [drivers, setDrivers] = useState<any[]>([]);
+  const [drivers, setDrivers] = useState<MKDDriver[]>([]);
 
   const [isEditingRate, setIsEditingRate] = useState(false);
   const [editRateValues, setEditRateValues] = useState<Record<number, number>>({});
@@ -54,11 +92,11 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
             const { chart, chartDetail, chartDetailCal } = dashRes.data;
             
             const allYears = Array.from(new Set([
-                ...(chartDetail || []).map((x: any) => Number(x.KeyYear)),
-                ...(chartDetailCal || []).map((x: any) => Number(x.KeyYear))
+                ...(chartDetail || []).map((x: RawDashItem) => Number(x.KeyYear)),
+                ...(chartDetailCal || []).map((x: RawDashItem) => Number(x.KeyYear))
             ])).sort((a, b) => (a as number) - (b as number));
             
-            const yearObjs = allYears.map((y: any) => {
+            const yearObjs = allYears.map((y) => {
                 const yearTh = y + 543;
                 let label = yearTh.toString();
                 if (y === currentEffYear) label += ' E';
@@ -67,7 +105,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
             });
             setYears(yearObjs);
 
-            const cData = (chart || []).map((item: any) => {
+            const cData = (chart || []).map((item: RawDashItem) => {
                 const y = Number(item.KeyYear);
                 let type = "past";
                 if (y === currentEffYear) type = "estimate";
@@ -78,7 +116,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
                     type,
                     ad: y
                 };
-            }).sort((a: any, b: any) => a.ad - b.ad);
+            }).sort((a: ChartDataItem, b: ChartDataItem) => a.ad - b.ad);
             setChartData(cData);
 
             const headcounts: Record<number, number> = {};
@@ -86,7 +124,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
             const totals: Record<number, number> = {};
             const prodRate: Record<number, number> = {};
 
-            (chartDetail || []).forEach((item: any) => {
+            (chartDetail || []).forEach((item: RawDashItem) => {
                 const y = Number(item.KeyYear);
                 headcounts[y] = item.Headcount || 0;
                 unitHeads[y] = item.UnitHead || 0;
@@ -100,26 +138,28 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
             ]);
             setProductivityRate(prodRate);
 
-            const driverMap: Record<number, any> = {};
-            (chartDetailCal || []).forEach((item: any) => {
-                const id = item.ManDriverKeyID;
+            const driverMap: Record<number, MKDDriver> = {};
+            (chartDetailCal || []).forEach((item: RawDashItem) => {
+                const y = Number(item.KeyYear);
+                const id = Number(item.ManDriverKeyID);
+                if (isNaN(id)) return;
+                
                 if (!driverMap[id]) {
                     driverMap[id] = {
                         id,
-                        name: item.KeyManName,
-                        unit: item.Unit,
-                        weight: item.Weight,
+                        name: item.KeyManName || '',
+                        unit: item.Unit || '',
+                        weight: item.Weight || 0,
                         raw: {},
                         ratio: {},
                         headcount: {}
                     };
                 }
-                const y = Number(item.KeyYear);
                 driverMap[id].raw[y] = item.KeySumAmount || 0;
                 driverMap[id].ratio[y] = item.RatioCal || 0;
                 driverMap[id].headcount[y] = item.HeadCountCal || 0;
             });
-            setDrivers(Object.values(driverMap).sort((a: any, b: any) => a.id - b.id));
+            setDrivers(Object.values(driverMap).sort((a: MKDDriver, b: MKDDriver) => a.id - b.id));
         }
       } catch (e) {
          console.error(e);
@@ -158,7 +198,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
 
   const startEditRate = () => {
       const fYears = years.filter(y => y.ad > effYear);
-      const initial: any = {};
+      const initial: Record<number, number> = {};
       fYears.forEach(y => {
           initial[y.ad] = productivityRate[y.ad] || 0;
       });
@@ -166,7 +206,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
       setIsEditingRate(true);
   };
 
-  const getYearColor = (y: any) => {
+  const getYearColor = (y: { ad: number }) => {
     if (y.ad > effYear) return "text-purple-700";
     if (y.ad === effYear) return "text-blue-600";
     return "text-black";
