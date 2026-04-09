@@ -61,6 +61,12 @@ interface HeadCountYear {
     HeadCount: number;
 }
 
+interface MKDSummary {
+    ManDriverKeyID: number | string;
+    KeyYear: number | string;
+    KeySumAmount: number;
+}
+
 interface MasterKey {
     MasterId: number | string;
     KeyManID?: number | string;
@@ -74,6 +80,12 @@ interface MappedSubItem {
     remark: string;
     years: Record<number, number>;
     yearIds: Record<number, string>;
+}
+
+interface MKDSummary {
+    ManDriverKeyID: number | string;
+    KeyYear: number | string;
+    KeySumAmount: number;
 }
 
 interface HistoryRecordDetailClientProps {
@@ -98,6 +110,7 @@ interface HistoryRecordDetailClientProps {
         keys: MKDKey[];
         years: MKDYear[];
         files: MKDFile[];
+        summary?: MKDSummary[];
         headcount?: {
             headCounts: HeadCountRecord[];
             years: HeadCountYear[];
@@ -132,9 +145,10 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
 
     // Reactive Data State
     const [localHeader, setLocalHeader] = useState(initialData.header || {});
-    const [localKeys, setLocalKeys] = useState(initialData.keys || []);
-    const [localYears, setLocalYears] = useState(initialData.years || []);
-    const [localFiles, setLocalFiles] = useState(initialData.files || []);
+    const [localKeys, setLocalKeys] = useState<MKDKey[]>(initialData.keys || []);
+    const [localYears, setLocalYears] = useState<MKDYear[]>(initialData.years || []);
+    const [localFiles, setLocalFiles] = useState<MKDFile[]>(initialData.files || []);
+    const [localSummary, setLocalSummary] = useState<MKDSummary[]>(initialData.summary || []);
     const [localHeadcount, setLocalHeadcount] = useState(initialData.headcount || { headCounts: [], years: [] });
 
     // Modal States
@@ -181,6 +195,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                 setLocalKeys(detailRes.data.keys || []);
                 setLocalYears(detailRes.data.years || []);
                 setLocalFiles(detailRes.data.files || []);
+                setLocalSummary(detailRes.data.summary || []);
             }
             if (headcountRes?.success && headcountRes.data) {
                 setLocalHeadcount(headcountRes.data);
@@ -209,7 +224,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
     const effectiveYear = header.EffectiveYear || 0;
     
     // Editable if status is 1 (e.g. Reject/Draft equivalent for history record)
-    const isReadOnly = header.ManDriverStatus !== 1; 
+    const isReadOnly = header.ManDriverStatus !== 1;
 
     const allYears = useMemo(() => {
         const yearsArr = localYears || [];
@@ -259,11 +274,12 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                 };
             });
 
-            if (!isUniform) {
-                allYears.forEach(y => {
-                    mainYears[y] = mappedSubItems.reduce((acc, curr) => acc + ((curr.years[y] || 0) * (Number(curr.coefficient) || 1)), 0);
-                });
-            }
+            // [REMOVED] INDEX automatic sum calculation here to keep Parent row independent as per user request
+            // if (!isUniform) {
+            //     allYears.forEach(y => {
+            //         mainYears[y] = mappedSubItems.reduce((acc, curr) => acc + ((curr.years[y] || 0) * (Number(curr.coefficient) || 1)), 0);
+            //     });
+            // }
 
             return { 
                 id: mk.ManDriverKeyID.toString(), 
@@ -282,6 +298,17 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
             };
         });
     }, [localKeys, localYears, allYears]);
+
+    // Build summary lookup: { ManDriverKeyID -> { year -> KeySumAmount } }
+    const summaryMap = useMemo(() => {
+        const map: Record<string, Record<number, number>> = {};
+        localSummary.forEach((s: MKDSummary) => {
+            const keyId = s.ManDriverKeyID?.toString();
+            if (!map[keyId]) map[keyId] = {};
+            map[keyId][Number(s.KeyYear)] = Number(s.KeySumAmount) || 0;
+        });
+        return map;
+    }, [localSummary]);
 
     const formatYearBE = (year: number) => {
         return year < 2400 ? (year + 543).toString() : year.toString();
@@ -304,6 +331,17 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
     const openAddMainKey = () => {
         setIsAddingMainRow(false);
         setIsMainModalOpen(true);
+    };
+
+    const openEditMainKey = (key: { id: string | number; keyManId: string | number; unit: string; typeValue?: string | number; weight: string | number }) => {
+        setMainKeyForm({
+            manDriverKeyId: key.id.toString(),
+            keyManId: key.keyManId.toString(),
+            unit: key.unit,
+            keyType: (key.typeValue || '').toString(),
+            weight: key.weight.toString()
+        });
+        setIsAddingMainRow(true); // Re-use the input row for editing
     };
 
     const handleSaveMainKey = async () => {
@@ -569,14 +607,17 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
             });
 
             mkdData.forEach(driver => {
-                let sumMap: Record<number, number> = {};
-                if (driver.type === 'Uniform') {
-                    sumMap = driver.mainYears;
-                } else {
-                    allYears.forEach(y => {
-                        sumMap[y] = driver.subItems.reduce((acc, curr) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
-                    });
-                }
+                const sumMap: Record<number, number> = {};
+                allYears.forEach(y => {
+                    const summaryValue = summaryMap[driver.id]?.[y];
+                    if (summaryValue !== undefined) {
+                        sumMap[y] = summaryValue;
+                    } else {
+                        const parentVal = driver.mainYears[y] || 0;
+                        const subSum = driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
+                        sumMap[y] = parentVal + subSum;
+                    }
+                });
                 const rowData = [driver.name, driver.unit, driver.weight, ...allYears.map(y => sumMap[y] || 0)];
                 worksheet.addRow(rowData);
             });
@@ -627,8 +668,8 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                             Confirm
                         </Button>
                     )}
-                    <Button variant="outline" className="text-slate-600 bg-white hover:bg-slate-50 border-slate-300 font-medium min-w-max shadow-sm transition-all h-full" onClick={() => router.back()}>
-                        <ArrowLeft className="w-4 h-4 mr-2" /> ย้อนกลับ
+                    <Button variant="outline" className="text-white bg-slate-500 hover:bg-slate-600 hover:text-white border-slate-300 font-medium min-w-max shadow-sm transition-all h-full" onClick={() => router.back()}>
+                        <ArrowLeft className="w-4 h-4 mr-2" /> Back
                     </Button>
                 </div>
             </div>
@@ -653,7 +694,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                             >
                                 <Icon className={`w-4 h-4 ${isActive ? "text-blue-600" : "text-slate-400"}`} />
                                 {tab.label}
-                                {isActive && <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-blue-600 rounded-t-md shadow-sm"></div>}
+                                {isActive && <div className="absolute bottom-0 left-0 w-full h-1 bg-linear-to-r from-blue-500 to-blue-600 rounded-t-md shadow-sm"></div>}
                             </button>
                         );
                     })}
@@ -666,7 +707,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                         <div className="flex justify-between items-center mb-4">
                             {!isReadOnly && (
                                 <Button className="bg-blue-600 hover:bg-blue-700 font-bold shadow-sm transition-all text-white" onClick={openAddMainKey}>
-                                    <Plus className="w-4 h-4 mr-2" /> Add Manpower
+                                    <Plus className="w-4 h-4 mr-2" /> Add Manpower Key Driver
                                 </Button>
                             )}
                         </div>
@@ -698,7 +739,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                 <TableBody>
                                     {mkdData.map((driver) => (
                                         <React.Fragment key={driver.id}>
-                                            <TableRow className="hover:bg-slate-50 transition-colors border-t border-slate-200">
+                                            <TableRow className="border-t border-slate-200 hover:bg-transparent">
                                                 <TableCell className="p-2 text-center">
                                                     {driver.type === 'Index' && !isReadOnly && (
                                                         <Button size="icon" variant="ghost" className="h-6 w-6 text-green-600 rounded-full hover:bg-green-100" title="เพิ่มรายการย่อย" onClick={() => openAddSubKey(driver.id)}>
@@ -724,12 +765,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                                 <TableCell className="border-l border-slate-100"></TableCell>
                                                 <TableCell className="text-center font-bold border-l border-slate-100">{driver.weight}</TableCell>
                                                 {allYears.map(y => {
-                                                    let val = 0;
-                                                    if (driver.type === 'Uniform') {
-                                                        val = driver.mainYears[y] || 0;
-                                                    } else {
-                                                        val = driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
-                                                    }
+                                                    const val = driver.mainYears[y] || 0;
                                                     return (
                                                         <TableCell key={y} className={`text-right font-semibold border-l border-slate-100 ${getYearColor(y)}`}>
                                                             {val > 0 ? val.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : '0.00'}
@@ -765,7 +801,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                             </TableRow>
 
                                             {driver.subItems.map((sk: MappedSubItem) => (
-                                                <TableRow key={sk.id} className="bg-white hover:bg-slate-50 transition-colors">
+                                                <TableRow key={sk.id} className="bg-white hover:bg-transparent">
                                                     <TableCell></TableCell>
                                                     <TableCell></TableCell>
                                                     <TableCell className="border-l border-slate-100"></TableCell>
@@ -800,10 +836,11 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                                 <TableRow className="bg-[#f1e8e1]">
                                                     <TableCell colSpan={7}></TableCell>
                                                     {allYears.map(y => {
-                                                        const sum = driver.subItems.reduce((acc: number, curr: { years: Record<number, number>; coefficient: number }) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
+                                                        const summaryValue = summaryMap[driver.id]?.[y];
+                                                        const total = summaryValue !== undefined ? summaryValue : (driver.mainYears[y] || 0) + driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
                                                         return (
                                                             <TableCell key={y} className={`text-right font-bold border-l border-white/50 ${getYearColor(y)}`}>
-                                                                {sum.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                                                                {total.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
                                                             </TableCell>
                                                         );
                                                     })}
@@ -814,7 +851,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                     ))}
                                     {mkdData.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={8 + allYears.length} className="text-center py-12 text-slate-500">
+                                            <TableCell colSpan={isReadOnly ? 8 + allYears.length : 10 + allYears.length} className="text-center py-12 text-slate-500">
                                                 ไม่มีข้อมูล
                                             </TableCell>
                                         </TableRow>
@@ -872,10 +909,17 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                                             {isEditingHeadcount ? (
                                                                 <Input 
                                                                     type="number"
+                                                                    min="0"
                                                                     className="h-8 shadow-inner text-right min-w-[80px]"
                                                                     value={headcountForm[key] || '0'}
+                                                                    onFocus={(e) => e.target.select()}
                                                                     onChange={(e) => {
-                                                                        const val = e.target.value;
+                                                                        let val = e.target.value;
+                                                                        // ลบ 0 ข้างหน้าถ้าพิมตัวเลขต่อ (e.g. "04" -> "4")
+                                                                        if (val.length > 1 && val.startsWith('0') && val[1] !== '.') {
+                                                                            val = val.substring(1);
+                                                                        }
+                                                                        if (parseFloat(val) < 0) return;
                                                                         setHeadcountForm(prev => ({...prev, [key]: val }));
                                                                     }}
                                                                 />
@@ -923,14 +967,17 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                 </TableHeader>
                                 <TableBody>
                                     {mkdData.map(driver => {
-                                        let sumMap: Record<number, number> = {};
-                                        if (driver.type === 'Uniform') {
-                                            sumMap = driver.mainYears;
-                                        } else {
-                                            allYears.forEach(y => {
-                                                sumMap[y] = driver.subItems.reduce((acc: number, curr: { years: Record<number, number>; coefficient: number }) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
-                                            });
-                                        }
+                                        const sumMap: Record<number, number> = {};
+                                        allYears.forEach(y => {
+                                            const summaryValue = summaryMap[driver.id]?.[y];
+                                            if (summaryValue !== undefined) {
+                                                sumMap[y] = summaryValue;
+                                            } else {
+                                                const parentVal = driver.mainYears[y] || 0;
+                                                const subSum = driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
+                                                sumMap[y] = parentVal + subSum;
+                                            }
+                                        });
                                         return (
                                             <TableRow key={driver.id} className="hover:bg-blue-50/30">
                                                 <TableCell className="font-bold text-blue-800">{driver.name}</TableCell>
@@ -1077,7 +1124,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                 <TableBody>
                                     {mkdData.map((driver, idx) => {
                                         return (
-                                            <TableRow key={driver.id} className="hover:bg-slate-50">
+                                            <TableRow key={driver.id} className="hover:bg-transparent">
                                                 <TableCell className="text-center font-medium">{idx + 1}</TableCell>
                                                 <TableCell className="font-medium text-slate-700">{driver.name}</TableCell>
                                                 <TableCell className="text-center">{driver.unit}</TableCell>
@@ -1099,7 +1146,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                                 <TableCell className="text-center">
                                                     {!isReadOnly && (
                                                         <div className="flex items-center justify-center gap-1">
-                                                            <Button size="icon" variant="ghost" onClick={() => toast.warning('แก้ไข Main Key (Coming Soon)')} className="h-7 w-7 text-blue-500 hover:bg-blue-100"><Edit className="w-3.5 h-3.5" /></Button>
+                                                            <Button size="icon" variant="ghost" onClick={() => openEditMainKey(driver)} className="h-7 w-7 text-blue-500 hover:bg-blue-100"><Edit className="w-3.5 h-3.5" /></Button>
                                                             <Button size="icon" variant="ghost" onClick={() => handleDeleteKey(driver.id)} className="h-7 w-7 text-red-500 hover:bg-red-100"><Trash2 className="w-3.5 h-3.5" /></Button>
                                                         </div>
                                                     )}
@@ -1108,12 +1155,12 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                         );
                                     })}
                                     {isAddingMainRow && (
-                                        <TableRow className="bg-blue-50/40">
+                                        <TableRow className="bg-blue-50/40 hover:bg-blue-50/40">
                                             <TableCell className="text-center font-bold text-slate-400">+</TableCell>
                                             <TableCell>
                                                 <Select value={mainKeyForm.keyManId} onValueChange={v => setMainKeyForm(prev => ({...prev, keyManId: v}))}>
-                                                    <SelectTrigger className="h-8 shadow-inner w-full"><SelectValue placeholder="เลือก..." /></SelectTrigger>
-                                                    <SelectContent className="max-h-[300px]">
+                                                    <SelectTrigger className="h-8 bg-white shadow-sm w-full"><SelectValue placeholder="เลือก..." /></SelectTrigger>
+                                                    <SelectContent position="popper" className="max-h-[300px] w-(--radix-select-trigger-width) [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
                                                         {masterKeys?.map((m: MasterKey) => (
                                                             <SelectItem key={m.KeyManID || m.MasterId} value={(m.KeyManID || m.MasterId)?.toString() || ''}>
                                                                 {m.KeyManName}
@@ -1123,11 +1170,11 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                                 </Select>
                                             </TableCell>
                                             <TableCell className="text-center">
-                                                <Input className="h-8 shadow-inner text-center" value={mainKeyForm.unit || ''} onChange={e => setMainKeyForm(prev => ({...prev, unit: e.target.value}))} />
+                                                <Input className="h-8 bg-white shadow-sm text-center" value={mainKeyForm.unit || ''} onChange={e => setMainKeyForm(prev => ({...prev, unit: e.target.value}))} />
                                             </TableCell>
                                             <TableCell className="text-center">
                                                 <Select value={mainKeyForm.keyType} onValueChange={v => setMainKeyForm(prev => ({...prev, keyType: v}))}>
-                                                    <SelectTrigger className="h-8 shadow-inner"><SelectValue placeholder="Type" /></SelectTrigger>
+                                                    <SelectTrigger className="h-8 bg-white shadow-sm"><SelectValue placeholder="Type" /></SelectTrigger>
                                                     <SelectContent>
                                                         <SelectItem value="1">Index</SelectItem>
                                                         <SelectItem value="2">Uniform</SelectItem>
@@ -1137,9 +1184,19 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                             <TableCell className="text-center">
                                                 <Input 
                                                     type="number" 
-                                                    className="h-8 text-center shadow-inner" 
+                                                    min="0"
+                                                    className="h-8 bg-white text-center shadow-sm" 
                                                     value={mainKeyForm.weight || '0'} 
-                                                    onChange={e => setMainKeyForm(prev => ({...prev, weight: e.target.value}))} 
+                                                    onFocus={(e) => e.target.select()}
+                                                    onChange={e => {
+                                                        let val = e.target.value;
+                                                        // ลบ 0 ข้างหน้าถ้าพิมตัวเลขต่อ (e.g. "04" -> "4")
+                                                        if (val.length > 1 && val.startsWith('0') && val[1] !== '.') {
+                                                            val = val.substring(1);
+                                                        }
+                                                        if (parseFloat(val) < 0) return;
+                                                        setMainKeyForm(prev => ({...prev, weight: val}));
+                                                    }} 
                                                 />
                                             </TableCell>
                                             <TableCell className="text-center">
@@ -1257,6 +1314,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                                                 <Input
                                                                     id={`yearly-input-${index}`}
                                                                     type="number"
+                                                                    min="0"
                                                                     className="h-8 text-right shadow-inner tabular-nums font-semibold"
                                                                     value={(subKeyForm.yearlyData as Record<number, string | number>)[y] === 0 ? '0' : ((subKeyForm.yearlyData as Record<number, string | number>)[y] || '')}
                                                                     onFocus={e => e.target.select()}
@@ -1272,12 +1330,17 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                                                         }
                                                                     }}
                                                                     onChange={(e) => {
-                                                                        const val = e.target.value;
+                                                                        let val = e.target.value;
+                                                                        // ลบ 0 ข้างหน้าถ้าพิมตัวเลขต่อ (e.g. "04" -> "4")
+                                                                        if (val.length > 1 && val.startsWith('0') && val[1] !== '.') {
+                                                                            val = val.substring(1);
+                                                                        }
+                                                                        if (parseFloat(val) < 0) return;
                                                                         setSubKeyForm(prev => ({
                                                                             ...prev,
                                                                             yearlyData: {
                                                                                 ...prev.yearlyData,
-                                                                                [y]: val === '' ? 0 : Number(val)
+                                                                                [y]: val
                                                                             }
                                                                         }));
                                                                     }}

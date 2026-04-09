@@ -54,7 +54,7 @@ interface InboxItem {
   
   // Overall Process Status for Stepper (1=Create, 2=Waiting, 3=Approved)
   processStage: 1 | 2 | 3; 
-  
+  subtitle?: string;
   items?: TransactionDetail[];
   logs?: ApprovalLogItem[];
 }
@@ -69,6 +69,59 @@ interface MyRequestItem {
   currentStepLabel: string;
   currentHandler: string;
   pendingDays: number;
+}
+
+// API Response Interfaces
+interface APIMKDInboxItem {
+  ManDriverID?: number | string;
+  RefID?: number | string;
+  CreateDateBD?: string;
+  CreateDate: string;
+  RefNo?: string;
+  ApproveID?: string | number;
+  Detail1?: string;
+  Detail2?: string;
+}
+
+interface APIDocRequestItem {
+  CreateDate: string;
+  LastActionDate?: string;
+  TransactionNo: string;
+  TransactionDesc?: string;
+  UserGroupNo?: string;
+  CurrentHandler?: string;
+}
+
+interface APIMKDRequestItem {
+  CreateDate: string;
+  LastActionDate?: string;
+  TransactionNo: string;
+  TransactionDesc?: string;
+  RequestType?: number;
+  ManDriverStatus?: number;
+  CurrentHandler?: string;
+}
+
+interface APIDocDetailItem {
+  ItemID: string;
+  TransactionType: number;
+  TransactionDesc: string;
+  ReqRemark: string;
+  FileCount: number;
+  FileUrl: string;
+  RejectionReason: string;
+  Seqno: number;
+}
+
+interface APIDocAuditLog {
+  Seqno: number;
+  AuditStatus: number;
+  AuditDate?: string;
+  EmployeeID: string;
+  Fullname: string;
+  UserGroupName?: string;
+  UserGroupNo?: string;
+  UnitSide?: string;
 }
 
 export default function Home() {
@@ -116,12 +169,17 @@ export default function Home() {
         } catch (e) {}
       }
 
-      // Fetch Inbox
-      const inboxRes = await fetch(`/api/documents/inbox?employeeId=${employeeId}`);
-      if (inboxRes.ok) {
-        const inboxJson = await inboxRes.json();
-        const map = new Map<string, InboxItem>();
-        inboxJson.data.forEach((item: { DocumentNo: string; DocumentType: number; CreateDate: string }) => {
+      // --- Fetch Inbox ---
+      const [docInboxRes, mkdInboxRes] = await Promise.all([
+        fetch(`/api/documents/inbox?employeeId=${employeeId}`),
+        fetch(`/api/mkd/inbox?employeeId=${employeeId}`)
+      ]);
+      
+      const map = new Map<string, InboxItem>();
+      
+      if (docInboxRes.ok) {
+        const docInboxJson = await docInboxRes.json();
+        docInboxJson.data.forEach((item: { DocumentNo: string; DocumentType: number; CreateDate: string }) => {
           if (!map.has(item.DocumentNo)) {
             let title = 'ไม่ทราบประเภทเอกสาร';
             if (item.DocumentType === 1) title = 'ตรวจสอบการเปลี่ยนแปลงกรอบอัตรากำลัง';
@@ -140,14 +198,73 @@ export default function Home() {
             });
           }
         });
-        setInboxData(Array.from(map.values()));
       }
 
-      // Fetch My Requests
-      const reqRes = await fetch(`/api/documents/my-requests?employeeId=${employeeId}`);
-      if (reqRes.ok) {
-        const reqJson = await reqRes.json();
-        const mappedReqs: MyRequestItem[] = reqJson.data.map((item: { CreateDate: string; LastActionDate?: string; TransactionNo: string; TransactionDesc?: string; UserGroupNo?: string; CurrentHandler?: string }) => {
+      if (mkdInboxRes.ok) {
+        const mkdInboxJson = await mkdInboxRes.json();
+        mkdInboxJson.data.forEach((item: APIMKDInboxItem) => {
+          const mkdId = item.ManDriverID ? item.ManDriverID.toString() : item.RefID?.toString();
+          if (mkdId && !map.has('MKD_' + mkdId)) {
+            // Fix Date: item.CreateDateBD is already DD/MM/YYYY (Buddhist)
+            // If we use dayjs().format('BBBB'), it adds 543 again.
+            let displayDate = '';
+            if (item.CreateDateBD && item.CreateDateBD.includes('/')) {
+              displayDate = item.CreateDateBD;
+            } else {
+              displayDate = dayjs(item.CreateDate).format('DD/MM/BBBB');
+            }
+
+            map.set('MKD_' + mkdId, {
+              id: mkdId,
+              displayId: item.RefNo ? `[${item.RefNo}]` : `[#${item.ApproveID || mkdId}]`,
+              title: item.Detail1 || 'ขออนุมัติ Manpower Key Driver',
+              subtitle: item.Detail2,
+              date: displayDate,
+              type: 'mkd',
+              statusLabel: 'Waiting Approve', 
+              processStage: 2,
+              items: [],
+              logs: []
+            });
+          }
+        });
+      }
+      setInboxData(Array.from(map.values()));
+
+      // --- Fetch My Requests ---
+      const [docReqRes, mkdReqRes] = await Promise.all([
+        fetch(`/api/documents/my-requests?employeeId=${employeeId}`),
+        fetch(`/api/mkd/my-requests?employeeId=${employeeId}`)
+      ]);
+      
+      let allReqs: MyRequestItem[] = [];
+
+      if (docReqRes.ok) {
+        const reqJson = await docReqRes.json();
+        const mappedReqs = reqJson.data.map((item: APIDocRequestItem) => {
+          const createDate = dayjs(item.CreateDate).format('DD/MM/BBBB HH:mm');
+          let pendingDays = 0;
+          if (item.LastActionDate) {
+              const diffMs = Date.now() - new Date(item.LastActionDate).getTime();
+              pendingDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+          }
+          return {
+              id: item.TransactionNo,
+              displayId: `[${item.TransactionNo}]`,
+              title: item.TransactionDesc || 'ไม่มีคำอธิบาย',
+              createDate,
+              type: 'transaction' as const,
+              currentStepLabel: item.UserGroupNo || 'รอตรวจสอบ',
+              currentHandler: item.CurrentHandler || '-',
+              pendingDays
+          };
+        });
+        allReqs = [...allReqs, ...mappedReqs];
+      }
+
+      if (mkdReqRes.ok) {
+        const reqJson = await mkdReqRes.json();
+        const mappedReqs = reqJson.data.map((item: APIMKDRequestItem) => {
           const createDate = dayjs(item.CreateDate).format('DD/MM/BBBB HH:mm');
           let pendingDays = 0;
           if (item.LastActionDate) {
@@ -155,26 +272,46 @@ export default function Home() {
               pendingDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
           }
 
+          // Stage Logic: 
+          // requesttype = 1 and mandriverstatus = 1 -> "รอเห็นชอบ"
+          // requesttype = 1 and mandriverstatus = 2 -> "รออนุมัติ"
+          let stage = '-';
+          if (item.RequestType === 1) {
+              if (item.ManDriverStatus === 1) stage = 'รอเห็นชอบ';
+              else if (item.ManDriverStatus === 2) stage = 'รออนุมัติ';
+          } else {
+              // Fallback for other types
+              stage = item.ManDriverStatus === 1 ? 'รอเห็นชอบ' : 'รออนุมัติ';
+          }
+
           return {
               id: item.TransactionNo,
               displayId: `[${item.TransactionNo}]`,
-              title: item.TransactionDesc || 'ไม่มีคำอธิบาย',
+              title: item.TransactionDesc || 'ขออนุมัติ MKD',
               createDate,
-              type: 'transaction',
-              currentStepLabel: item.UserGroupNo || 'รอตรวจสอบ',
+              type: 'mkd' as const,
+              currentStepLabel: stage,
               currentHandler: item.CurrentHandler || '-',
               pendingDays
           };
         });
-        
-        setMyRequestsData(mappedReqs);
-        
-        // Update Stats
-        setStatsData([
-          { id: 'stat_approve', filterKey: 'transaction_pending' as const, title: 'Transaction: Pending Approve', value: mappedReqs.filter(i => i.type === 'transaction').length, subtitle: 'Transaction: รออนุมัติ', bgColor: 'bg-blue-50', icon: '⏳', textColor: 'text-blue-700', borderColor: 'border-blue-200' },
-          { id: 'stat_mkd', filterKey: 'mkd_pending' as const, title: 'MKD: Pending Approve', value: mappedReqs.filter(i => i.type === 'mkd').length, subtitle: 'MKD: รออนุมัติตามสายงาน', bgColor: 'bg-purple-50', icon: '📝', textColor: 'text-purple-700', borderColor: 'border-purple-200' },
-        ]);
+        allReqs = [...allReqs, ...mappedReqs];
       }
+      
+      // Sort by descending CreateDate
+      allReqs.sort((a, b) => {
+          const dateA = dayjs(a.createDate, 'DD/MM/BBBB HH:mm').toDate().getTime();
+          const dateB = dayjs(b.createDate, 'DD/MM/BBBB HH:mm').toDate().getTime();
+          return dateB - dateA;
+      });
+
+      setMyRequestsData(allReqs);
+      
+      // Update Stats
+      setStatsData([
+        { id: 'stat_approve', filterKey: 'transaction_pending' as const, title: 'Transaction: Pending Approve', value: allReqs.filter(i => i.type === 'transaction').length, subtitle: 'Transaction: รออนุมัติ', bgColor: 'bg-blue-50', icon: '⏳', textColor: 'text-blue-700', borderColor: 'border-blue-200' },
+        { id: 'stat_mkd', filterKey: 'mkd_pending' as const, title: 'MKD: Pending Approve', value: allReqs.filter(i => i.type === 'mkd').length, subtitle: 'MKD: รออนุมัติตามสายงาน', bgColor: 'bg-purple-50', icon: '📝', textColor: 'text-purple-700', borderColor: 'border-purple-200' },
+      ]);
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
     } finally {
@@ -189,7 +326,7 @@ export default function Home() {
   
   const handleInboxClick = async (item: InboxItem) => {
     if (item.type === 'mkd') {
-      router.push(`/mkd/${item.id}`); 
+      router.push(`/mkd/history/${item.id}?from=inbox`); 
     } else {
       setSelectedInboxItem(item);
       setIsActionModalOpen(true);
@@ -209,7 +346,7 @@ export default function Home() {
           const detailJson = await res.json();
           
           if (detailJson.data) {
-              const items: TransactionDetail[] = detailJson.data.items.map((i: { ItemID: string; TransactionType: number; TransactionDesc: string; ReqRemark: string; FileCount: number; FileUrl: string; RejectionReason: string; Seqno: number }) => ({
+              const items: TransactionDetail[] = detailJson.data.items.map((i: APIDocDetailItem) => ({
                 id: i.ItemID,
                 typeLabel: i.TransactionType === 1 ? 'โอนกรอบอัตรากำลัง' : i.TransactionType === 3 ? 'ปรับระดับ' : i.TransactionType === 4 ? 'เพิ่ม/ลดกรอบ' : 'อื่นๆ',
                 typeCategory: i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer',
@@ -221,7 +358,7 @@ export default function Home() {
                 _seqno: i.Seqno // Keep for later reference
               }));
               
-              const logs: ApprovalLogItem[] = detailJson.data.logs.map((l: { Seqno: number; AuditStatus: number; AuditDate?: string; EmployeeID: string; Fullname: string; UserGroupName?: string; UserGroupNo?: string; UnitSide?: string }) => ({
+              const logs: ApprovalLogItem[] = detailJson.data.logs.map((l: APIDocAuditLog) => ({
                 action: l.Seqno === 0 ? 'สร้าง' : l.AuditStatus === 2 ? 'อนุมัติ' : l.AuditStatus === 1 ? 'รออนุมัติ' : l.AuditStatus === -1 ? 'ไม่อนุมัติ' : 'รอดำเนินการ',
                 timestamp: l.AuditDate ? dayjs(l.AuditDate).format('DD/MM/BBBB HH:mm') : '',
                 user: `${l.EmployeeID} ${l.Fullname}`,
@@ -296,10 +433,15 @@ export default function Home() {
 
   // Helper for Stage Badge Coloring
   const getStageBadgeColor = (stageName: string) => {
-    const upperStage = stageName.toUpperCase();
+    const upperStage = (stageName || '').toUpperCase();
     if (upperStage.includes('HRUSER')) return 'bg-blue-100 text-blue-700 border-blue-200';
     if (upperStage.includes('HRVERIFY')) return 'bg-green-100 text-green-700 border-green-200';
     if (upperStage.includes('HRPOLICY')) return 'bg-purple-100 text-purple-700 border-purple-200';
+    
+    // MKD Stages
+    if (stageName === 'รอเห็นชอบ') return 'bg-amber-100 text-amber-700 border-amber-200';
+    if (stageName === 'รออนุมัติ') return 'bg-blue-100 text-blue-700 border-blue-200';
+    
     return 'bg-gray-100 text-gray-800 border-gray-200'; // Default
   };
 
@@ -431,7 +573,7 @@ export default function Home() {
                 <tbody className="bg-white divide-y divide-gray-100">
                   {inboxData.map((item) => (
                     <tr key={item.id} onClick={() => handleInboxClick(item)}
-                      className="cursor-pointer group transition-all hover:bg-blue-50 border-l-4 border-transparent hover:border-blue-500"
+                      className="cursor-pointer group transition-all hover:bg-blue-50 border-l-4 border-transparent hover:border-l-blue-500"
                     >
                       <td className="px-4 py-4 text-center text-sm font-medium text-gray-900">
                          {item.displayId}
@@ -440,10 +582,19 @@ export default function Home() {
                         <div className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
                           {item.title}
                         </div>
+                        {item.subtitle && (
+                          <div className="text-xs text-gray-500 mt-0.5 italic">
+                            {item.subtitle}
+                          </div>
+                        )}
                         <div className="text-xs text-gray-500 mt-1">{item.date}</div>
                       </td>
                       <td className="px-4 py-4 text-center">
-                         <span className="inline-flex px-2 py-1 text-xs font-bold rounded-full bg-blue-50 text-blue-600 border border-blue-100">
+                         <span className={`inline-flex px-2 py-1 text-xs font-bold rounded-full border ${
+                           item.type === 'mkd' 
+                             ? 'bg-purple-50 text-purple-600 border-purple-100' 
+                             : 'bg-blue-50 text-blue-600 border-blue-100'
+                         }`}>
                           {item.statusLabel}
                         </span>
                       </td>

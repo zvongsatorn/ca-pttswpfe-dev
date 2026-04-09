@@ -149,11 +149,12 @@ export default function HistoryApproveDetailClient({ mkdId, token, currentUser, 
                 };
             });
 
-            if (!isUniform) {
-                allYears.forEach(y => {
-                    mainYears[y] = mappedSubItems.reduce((acc, curr) => acc + ((curr.years[y] || 0) * (Number(curr.coefficient) || 1)), 0);
-                });
-            }
+            // [REMOVED] INDEX automatic sum calculation here to keep Parent row independent as per user request
+            // if (!isUniform) {
+            //     allYears.forEach(y => {
+            //         mainYears[y] = mappedSubItems.reduce((acc, curr) => acc + ((curr.years[y] || 0) * (Number(curr.coefficient) || 1)), 0);
+            //     });
+            // }
 
             return { 
                 id: mk.ManDriverKeyID.toString(), 
@@ -208,14 +209,12 @@ export default function HistoryApproveDetailClient({ mkdId, token, currentUser, 
             });
 
             mkdData.forEach(driver => {
-                let sumMap: Record<number, number> = {};
-                if (driver.type === 'Uniform') {
-                    sumMap = driver.mainYears;
-                } else {
-                    allYears.forEach(y => {
-                        sumMap[y] = driver.subItems.reduce((acc, curr) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
-                    });
-                }
+                const sumMap: Record<number, number> = {};
+                allYears.forEach(y => {
+                    const parentVal = driver.mainYears[y] || 0;
+                    const subSum = driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
+                    sumMap[y] = parentVal + subSum;
+                });
                 const rowData = [driver.name, driver.unit, driver.weight, ...allYears.map(y => sumMap[y] || 0)];
                 worksheet.addRow(rowData);
             });
@@ -264,8 +263,8 @@ export default function HistoryApproveDetailClient({ mkdId, token, currentUser, 
                     </div>
                 </div>
                 <div className="flex gap-3 w-full md:w-auto mt-4 md:mt-0 justify-end h-[40px]">
-                    <Button variant="outline" className="text-slate-600 bg-white hover:bg-slate-50 border-slate-300 font-medium min-w-max shadow-sm transition-all h-full" onClick={() => router.back()}>
-                        <ArrowLeft className="w-4 h-4 mr-2" /> ย้อนกลับ
+                    <Button variant="outline" className="text-white bg-slate-500 hover:bg-slate-600 hover:text-white border-slate-300 font-medium min-w-max shadow-sm transition-all h-full" onClick={() => router.back()}>
+                        <ArrowLeft className="w-4 h-4 mr-2" /> Back
                     </Button>
                 </div>
             </div>
@@ -375,10 +374,12 @@ export default function HistoryApproveDetailClient({ mkdId, token, currentUser, 
                                                 <TableRow className="bg-[#f1e8e1]">
                                                     <TableCell colSpan={7}></TableCell>
                                                     {allYears.map(y => {
-                                                        const sum = driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
+                                                        const parentVal = driver.mainYears[y] || 0;
+                                                        const subSum = driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
+                                                        const total = parentVal + subSum;
                                                         return (
                                                             <TableCell key={y} className={`text-right font-bold border-l border-white/50 ${getYearColor(y)}`}>
-                                                                {sum.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                                                                {total.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
                                                             </TableCell>
                                                         );
                                                     })}
@@ -424,14 +425,12 @@ export default function HistoryApproveDetailClient({ mkdId, token, currentUser, 
                                 </TableHeader>
                                 <TableBody>
                                     {mkdData.map(driver => {
-                                        let sumMap: Record<number, number> = {};
-                                        if (driver.type === 'Uniform') {
-                                            sumMap = driver.mainYears;
-                                        } else {
-                                            allYears.forEach(y => {
-                                                sumMap[y] = driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
-                                            });
-                                        }
+                                        const sumMap: Record<number, number> = {};
+                                        allYears.forEach(y => {
+                                            const parentVal = driver.mainYears[y] || 0;
+                                            const subSum = driver.subItems.reduce((acc: number, curr: MappedSubItem) => acc + ((curr.years[y] || 0) * (curr.coefficient || 1)), 0);
+                                            sumMap[y] = parentVal + subSum;
+                                        });
                                         return (
                                             <TableRow key={driver.id} className="hover:bg-blue-50/30">
                                                 <TableCell className="font-bold text-blue-800">{driver.name}</TableCell>

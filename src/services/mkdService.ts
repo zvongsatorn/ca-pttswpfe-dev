@@ -42,13 +42,21 @@ export const saveMainKey = async (id: string, data: SaveMainKeyData, token?: str
     });
 };
 
+export interface YearlyData {
+    id: number | string;
+    year: string;
+    amount: number;
+}
+
 export interface SaveDetailKeyData {
     manDriverKeyId: string | number;
     definition?: string;
     coefficient?: number;
     remark?: string;
     user?: string;
-    yearlyData?: any[];
+    insertType?: number;
+    effectiveYear?: number | string;
+    yearlyData?: YearlyData[];
 }
 
 export const saveDetailKey = async (id: string, data: SaveDetailKeyData, token?: string) => {
@@ -101,7 +109,14 @@ export const getMKDHeadcount = async (id: string, effectiveYear?: number, token?
     return await fetchWithAuth(`/api/mkd/${id}/headcount${query}`, token);
 };
 
-export const saveMKDHeadcount = async (id: string, data: any[], token?: string) => {
+export interface HeadcountData {
+    HeadCountType: string;
+    KeyYear: string | number;
+    HeadCount: number;
+    [key: string]: unknown;
+}
+
+export const saveMKDHeadcount = async (id: string, data: HeadcountData[], token?: string) => {
     return await fetchWithAuth(`/api/mkd/${id}/headcount`, token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -165,11 +180,11 @@ export const approveManDriver = async (id: string, data: ApproveManDriverData, t
     });
 };
 
-export const requestApproveMKD = async (id: string, user: string, token?: string) => {
+export const requestApproveMKD = async (id: string, user: string, approveId?: string | number, token?: string) => {
     return await fetchWithAuth(`/api/mkd/${id}/request-approve`, token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user })
+        body: JSON.stringify({ user, approveId })
     });
 };
 
@@ -200,4 +215,24 @@ export const exportPosition = async (params: { effYear?: string, effDate?: strin
         if (value) url.searchParams.append(key, String(value));
     });
     return await fetchWithAuth(`/api/mkd/export-position${url.search}`, token);
+};
+
+export const submitMKDApproveAction = async (id: string, data: { approveId: number, employeeId: string, action: 'APPROVE' | 'REJECT', remark: string }, token?: string) => {
+    return await fetchWithAuth(`/api/mkd/${id}/submit-approve-action`, token, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+};
+
+export const copyMKD = async (id: string, data: { copyFromId: number, employeeId: string, effectiveYear: string }, token?: string) => {
+    return await fetchWithAuth(`/api/mkd/${id}/copy`, token, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+};
+
+export const getMKDHistory = async (employeeId: string, token?: string) => {
+    return await fetchWithAuth(`/api/mkd/history-copy?employeeId=${employeeId}`, token);
 };

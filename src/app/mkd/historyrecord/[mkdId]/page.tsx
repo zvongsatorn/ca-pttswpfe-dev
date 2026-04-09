@@ -23,6 +23,7 @@ export default async function HistoryRecordDetailPage({ params }: { params: Prom
         keys: detailRes?.data?.keys || [],
         years: detailRes?.data?.years || [],
         files: detailRes?.data?.files || [],
+        summary: detailRes?.data?.summary || [],
         headcount: headcountRes?.success ? (headcountRes.data || { headCounts: [], years: [] }) : { headCounts: [], years: [] }
     };
 

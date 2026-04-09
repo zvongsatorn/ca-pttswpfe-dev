@@ -94,6 +94,7 @@ interface MKDRecord {
     step: string;
     approver: string;
     date: string;
+    status?: number | null;
   };
   noConclusion: string;
   mkdCount: number;
@@ -261,19 +262,23 @@ export default function MKDHistoryPage() {
           const str = (v: unknown): string => (v === null || v === undefined) ? '' : String(v);
           const manStatus = Number(item.ManDriverStatus) || 0;
           const appHistStatus = item.ApproveHistStatus !== null && item.ApproveHistStatus !== undefined 
-            ? Number(item.ApproveHistStatus) : null;
+            ? Number(item.ApproveHistStatus) 
+            : (str(item.AppStatusName).trim() === 'ไม่เห็นชอบ' ? -1 : (str(item.AppStatusName).trim() === 'เห็นชอบ' ? 1 : null));
           
-          let statusLabel = str(item.AppStatusName) || str(item.StatusName) || 'รอขออนุมัติ';
+          let statusLabel = str(item.StatusName) || 'รอขออนุมัติ';
 
           if (manStatus === 2) {
             statusLabel = 'เห็นชอบแล้ว';
-          } else if (manStatus === 1) {
-            if (appHistStatus === 1) statusLabel = 'เห็นชอบ';
-            else if (appHistStatus === -1) statusLabel = 'ไม่เห็นชอบ';
           } else if (manStatus === 3) {
             statusLabel = 'อนุมัติแล้ว';
           } else if (manStatus === 0) {
             statusLabel = 'ยกเลิก';
+          } else if (manStatus === 1) {
+            if (item.ApproveID) {
+              statusLabel = 'รอเห็นชอบ';
+            } else {
+              statusLabel = 'รอขออนุมัติ';
+            }
           }
           
           let displayDate = '-';
@@ -307,13 +312,14 @@ export default function MKDHistoryPage() {
               step: str(item.Fullname),
               approver: '',
               date: str(item.PrevAppDateBD),
+              status: appHistStatus,
             } : undefined,
             noConclusion: str(item.ConclusionNo),
             mkdCount: typeof item.MKDApprove === 'number' ? item.MKDApprove : 0,
             hasEdit: item.ManDriverStatus === 2,
             hasFlow: !!item.ApproveID,
             status: statusLabel,
-            statusColor: manStatus === 3 ? 'text-green-700' : (manStatus === 1 ? 'text-purple-700' : 'text-blue-700'),
+            statusColor: manStatus === 3 ? 'text-green-700' : (manStatus === 1 ? 'text-blue-700' : 'text-purple-700'),
             manDriverStatus: manStatus,
             approveHistStatus: appHistStatus,
             fileUpload: typeof item.FileUpload === 'string' ? item.FileUpload : null,
@@ -610,9 +616,12 @@ export default function MKDHistoryPage() {
     router.push(`/mkd/history/${mkdId}`);
   };
 const handleViewDashboard = (mkdId: string) => {
-  
     router.push(`/mkd/dashboard/${mkdId}`);
   };
+
+  const currentYearBE = new Date().getFullYear() + 543;
+  const isCurrentYearOrFuture = parseInt(year) >= currentYearBE;
+
   return (
     <Main currentPath="/mkd/transaction">
       <div className="space-y-4">
@@ -724,13 +733,21 @@ const handleViewDashboard = (mkdId: string) => {
   </Button>
 
   {/* 4. ปุ่ม NEW : ใช้ ml-auto เพื่อดันตัวเองไปชิดขวาสุด */}
-  <Button
-    onClick={() => setIsNewModalOpen(true)}
-    className="bg-green-600 hover:bg-green-700 text-white px-8 ml-auto cursor-pointer font-bold"
-  >
-    NEW
-  </Button>
-
+  {!isCurrentYearOrFuture ? (
+    <Button
+       onClick={() => toast.error('ไม่สามารถสร้างรายการย้อนหลังได้')}
+       className="bg-gray-300 text-gray-500 px-8 ml-auto cursor-not-allowed font-bold"
+    >
+      NEW
+    </Button>
+  ) : (
+    <Button
+      onClick={() => setIsNewModalOpen(true)}
+      className="bg-green-600 hover:bg-green-700 text-white px-8 ml-auto cursor-pointer font-bold"
+    >
+      NEW
+    </Button>
+  )}
 </div>
           </CardContent>
         </Card>
@@ -909,10 +926,10 @@ const handleViewDashboard = (mkdId: string) => {
                               <User className="h-5 w-5 text-blue-500" />
                             </button>
                             <div className="space-y-1">
-                              <div className="text-green-600 font-medium">
+                              <div className={`${record.approveSteps.status === -1 ? 'text-red-600' : 'text-green-600'} font-medium text-[11px]`}>
                                 {record.approveSteps.step}
                               </div>
-                              <div className="text-xs text-gray-500">
+                              <div className="text-[10px] text-gray-500">
                                 {record.approveSteps.date}
                               </div>
                             </div>

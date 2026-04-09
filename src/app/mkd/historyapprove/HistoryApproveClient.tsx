@@ -116,6 +116,7 @@ interface MKDRecord {
     step: string;
     approver: string;
     date: string;
+    status?: number | null;
   };
   noConclusion: string;
   mkdCount: number;
@@ -227,7 +228,8 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
           const str = (v: unknown): string => (v === null || v === undefined) ? '' : String(v);
           const manStatus = Number(item.ManDriverStatus) || 0;
           const appHistStatus = item.ApproveHistStatus !== null && item.ApproveHistStatus !== undefined 
-            ? Number(item.ApproveHistStatus) : null;
+            ? Number(item.ApproveHistStatus) 
+            : (str(item.AppStatusName).trim() === 'ไม่เห็นชอบ' ? -1 : (str(item.AppStatusName).trim() === 'เห็นชอบ' ? 1 : null));
           
           let statusLabel = str(item.AppStatusName) || str(item.StatusName) || 'รอขออนุมัติ';
 
@@ -273,6 +275,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
               step: str(item.Fullname),
               approver: '',
               date: str(item.PrevAppDateBD),
+              status: appHistStatus,
             } : undefined,
             noConclusion: str(item.ConclusionNo),
             mkdCount: typeof item.MKDApprove === 'number' ? item.MKDApprove : 0,
@@ -630,7 +633,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                             <User className="h-5 w-5 text-blue-500" />
                           </button>
                           <div className="space-y-1">
-                            <div className="text-green-600 font-medium">
+                            <div className={`${record.approveSteps.status === -1 ? 'text-red-600' : 'text-green-600'} font-medium`}>
                               {record.approveSteps.step}
                             </div>
                             <div className="text-xs text-gray-500">
