@@ -7,7 +7,7 @@ import { SafetyCertificateOutlined } from '@ant-design/icons';
 import Main from '@/components/layout/main';
 import { fetchAllRoles, fetchMenuRightsByRole } from '@/services/menuService';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_BASE_URL = '';
 
 interface MenuItem {
     MenuID: number;

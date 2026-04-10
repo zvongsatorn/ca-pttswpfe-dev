@@ -19,7 +19,7 @@ import {
     UserCombo
 } from '@/services/userGroupService';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const API_URL = '/api';
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';

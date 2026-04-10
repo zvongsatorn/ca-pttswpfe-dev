@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_BASE_URL = '';
 
 async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
     const authHeader: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};

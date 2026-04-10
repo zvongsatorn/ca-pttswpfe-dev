@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_BASE_URL = '';
 
 async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
     const headers = new Headers(options.headers);
@@ -141,11 +141,12 @@ export const updateMKDNote = async (id: string, note: string, token?: string) =>
 };
 
 export const getHistoryManDriverApprove = async (params: { EffectiveYear: string, division?: string, userGroupNo?: string }, token?: string) => {
-    const url = new URL(`${API_BASE_URL}/api/mkd/history-approve`);
+    const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
-        if (value) url.searchParams.append(key, value);
+        if (value) searchParams.append(key, String(value));
     });
-    return await fetchWithAuth(`/api/mkd/history-approve${url.search}`, token);
+    const queryString = searchParams.toString();
+    return await fetchWithAuth(`/api/mkd/history-approve${queryString ? `?${queryString}` : ''}`, token);
 };
 
 export const getFlowHistory = async (id: string, approveId: string, token?: string) => {
@@ -210,11 +211,12 @@ export const updateMasterKey = async (id: string, data: { UpdateBy: string }, to
 };
 
 export const exportPosition = async (params: { effYear?: string, effDate?: string, employeeId: string, userGroupNo: string, exportType: number }, token?: string) => {
-    const url = new URL(`${API_BASE_URL}/api/mkd/export-position`);
+    const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
-        if (value) url.searchParams.append(key, String(value));
+        if (value) searchParams.append(key, String(value));
     });
-    return await fetchWithAuth(`/api/mkd/export-position${url.search}`, token);
+    const queryString = searchParams.toString();
+    return await fetchWithAuth(`/api/mkd/export-position${queryString ? `?${queryString}` : ''}`, token);
 };
 
 export const submitMKDApproveAction = async (id: string, data: { approveId: number, employeeId: string, action: 'APPROVE' | 'REJECT', remark: string }, token?: string) => {

@@ -213,7 +213,7 @@ function PIRContent() {
     };
 
     const handleDownloadTemplate = () => {
-        const url = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/pir/template`;
+        const url = `/api/pir/template`;
         window.location.assign(url);
         notification.info({ title: 'ดาวน์โหลดสำเร็จ', description: 'กรุณากรอกข้อมูลตามรูปแบบใน Template' });
     };
@@ -247,7 +247,7 @@ function PIRContent() {
 
     const fileColumns: ColumnsType<FileType> = [
         { title: 'ชื่อไฟล์อ้างอิง', dataIndex: 'FileName', key: 'FileName' },
-        { title: 'เอกสาร (PDF)', key: 'FileUpload', align: 'center', width: 150, render: (_, record) => <Button type="link" icon={<FilePdfOutlined className="text-red-500 text-xl" />} onClick={() => window.open(`${process.env.NEXT_PUBLIC_API_URL}/api/pir/file/download/${parseInt(effectiveYear)-543}/${record.FileUpload}`, '_blank')}>เปิดไฟล์</Button> },
+        { title: 'เอกสาร (PDF)', key: 'FileUpload', align: 'center', width: 150, render: (_, record) => <Button type="link" icon={<FilePdfOutlined className="text-red-500 text-xl" />} onClick={() => window.open(`/api/pir/file/download/${parseInt(effectiveYear)-543}/${record.FileUpload}`, '_blank')}>เปิดไฟล์</Button> },
         { title: 'Action', key: 'action', align: 'center', width: 100, render: (_, record) => <Popconfirm title="ลบไฟล์นี้?" onConfirm={() => handleDeleteFile(record.ImproveRateUploadID, record.FileUpload)} okText="ลบ" cancelText="ยกเลิก"><Button type="text" danger icon={<Trash2 size={18} />} /></Popconfirm> }
     ];
 

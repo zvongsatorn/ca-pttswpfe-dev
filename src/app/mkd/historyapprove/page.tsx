@@ -22,7 +22,7 @@ export default async function HistoryApprovePage() {
     }
 
     // Fetch units (server-side fetch from own API)
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+    const baseUrl = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
     const unitsRes = await fetch(`${baseUrl}/api/units/all?effectiveDate=${new Date().toISOString().split('T')[0]}`, {
         headers: {
             'Authorization': `Bearer ${token}`
