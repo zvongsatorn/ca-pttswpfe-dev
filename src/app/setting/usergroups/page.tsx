@@ -19,7 +19,7 @@ import {
     UserCombo
 } from '@/services/userGroupService';
 
-const API_URL = '/api';
+const API_URL = '';
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
