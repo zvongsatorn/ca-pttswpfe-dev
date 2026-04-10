@@ -566,8 +566,8 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
 
     const handleRequestApprove = () => {
         const totalWeight = mkdData.reduce((sum: number, d: MappedMKDDriver) => sum + (Number(d.weight) || 0), 0);
-        if (totalWeight > 100) { 
-            toast.error(`Weight รวมเกิน 100% (ปัจจุบัน: ${totalWeight}%) กรุณาแก้ไขก่อนส่งอนุมัติ`);
+        if (totalWeight !== 100) { 
+            toast.error(`Weight รวมต้องเท่ากับ 100% (ปัจจุบัน: ${totalWeight}%) กรุณาแก้ไขก่อนส่งอนุมัติ`);
             return; 
         }
         openConfirm('ยืนยันส่งอนุมัติ', 'คุณต้องการส่งเอกสารนี้เพื่อขออนุมัติใช่หรือไม่?', () => {

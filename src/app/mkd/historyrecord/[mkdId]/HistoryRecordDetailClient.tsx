@@ -574,7 +574,12 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
     };
 
     const handleConfirm = () => {
-        openConfirm('ยืนยันข้อมูล', 'ต้องการยืนยันใชหรือไม่?', async () => {
+        const totalWeight = mkdData.reduce((sum, d) => sum + (Number(d.weight) || 0), 0);
+        if (totalWeight !== 100) {
+            toast.error(`Weight รวมต้องเท่ากับ 100% (ปัจจุบัน: ${totalWeight}%) กรุณาแก้ไขก่อนยืนยันข้อมูล`);
+            return;
+        }
+        openConfirm('ยืนยันข้อมูล', 'ต้องการยืนยันใช่หรือไม่?', async () => {
             try {
                 setIsSubmitting(true);
                 const res = await updateManDriverStatus(mkdId, 2, currentUser?.EmployeeID || currentUser?.employeeID || 'SYSTEM', token);
