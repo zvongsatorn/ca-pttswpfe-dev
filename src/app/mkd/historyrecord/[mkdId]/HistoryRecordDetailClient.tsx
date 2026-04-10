@@ -1099,7 +1099,10 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                 setIsMainModalOpen(open);
                 if (!open) { setIsAddingMainRow(false); }
             }}>
-                <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-hidden flex flex-col p-0">
+                <DialogContent 
+                    className="sm:max-w-[900px] max-h-[90vh] overflow-hidden flex flex-col p-0"
+                    onInteractOutside={(e) => e.preventDefault()}
+                >
                     <div className="p-6 pb-2">
                         <DialogHeader className="flex flex-row items-center justify-between">
                             <DialogTitle>Manpower Key Driver (Main)</DialogTitle>
@@ -1221,7 +1224,10 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
 
             {/* Sub Key Modal */}
             <Dialog open={isSubModalOpen} onOpenChange={setIsSubModalOpen}>
-                <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-hidden flex flex-col p-0">
+                <DialogContent 
+                    className="sm:max-w-[800px] max-h-[90vh] overflow-hidden flex flex-col p-0"
+                    onInteractOutside={(e) => e.preventDefault()}
+                >
                     <div className="p-6 pb-2">
                         <DialogHeader className="flex flex-row items-center justify-between">
                             <DialogTitle>
