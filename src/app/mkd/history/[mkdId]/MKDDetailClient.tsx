@@ -805,7 +805,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                 <Ban className="w-4 h-4 mr-2" /> CANCEL
                             </Button>
                             <Button className="bg-green-600 hover:bg-green-700 text-white font-medium shadow-sm transition-all h-full" disabled={loading} onClick={handleRequestApprove}>
-                                <Send className="w-4 h-4 mr-2 text-green-100" /> {isCreatorBack ? 'Resend' : 'ขออนุมัติ'}
+                                <Send className="w-4 h-4 mr-2 text-green-100" /> {isCreatorBack ? 'Resend' : 'Request Approve'}
                             </Button>
                         </>
                     )}
