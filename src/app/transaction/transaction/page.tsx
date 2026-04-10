@@ -938,10 +938,40 @@ export default function TransactionPage() {
 
   const confirmRequest = () => {
     const activeDepts = Object.keys(getTransactionsByDept());
-    const missingDepts = activeDepts.filter(dept => !selectedApprovers[dept] || selectedApprovers[dept].length === 0);
+    const missingDepts: string[] = [];
+
+    for (const deptId of activeDepts) {
+      const dynamicList = dynamicApprovers[deptId] || [];
+      const filteredDynamicList = dynamicList.filter(u => u.UserGroupNo !== '04' && !(u.UserGroupRole || '').toUpperCase().includes('HRPOLICY'));
+      const approverGroupKeys = Array.from(new Set(filteredDynamicList.map(u => `${u.UnitSide}-${u.PermissionOrder}`)));
+      
+      if (approverGroupKeys.length === 0) {
+        missingDepts.push(deptId);
+        continue;
+      }
+
+      let isAllGroupsSelected = true;
+      for (const groupKey of approverGroupKeys) {
+        const groupUsers = filteredDynamicList.filter(u => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
+        const hasSelectionInGroup = groupUsers.some(u => selectedApprovers[deptId]?.includes(u.EmployeeID));
+        if (!hasSelectionInGroup) {
+          isAllGroupsSelected = false;
+          break;
+        }
+      }
+
+      if (!isAllGroupsSelected) {
+        missingDepts.push(deptId);
+      }
+    }
 
     if (missingDepts.length > 0) {
-      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: `กรุณาเลือกผู้ตรวจสอบสำหรับหน่วยงาน:\n${missingDepts.map(d => `- ${getDepartmentName(d)}`).join('\n')}`, type: 'warning' });
+      setAlertInfo({ 
+        show: true, 
+        title: 'แจ้งเตือน', 
+        message: `กรุณาเลือกผู้อนุมัติ/ผู้รับ ให้ครบทุกกลุ่ม สำหรับหน่วยงาน:\n${missingDepts.map(d => `- ${getDepartmentName(d)}`).join('\n')}`, 
+        type: 'warning' 
+      });
       return;
     }
 
