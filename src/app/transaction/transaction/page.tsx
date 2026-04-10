@@ -1746,8 +1746,9 @@ export default function TransactionPage() {
 
                   // Group dynamic approvers
                   const dynamicList = dynamicApprovers[deptId] || [];
-                  const approverGroups = Array.from(new Set(dynamicList.map(u => `${u.UnitSide}-${u.PermissionOrder}`))).map(groupKey => {
-                    const groupUsers = dynamicList.filter(u => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
+                  const filteredDynamicList = dynamicList.filter(u => u.UserGroupNo !== '04' && !(u.UserGroupRole || '').toUpperCase().includes('HRPOLICY'));
+                  const approverGroups = Array.from(new Set(filteredDynamicList.map(u => `${u.UnitSide}-${u.PermissionOrder}`))).map(groupKey => {
+                    const groupUsers = filteredDynamicList.filter(u => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
                     const sample = groupUsers[0];
                     let title = '';
                     let icon = User;
