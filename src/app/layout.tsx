@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Bai_Jamjuree, Exo_2} from 'next/font/google';
 import "./globals.css";
 import { MsalProvider } from "@/lib/msal-provider";
+import { Toaster } from "@/components/ui/sonner";
 const fonethai = Bai_Jamjuree({
   subsets: ['thai'],
   weight: ['300', '400', '500', '600', '700'],
@@ -45,6 +46,7 @@ export default function RootLayout({
           >
             <MsalProvider>
                 {children}
+                <Toaster richColors />
             </MsalProvider>
           </ConfigProvider>
         </AntdRegistry>

@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -575,7 +575,8 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
 
     const handleConfirm = () => {
         const totalWeight = mkdData.reduce((sum, d) => sum + (Number(d.weight) || 0), 0);
-        if (totalWeight !== 100) {
+        console.log('Total Weight Check (Record):', totalWeight);
+        if (Math.abs(totalWeight - 100) > 0.001) {
             toast.error(`Weight รวมต้องเท่ากับ 100% (ปัจจุบัน: ${totalWeight}%) กรุณาแก้ไขก่อนยืนยันข้อมูล`);
             return;
         }
@@ -1106,6 +1107,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                     <div className="p-6 pb-2">
                         <DialogHeader className="flex flex-row items-center justify-between">
                             <DialogTitle>Manpower Key Driver (Main)</DialogTitle>
+                            <DialogDescription className="sr-only">หน้าต่างสำหรับจัดการข้อมูลหลัก Manpower Key Driver</DialogDescription>
                             {!isReadOnly && !isAddingMainRow && (
                                 <Button className="bg-blue-600 hover:bg-blue-700 shadow-sm mr-10" size="sm" onClick={() => {
                                     setIsAddingMainRow(true);
@@ -1230,9 +1232,12 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                 >
                     <div className="p-6 pb-2">
                         <DialogHeader className="flex flex-row items-center justify-between">
-                            <DialogTitle>
-                                {subKeyForm.parentId === '0' ? 'Edit Yearly Data' : (subKeyForm.manDriverKeyId ? 'Edit Detail' : 'Add Detail')}
-                            </DialogTitle>
+                            <div>
+                                <DialogTitle>
+                                    {subKeyForm.parentId === '0' ? 'Edit Yearly Data' : (subKeyForm.manDriverKeyId ? 'Edit Detail' : 'Add Detail')}
+                                </DialogTitle>
+                                <DialogDescription className="sr-only">หน้าต่างสำหรับแก้ไขข้อมูลรายปีหรือข้อมูลย่อย</DialogDescription>
+                            </div>
                         </DialogHeader>
                     </div>
                     <div className="flex-1 overflow-y-auto px-6 py-4">
@@ -1381,6 +1386,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
                         <DialogTitle>Upload File Attachment</DialogTitle>
+                        <DialogDescription className="sr-only">อัปโหลดไฟล์ PDF เพื่อประกอบการบันทึกข้อมูล</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
@@ -1415,6 +1421,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                             </div>
                             <DialogHeader>
                                 <DialogTitle className="text-lg font-bold text-slate-800">{confirmState.title}</DialogTitle>
+                        <DialogDescription className="sr-only">หน้าต่างยืนยันการทำรายการ</DialogDescription>
                             </DialogHeader>
                         </div>
                     </div>

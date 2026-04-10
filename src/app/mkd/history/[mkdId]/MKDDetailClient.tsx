@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
@@ -566,7 +566,8 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
 
     const handleRequestApprove = () => {
         const totalWeight = mkdData.reduce((sum: number, d: MappedMKDDriver) => sum + (Number(d.weight) || 0), 0);
-        if (totalWeight !== 100) { 
+        console.log('Total Weight Check:', totalWeight);
+        if (Math.abs(totalWeight - 100) > 0.001) { 
             toast.error(`Weight รวมต้องเท่ากับ 100% (ปัจจุบัน: ${totalWeight}%) กรุณาแก้ไขก่อนส่งอนุมัติ`);
             return; 
         }
@@ -783,29 +784,29 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                     </div>
                 </div>
                 <div className="flex gap-3 w-full md:w-auto mt-4 md:mt-0 justify-end h-[40px]">
-                    <Button variant="outline" className="text-white bg-slate-500 hover:bg-slate-600 hover:text-white border-slate-300 font-medium min-w-[100px] shadow-sm transition-all h-full" onClick={() => router.push(fromInbox ? '/home' : '/mkd/history')}>
-                        <ArrowLeft className="w-4 h-4 mr-2" /> BACK
+                    <Button variant="outline" className="text-white bg-slate-500 hover:bg-slate-600 hover:text-white border-slate-300 font-bold min-w-[100px] shadow-sm transition-all h-full" onClick={() => router.push(fromInbox ? '/home' : '/mkd/history')}>
+                        <ArrowLeft className="w-4 h-4 mr-2 font-bold" /> BACK
                     </Button>
                     
                     {/* Approver Actions */}
                     {header.ManDriverStatus === 1 && header.ApproveID && !isCreatorBack && fromInbox && (
                         <>
                             <Button variant="destructive" className="font-bold bg-red-600 hover:bg-red-700 shadow-md transition-all text-white h-full px-6" disabled={loading} onClick={() => setIsRejectModalOpen(true)}>
-                                <X className="w-4 h-4 mr-2" /> REJECT
+                                <X className="w-4 h-4 mr-2 font-bold" /> REJECT
                             </Button>
                             <Button className="bg-green-600 hover:bg-green-700 text-white font-bold shadow-md transition-all h-full px-6 border-b-4 border-green-800 active:border-b-0" disabled={loading} onClick={() => setIsApproveModalOpen(true)}>
-                                <Check className="w-4 h-4 mr-2" /> CONFIRM
+                                <Check className="w-4 h-4 mr-2 font-bold" /> CONFIRM
                             </Button>
                         </>
                     )}
 
                     {(!isReadOnly || isCreatorBack) && (!header.ApproveID || fromInbox) && (
                         <>
-                            <Button variant="destructive" className="font-medium bg-red-500 hover:bg-red-600 shadow-sm transition-all text-white h-full" disabled={loading} onClick={handleCancel}>
-                                <Ban className="w-4 h-4 mr-2" /> CANCEL
+                            <Button variant="destructive" className="font-bold bg-red-500 hover:bg-red-600 shadow-sm transition-all text-white h-full" disabled={loading} onClick={handleCancel}>
+                                <Ban className="w-4 h-4 mr-2 font-bold" /> CANCEL
                             </Button>
-                            <Button className="bg-green-600 hover:bg-green-700 text-white font-medium shadow-sm transition-all h-full" disabled={loading} onClick={handleRequestApprove}>
-                                <Send className="w-4 h-4 mr-2 text-green-100" /> {isCreatorBack ? 'Resend' : 'Request Approve'}
+                            <Button className="bg-green-600 hover:bg-green-700 text-white font-bold shadow-sm transition-all h-full" disabled={loading} onClick={handleRequestApprove}>
+                                <Send className="w-4 h-4 mr-2 text-green-100 font-bold" /> {isCreatorBack ? 'Resend' : 'Request Approve'}
                             </Button>
                         </>
                     )}
@@ -1386,9 +1387,12 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                 >
                     <div className="p-6 pb-2">
                         <DialogHeader className="flex flex-row items-center justify-between">
-                            <DialogTitle>
-                                {subKeyForm.parentId === '0' ? 'Edit Yearly Data' : (subKeyForm.manDriverKeyId ? 'Edit Detail' : 'Add Detail')}
-                            </DialogTitle>
+                            <div>
+                                <DialogTitle>
+                                    {subKeyForm.parentId === '0' ? 'Edit Yearly Data' : (subKeyForm.manDriverKeyId ? 'Edit Detail' : 'Add Detail')}
+                                </DialogTitle>
+                                <DialogDescription className="sr-only">หน้าต่างสำหรับแก้ไขข้อมูลรายปีหรือข้อมูลย่อย</DialogDescription>
+                            </div>
                         </DialogHeader>
                     </div>
                     <div className="flex-1 overflow-y-auto px-6 py-4">
@@ -1540,6 +1544,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
                         <DialogTitle>Upload File Attachment</DialogTitle>
+                        <DialogDescription className="sr-only">หน้าต่างสำหรับอัปโหลดไฟล์แนบ</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
 
@@ -1574,6 +1579,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                             </div>
                             <DialogHeader>
                                 <DialogTitle className="text-lg font-bold text-slate-800">{confirmState.title}</DialogTitle>
+                                <DialogDescription className="sr-only">หน้าต่างยืนยันการทำรายการ</DialogDescription>
                             </DialogHeader>
                         </div>
                     </div>
