@@ -152,6 +152,7 @@ export default function TransactionPage() {
 
   // State for Request Modal
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   // Store selected approver IDs per request group (Main Department)
   const [selectedApprovers, setSelectedApprovers] = useState<Record<string, string[]>>({});
   // Dynamic approvers from CheckFlow API (Record keyed by deptId)
@@ -979,7 +980,7 @@ export default function TransactionPage() {
   };
 
   const processSubmitDocument = async () => {
-    setIsSubmitConfirmModalOpen(false);
+    setIsSubmitting(true);
     try {
       let employeeId = 'SYSTEM';
       let userGroupNo = '';
@@ -1049,6 +1050,7 @@ export default function TransactionPage() {
       }
 
       setAlertInfo({ show: true, title: 'สำเร็จ', message: 'ส่งขออนุมัติเรียบร้อย!', type: 'success' });
+      setIsSubmitConfirmModalOpen(false);
       setIsRequestModalOpen(false);
       
       // Clear drafts and reload to simulate them moving to Next Step (or just refresh page)
@@ -1058,6 +1060,8 @@ export default function TransactionPage() {
       console.error('Submit Doc Error:', err);
       const errMsg = err instanceof Error ? err.message : 'ไม่สามารถส่งขออนุมัติได้';
       setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: errMsg, type: 'error' });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1941,8 +1945,15 @@ export default function TransactionPage() {
                 <p className="text-gray-500 text-sm">คุณแน่ใจหรือไม่ที่จะส่งรายการ Transaction <br/>ทั้งหมด เพื่อขออนุมัติ?</p>
               </div>
               <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3 rounded-b-xl">
-                <Button variant="outline" onClick={() => setIsSubmitConfirmModalOpen(false)} className="px-4 font-semibold text-gray-600 hover:bg-gray-100">ยกเลิก</Button>
-                <Button onClick={processSubmitDocument} className="bg-blue-600 hover:bg-blue-700 text-white px-6 font-semibold shadow-sm">ยืนยันส่ง</Button>
+                <Button variant="outline" onClick={() => setIsSubmitConfirmModalOpen(false)} disabled={isSubmitting} className="px-4 font-semibold text-gray-600 hover:bg-gray-100">ยกเลิก</Button>
+                <Button onClick={processSubmitDocument} disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700 text-white px-6 font-semibold shadow-sm">
+                  {isSubmitting ? (
+                      <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 border-2 border-white rounded-full border-t-transparent animate-spin"></div>
+                          กำลังส่ง...
+                      </div>
+                  ) : 'ยืนยันส่ง'}
+                </Button>
               </div>
             </div>
           </div>
