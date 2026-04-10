@@ -1,4 +1,4 @@
-const API_BASE_URL = '';
+const API_BASE_URL = typeof window === 'undefined' ? (process.env.BACKEND_URL || 'http://localhost:5000') : '';
 
 async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
     const headers = new Headers(options.headers);
