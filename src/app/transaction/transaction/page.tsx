@@ -690,9 +690,14 @@ export default function TransactionPage() {
     }
   }, [detailFormData.fileOption, formData.effectiveMonth, formData.effectiveYear]);
 
-  // Fetch Level Groups when unitTransfer changes
+  // Fetch Level Groups when selected transfer unit changes.
+  // For type 3/4, transfer unit is implicitly the same as unitReceive.
   useEffect(() => {
-    if (detailFormData.unitTransfer) {
+    const selectedTransferUnit = (activeTab === 3 || activeTab === 4)
+      ? formData.unitReceive
+      : detailFormData.unitTransfer;
+
+    if (selectedTransferUnit) {
       const fetchLevels = async () => {
         try {
           // Construct check date (e.g. format YYYYMMDD)
@@ -701,7 +706,7 @@ export default function TransactionPage() {
           const monthStr = monthIndex.toString().padStart(2, '0');
           const checkDate = `${yearNum}${monthStr}01`; 
           
-          const unit = detailFormData.unitTransfer;
+          const unit = selectedTransferUnit;
           // Get the selected user group from localStorage
           const userGroupNo = localStorage.getItem('selected_usergroup') || '04';
 
@@ -724,7 +729,7 @@ export default function TransactionPage() {
     } else {
       setLevels([]);
     }
-  }, [detailFormData.unitTransfer, formData.effectiveMonth, formData.effectiveYear]);
+  }, [activeTab, formData.unitReceive, detailFormData.unitTransfer, formData.effectiveMonth, formData.effectiveYear]);
 
 
   const getDepartmentName = (id: string, resolvedName?: string) =>
@@ -922,10 +927,10 @@ export default function TransactionPage() {
         if (!detailFormData.unitTransfer || !detailFormData.levelGroupTo) return false;
       }
       if (activeTab === 3) {
-        if (!detailFormData.unitTransfer || !detailFormData.levelGroupFrom || !detailFormData.levelGroupTo) return false;
+        if (!formData.unitReceive || !detailFormData.levelGroupFrom || !detailFormData.levelGroupTo) return false;
       }
       if (activeTab === 4) {
-        if (!detailFormData.unitTransfer || !detailFormData.levelGroupTo) return false;
+        if (!formData.unitReceive || !detailFormData.levelGroupTo) return false;
       }
       if (detailFormData.fileOption === 'new' && !detailFormData.file) return false;
       if (detailFormData.fileOption === 'existing' && !detailFormData.selectedFileId) return false;
@@ -961,11 +966,15 @@ export default function TransactionPage() {
         units.find(u => u.id === formData.unitReceive)?.name ||
         allUnits.find(u => u.id === formData.unitReceive)?.unitText ||
         allUnits.find(u => u.id === formData.unitReceive)?.name || '';
+      const resolvedUnitTransfer =
+        activeTab === 3 || activeTab === 4
+          ? formData.unitReceive
+          : detailFormData.unitTransfer;
       const finalUnitTransferName =
-        allUnits.find(u => u.id === detailFormData.unitTransfer)?.unitText ||
-        allUnits.find(u => u.id === detailFormData.unitTransfer)?.name ||
-        units.find(u => u.id === detailFormData.unitTransfer)?.unitText ||
-        units.find(u => u.id === detailFormData.unitTransfer)?.name || '';
+        allUnits.find(u => u.id === resolvedUnitTransfer)?.unitText ||
+        allUnits.find(u => u.id === resolvedUnitTransfer)?.name ||
+        units.find(u => u.id === resolvedUnitTransfer)?.unitText ||
+        units.find(u => u.id === resolvedUnitTransfer)?.name || '';
       
       let levelGroupFromName = levels.find(l => l.id === detailFormData.levelGroupFrom)?.name || '';
       const levelGroupToName = levels.find(l => l.id === detailFormData.levelGroupTo)?.name || '';
@@ -996,6 +1005,7 @@ export default function TransactionPage() {
         unitReceiveName,
         detailData: {
           ...detailFormData,
+          unitTransfer: resolvedUnitTransfer,
           unitTransferName: finalUnitTransferName,
           levelGroupFrom: submitLevelGroupFrom,
           levelGroupFromName,
@@ -1039,6 +1049,7 @@ export default function TransactionPage() {
         transactionData: { ...formData },
         detailData: { 
           ...detailFormData,
+          unitTransfer: resolvedUnitTransfer,
           unitTransferName: finalUnitTransferName,
           unitReceiveName,
           levelGroupToName,
@@ -1661,56 +1672,6 @@ export default function TransactionPage() {
 
                     {activeTab === 4 && (
                       <>
-                        <div className="mb-4">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">หน่วยงานที่โอน <span className="text-red-500">*</span></label>
-                          <Popover open={openUnitTransfer} onOpenChange={setOpenUnitTransfer}>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                role="combobox"
-                                className={cn(
-                                  "w-full justify-between h-9 px-3 py-2 text-sm border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-normal",
-                                  !detailFormData.unitTransfer && "text-muted-foreground"
-                                )}
-                              >
-                                {detailFormData.unitTransfer
-                                  ? units.find(
-                                      (unit) => unit.id === detailFormData.unitTransfer
-                                    )?.unitText || units.find((unit) => unit.id === detailFormData.unitTransfer)?.name
-                                  : "เลือกหน่วยงาน..."}
-                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[400px] p-0" align="start">
-                              <Command>
-                                <CommandInput placeholder="ค้นหาหน่วยงาน..." />
-                                <CommandList>
-                                  <CommandEmpty>ไม่พบหน่วยงาน</CommandEmpty>
-                                  <CommandGroup>
-                                    {units.map((unit) => (
-                                      <CommandItem
-                                        key={unit.id}
-                                        value={unit.unitText || unit.name}
-                                        onSelect={() => {
-                                          setDetailFormData({ ...detailFormData, unitTransfer: unit.id });
-                                          setOpenUnitTransfer(false);
-                                        }}
-                                      >
-                                        <Check
-                                          className={cn(
-                                            "mr-2 h-4 w-4",
-                                            detailFormData.unitTransfer === unit.id ? "opacity-100" : "opacity-0"
-                                          )}
-                                        />
-                                        {unit.unitText || unit.name}
-                                      </CommandItem>
-                                    ))}
-                                  </CommandGroup>
-                                </CommandList>
-                              </Command>
-                            </PopoverContent>
-                          </Popover>
-                        </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">เลือกประเภท <span className="text-red-500">*</span></label>
                           <div className="flex gap-4">
@@ -1739,58 +1700,6 @@ export default function TransactionPage() {
 
                     {activeTab === 3 && (
                       <>
-                        <div className="mb-4">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">หน่วยงานที่โอน <span className="text-red-500">*</span></label>
-                          <Popover open={openUnitTransfer} onOpenChange={setOpenUnitTransfer}>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                role="combobox"
-                                className={cn(
-                                  "w-full justify-between h-9 px-3 py-2 text-sm border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-normal",
-                                  !detailFormData.unitTransfer && "text-muted-foreground"
-                                )}
-                              >
-                                {detailFormData.unitTransfer
-                                  ? allUnits.find(
-                                      (unit) => unit.id === detailFormData.unitTransfer
-                                    )?.unitText || allUnits.find((unit) => unit.id === detailFormData.unitTransfer)?.name
-                                  : "เลือกหน่วยงาน..."}
-                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[400px] p-0" align="start">
-                              <Command>
-                                <CommandInput placeholder="ค้นหาหน่วยงาน..." />
-                                <CommandList>
-                                  <CommandEmpty>ไม่พบหน่วยงาน</CommandEmpty>
-                                  <CommandGroup>
-                                    {allUnits
-                                      .filter((unit) => unit.id !== formData.unitReceive)
-                                      .map((unit) => (
-                                      <CommandItem
-                                        key={unit.id}
-                                        value={unit.unitText || unit.name}
-                                        onSelect={() => {
-                                          setDetailFormData({ ...detailFormData, unitTransfer: unit.id });
-                                          setOpenUnitTransfer(false);
-                                        }}
-                                      >
-                                        <Check
-                                          className={cn(
-                                            "mr-2 h-4 w-4",
-                                            detailFormData.unitTransfer === unit.id ? "opacity-100" : "opacity-0"
-                                          )}
-                                        />
-                                        {unit.unitText || unit.name}
-                                      </CommandItem>
-                                    ))}
-                                  </CommandGroup>
-                                </CommandList>
-                              </Command>
-                            </PopoverContent>
-                          </Popover>
-                        </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">จากระดับตำแหน่ง <span className="text-red-500">*</span></label>
                           <select value={detailFormData.levelGroupFrom} onChange={(e) => setDetailFormData({ ...detailFormData, levelGroupFrom: e.target.value })}
