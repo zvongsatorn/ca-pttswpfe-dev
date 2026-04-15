@@ -122,9 +122,13 @@ interface APIDocDetailItem {
   FileUrl: string;
   RejectionReason: string;
   Seqno: number;
+  AuditStatus?: number;
+  EmployeeID?: string;
+  UnitSide?: string;
 }
 
 interface APIDocAuditLog {
+  ItemID?: string;
   Seqno: number;
   AuditStatus: number;
   AuditDate?: string;
@@ -158,14 +162,6 @@ const getFlowMeta = (auditStatus?: number, unitSide?: string, isMyTurn = false) 
     flowLabel: sideLabel ? `รอดำเนินการ (${sideLabel})` : 'รอดำเนินการ',
     canTakeAction: false
   };
-};
-
-const getFlowBadgeClass = (flowStatus: TransactionDetail['flowStatus']) => {
-  if (flowStatus === 'current') return 'bg-blue-100 text-blue-700 border-blue-200';
-  if (flowStatus === 'pending') return 'bg-gray-100 text-gray-600 border-gray-200';
-  if (flowStatus === 'completed') return 'bg-green-100 text-green-700 border-green-200';
-  if (flowStatus === 'rejected') return 'bg-red-100 text-red-700 border-red-200';
-  return 'bg-gray-100 text-gray-600 border-gray-200';
 };
 
 export default function Home() {
@@ -393,18 +389,30 @@ export default function Home() {
               const rawLogs: APIDocAuditLog[] = Array.isArray(detailJson.data.logs) ? detailJson.data.logs : [];
               const sortedLogs = [...rawLogs].sort((a, b) => a.Seqno - b.Seqno);
               const totalSteps = sortedLogs.reduce((max, curr) => (curr.Seqno > max ? curr.Seqno : max), 0);
-              const stageBySeq = new Map<number, APIDocAuditLog>();
-              sortedLogs.forEach((log) => {
-                if (!stageBySeq.has(log.Seqno)) {
-                  stageBySeq.set(log.Seqno, log);
-                }
-              });
+              const normalizedEmployeeId = (employeeId || '').trim();
 
               const items: TransactionDetail[] = detailJson.data.items.map((i: APIDocDetailItem) => {
-                const stageLog = stageBySeq.get(i.Seqno);
-                const isMyTurn = (stageLog?.EmployeeID || '').trim() === (employeeId || '').trim();
-                const flowMeta = getFlowMeta(stageLog?.AuditStatus, stageLog?.UnitSide, isMyTurn);
-                const flowSideLabel = getUnitSideLabel(stageLog?.UnitSide);
+                const itemAuditStatus = typeof i.AuditStatus === 'number' ? i.AuditStatus : undefined;
+                const itemEmployeeId = (i.EmployeeID || '').trim();
+                const itemUnitSide = i.UnitSide;
+
+                const matchedByItemAndSeq = sortedLogs.find((l) => l.ItemID === i.ItemID && l.Seqno === i.Seqno);
+                const matchedByItemAndCurrent = sortedLogs.find((l) => l.ItemID === i.ItemID && l.AuditStatus === 1);
+                const matchedByOwnSeq = sortedLogs.find((l) =>
+                  l.Seqno === i.Seqno &&
+                  (l.EmployeeID || '').trim() === normalizedEmployeeId &&
+                  (!l.ItemID || l.ItemID === i.ItemID)
+                );
+                const matchedBySeq = sortedLogs.find((l) => l.Seqno === i.Seqno && (!l.ItemID || l.ItemID === i.ItemID));
+                const stageLog = matchedByItemAndSeq || matchedByItemAndCurrent || matchedByOwnSeq || matchedBySeq;
+
+                const resolvedAuditStatus = typeof itemAuditStatus === 'number' ? itemAuditStatus : stageLog?.AuditStatus;
+                const resolvedUnitSide = itemUnitSide || stageLog?.UnitSide;
+                const resolvedEmployeeId = itemEmployeeId || (stageLog?.EmployeeID || '').trim();
+
+                const isMyTurn = resolvedAuditStatus === 1 && resolvedEmployeeId === normalizedEmployeeId;
+                const flowMeta = getFlowMeta(resolvedAuditStatus, resolvedUnitSide, isMyTurn);
+                const flowSideLabel = getUnitSideLabel(resolvedUnitSide);
 
                 return {
                   id: i.ItemID,
@@ -426,13 +434,24 @@ export default function Home() {
                 };
               });
 
+              const transactionTypeByItemId = new Map<string, number>();
+              detailJson.data.items.forEach((i: APIDocDetailItem) => {
+                if (!transactionTypeByItemId.has(i.ItemID)) {
+                  transactionTypeByItemId.set(i.ItemID, i.TransactionType);
+                }
+              });
+
               const logs: ApprovalLogItem[] = sortedLogs.map((l: APIDocAuditLog) => ({
                 seqno: l.Seqno,
                 auditStatus: l.AuditStatus,
                 unitSide: l.UnitSide,
                 action: l.Seqno === 0 ? 'สร้าง' : l.AuditStatus === 2 ? 'อนุมัติ' : l.AuditStatus === 1 ? 'รออนุมัติ' : l.AuditStatus === -1 ? 'ไม่อนุมัติ' : 'รอดำเนินการ',
                 timestamp: l.AuditDate ? dayjs(l.AuditDate).format('DD/MM/BBBB HH:mm') : '',
-                user: `${l.EmployeeID} ${l.Fullname}`,
+                user: (() => {
+                  const txType = l.ItemID ? transactionTypeByItemId.get(l.ItemID) : undefined;
+                  const isTransferOther = txType === 2;
+                  return `${l.EmployeeID} ${l.Fullname}${isTransferOther ? ' [โอนอื่นๆ]' : ''}`;
+                })(),
                 role: (() => {
                   if (l.Seqno === 0) return l.UserGroupName || 'ผู้สร้างรายการ';
                   const baseName = l.UserGroupName || l.UserGroupNo || '';
@@ -811,18 +830,8 @@ export default function Home() {
         
         {/* Details Area */}
         <td className="p-4 align-top space-y-2">
-            <div className="font-semibold text-gray-900 text-sm leading-relaxed mb-1 space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold border ${getFlowBadgeClass(item.flowStatus)}`}>
-                      {item.flowLabel}
-                    </span>
-                    <span className="inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-slate-100 text-slate-700 border-slate-200">
-                      ขั้น {item._seqno ?? '-'}{item.totalSteps > 0 ? `/${item.totalSteps}` : ''}
-                    </span>
-                </div>
-                <div className="text-[11px] text-gray-500">
-                    DocumentNo: {selectedInboxItem.id} | TransactionNo: {item.id}
-                </div>
+            <div className="font-semibold text-gray-900 text-sm leading-relaxed mb-1">
+                <div className="text-xs text-blue-600 font-bold mb-0.5">[{item.id}]</div>
                 <div>{item.description}</div>
             </div>
             {item.remark && item.remark !== '-' && (
