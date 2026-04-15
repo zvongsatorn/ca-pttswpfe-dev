@@ -68,6 +68,15 @@ interface BorrowRecord {
   DocumentCreateDate: string;
   TotalReturned: number;
   RemainingCount: number;
+  BusinessUnitNo?: string;
+  BusinessUnitName?: string;
+  BusinessUnit?: string;
+  BGNo?: string;
+  BGName?: string;
+  UnitTransferBGNo?: string;
+  UnitTransferBGName?: string;
+  UnitReceiveBGNo?: string;
+  UnitReceiveBGName?: string;
   returns?: ReturnRecord[]; // Fetched dynamically
   isFetchingReturns?: boolean;
 }
@@ -119,7 +128,35 @@ export default function ReturnPage() {
   
   const [borrowRecords, setBorrowRecords] = useState<BorrowRecord[]>([]);
 
+  const normalizeOptionValue = (...values: unknown[]) => {
+    for (const value of values) {
+      const normalized = String(value ?? '').trim();
+      if (normalized) return normalized;
+    }
+    return '';
+  };
+
+  const getBusinessUnitOptionsFromRecord = (record: BorrowRecord) => {
+    const options: { id: string; name: string }[] = [];
+    const pushOption = (idRaw: unknown, nameRaw?: unknown) => {
+      const id = normalizeOptionValue(idRaw);
+      if (!id) return;
+      const name = normalizeOptionValue(nameRaw, id);
+      options.push({ id, name });
+    };
+
+    pushOption(
+      record.BusinessUnitNo || record.BusinessUnit || record.BGNo,
+      record.BusinessUnitName || record.BGName
+    );
+    pushOption(record.UnitTransferBGNo, record.UnitTransferBGName);
+    pushOption(record.UnitReceiveBGNo, record.UnitReceiveBGName);
+
+    return options;
+  };
+
   // Departments list extracted from records
+  const [businessUnits, setBusinessUnits] = useState<{id: string, name: string}[]>([]);
   const [departments, setDepartments] = useState<{id: string, name: string}[]>([]);
 
   // State for Request Modal & Approvers
@@ -148,13 +185,25 @@ export default function ReturnPage() {
         const result = await res.json();
         setBorrowRecords(result.data || []);
 
-        // Extract unique departments for the dropdown
+        // Extract unique business units and departments for dropdowns
+        const bus = new Map<string, string>();
         const depts = new Map<string, string>();
         (result.data || []).forEach((r: BorrowRecord) => {
+          getBusinessUnitOptionsFromRecord(r).forEach((option) => {
+            if (option.id) bus.set(option.id, option.name || option.id);
+          });
           if (r.UnitTransfer) depts.set(r.UnitTransfer, r.UnitTransferName || r.UnitTransfer);
           if (r.UnitReceive) depts.set(r.UnitReceive, r.UnitReceiveName || r.UnitReceive);
         });
-        setDepartments(Array.from(depts.entries()).map(([id, name]) => ({ id, name })));
+        const sortedBusinessUnits = Array.from(bus.entries())
+          .map(([id, name]) => ({ id, name }))
+          .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+        const sortedDepartments = Array.from(depts.entries())
+          .map(([id, name]) => ({ id, name }))
+          .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+
+        setBusinessUnits(sortedBusinessUnits);
+        setDepartments(sortedDepartments);
       }
     } catch (error) {
       console.error('Failed to fetch borrow records:', error);
@@ -520,9 +569,11 @@ export default function ReturnPage() {
     if (selectedStatus === 'fully_returned' && !isFullyReturned) return false;
     
     // Dropdown filters
-    // if (selectedBusinessUnit && record.businessUnit !== selectedBusinessUnit) return false; // Not in DB model currently
-    if (selectedFromDept && record.UnitTransfer !== selectedFromDept) return false;
-    // if (selectedToDept && record.toDepartment !== selectedToDept) return false;
+    if (selectedBusinessUnit) {
+      const recordBuIds = getBusinessUnitOptionsFromRecord(record).map((item) => item.id);
+      if (!recordBuIds.includes(selectedBusinessUnit)) return false;
+    }
+    if (selectedFromDept && record.UnitTransfer !== selectedFromDept && record.UnitReceive !== selectedFromDept) return false;
     
     // Table column filters
     if (filterInbox && !record.DocumentNo.toLowerCase().includes(filterInbox.toLowerCase())) return false;
@@ -576,13 +627,15 @@ export default function ReturnPage() {
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-700 whitespace-nowrap">หน่วยธุรกิจ :</label>
             <div className="relative">
-              <input 
-                type="text" 
-                value={selectedBusinessUnit} 
-                onChange={(e) => setSelectedBusinessUnit(e.target.value)} 
-                placeholder="เลือกหน่วยธุรกิจ..." 
-                className="w-48 pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow" 
-              />
+              <select
+                value={selectedBusinessUnit}
+                onChange={(e) => setSelectedBusinessUnit(e.target.value)}
+                className="w-56 pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow appearance-none bg-white"
+              >
+                <option value="">ทั้งหมด</option>
+                {businessUnits.map((bu) => <option key={bu.id} value={bu.id}>{bu.name}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
             </div>
           </div>
 

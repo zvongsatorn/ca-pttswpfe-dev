@@ -8,6 +8,8 @@ import {
   FileText,
   Clock,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   XCircle,
   Hash,
   Check,
@@ -15,7 +17,7 @@ import {
   ArrowRight,
   File as FileIcon,
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/th';
 import buddhistEra from 'dayjs/plugin/buddhistEra';
@@ -54,8 +56,142 @@ interface TransactionProgressItem {
   processStage: 1 | 2 | 3;
   createdDate: string;
   typeCategory: string; 
+  businessUnitId: string;
+  businessUnitName: string;
+  divisionId: string;
+  divisionName: string;
+  agencyId: string;
+  agencyName: string;
   items: TransactionDetail[];
   logs: ApprovalLogItem[];
+}
+
+interface Report3FilterItem {
+  BGNo?: string;
+  BGName?: string;
+  OrgUnitNo?: string;
+  UnitText?: string;
+  UnitName?: string;
+  UnitAbbr?: string;
+}
+
+interface Report3FilterResponse {
+  status: number;
+  data?: {
+    businessUnits: Report3FilterItem[];
+    lines: Report3FilterItem[];
+    units: Report3FilterItem[];
+  };
+  message?: string;
+}
+
+interface FilterOption {
+  value: string;
+  label: string;
+}
+
+function ScrollableSelectFilter({
+  value,
+  options,
+  placeholder,
+  allLabel = 'ทั้งหมด',
+  widthClass = 'w-56',
+  onChange,
+}: {
+  value: string;
+  options: FilterOption[];
+  placeholder: string;
+  allLabel?: string;
+  widthClass?: string;
+  onChange: (value: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  const selectedLabel = value
+    ? options.find((item) => item.value === value)?.label || value
+    : allLabel;
+
+  const filteredOptions = options.filter((item) =>
+    item.label.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const selectValue = (nextValue: string) => {
+    onChange(nextValue);
+    setIsOpen(false);
+    setSearchTerm('');
+  };
+
+  return (
+    <div ref={wrapperRef} className={`relative ${widthClass}`}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="w-full pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow bg-white text-left truncate"
+      >
+        {selectedLabel || placeholder}
+      </button>
+      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+
+      {isOpen && (
+        <div className="absolute left-0 top-full mt-1 w-full bg-white rounded-md border border-gray-200 shadow-lg z-50">
+          <div className="p-2 border-b border-gray-100">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="ค้นหา..."
+                className="w-full pl-8 pr-2 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="max-h-56 overflow-y-auto p-1">
+            <button
+              type="button"
+              onClick={() => selectValue('')}
+              className={`w-full text-left px-2 py-1.5 rounded text-sm hover:bg-blue-50 ${
+                !value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+              }`}
+            >
+              {allLabel}
+            </button>
+
+            {filteredOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => selectValue(option.value)}
+                className={`w-full text-left px-2 py-1.5 rounded text-sm hover:bg-gray-50 ${
+                  value === option.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+                }`}
+                title={option.label}
+              >
+                {option.label}
+              </button>
+            ))}
+
+            {filteredOptions.length === 0 && (
+              <div className="px-2 py-3 text-xs text-gray-400 text-center">ไม่พบข้อมูล</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function TransactionProgressPage() {
@@ -70,12 +206,19 @@ export default function TransactionProgressPage() {
   const [selectedBusinessUnit, setSelectedBusinessUnit] = useState('');
   const [selectedDivision, setSelectedDivision] = useState('');
   const [selectedAgency, setSelectedAgency] = useState('');
+  const [businessUnitOptions, setBusinessUnitOptions] = useState<FilterOption[]>([]);
+  const [lineOfWorkOptions, setLineOfWorkOptions] = useState<FilterOption[]>([]);
+  const [orgUnitOptions, setOrgUnitOptions] = useState<FilterOption[]>([]);
 
   // Column Filter States
   const [filterInbox, setFilterInbox] = useState('');
   const [filterCat, setFilterCat] = useState('');
   const [filterRes, setFilterRes] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+
+  // -- Pagination States --
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // -- Data State --
   const [transactions, setTransactions] = useState<TransactionProgressItem[]>([]);
@@ -92,25 +235,78 @@ export default function TransactionProgressPage() {
   const [rejectRemark, setRejectRemark] = useState('');
   const [rejectLoading, setRejectLoading] = useState(false);
 
+  const normalizeOptionValue = (...values: unknown[]) => {
+    for (const value of values) {
+      const normalized = String(value ?? '').trim();
+      if (normalized) return normalized;
+    }
+    return '';
+  };
+
+  const toText = (value: unknown) => String(value ?? '').trim();
+  const cleanUnitText = (text: string) => text.replace(/^[A-Za-z0-9_-]+\s+/, '').trim();
+  const uniqueOptions = (options: FilterOption[]) => {
+    const map = new Map<string, FilterOption>();
+    options.forEach((opt) => {
+      if (!opt.value || !opt.label) return;
+      map.set(opt.value, opt);
+    });
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'th'));
+  };
+  const syncSelected = (selected: string, options: FilterOption[]) =>
+    options.some((opt) => opt.value === selected) ? selected : '';
+  const toBgOption = (row: Report3FilterItem): FilterOption | null => {
+    const value = toText(row.BGNo);
+    const label = toText(row.BGName);
+    if (!value || !label) return null;
+    return { value, label };
+  };
+  const toLineOption = (row: Report3FilterItem): FilterOption | null => {
+    const value = toText(row.OrgUnitNo);
+    const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
+    if (!value || !label) return null;
+    return { value, label };
+  };
+  const toUnitOption = (row: Report3FilterItem): FilterOption | null => {
+    const value = toText(row.OrgUnitNo);
+    const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
+    if (!value || !label) return null;
+    return { value, label };
+  };
+
   // ============================================================================
   // 2. DATA FETCHING
   // ============================================================================
 
-  const getEmployeeId = () => {
+  const getUserContext = () => {
+    let employeeId = 'SYSTEM';
+    let userGroupNo = '';
     const userDataStr = localStorage.getItem('user_data');
     if (userDataStr) {
       try {
         const userData = JSON.parse(userDataStr);
-        return userData.employeeID || 'SYSTEM';
+        employeeId = userData.employeeID || 'SYSTEM';
+        userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
       } catch { /* ignore */ }
     }
-    return 'SYSTEM';
+    return { employeeId, userGroupNo };
+  };
+
+  const getEmployeeId = () => getUserContext().employeeId;
+
+  const toEffectiveDateParam = () => {
+    const monthIndex = months.indexOf(selectedMonth);
+    const month = monthIndex >= 0 ? monthIndex + 1 : new Date().getMonth() + 1;
+    const yearRaw = Number.parseInt(String(selectedYear || '').trim(), 10);
+    const currentAdYear = new Date().getFullYear();
+    const adYear = Number.isInteger(yearRaw) ? (yearRaw > 2400 ? yearRaw - 543 : yearRaw) : currentAdYear;
+    return `${adYear}-${String(month).padStart(2, '0')}-01`;
   };
 
   const fetchProgress = async () => {
     setIsLoading(true);
     try {
-      const employeeId = getEmployeeId();
+      const { employeeId } = getUserContext();
       const res = await fetch(`/api/documents/progress?employeeId=${employeeId}`);
       if (res.ok) {
         const json = await res.json();
@@ -123,6 +319,12 @@ export default function TransactionProgressPage() {
             category: string;
             typeCategory: string;
             resolution: string;
+            businessUnitId?: string;
+            businessUnitName?: string;
+            divisionId?: string;
+            divisionName?: string;
+            agencyId?: string;
+            agencyName?: string;
             items: { ItemID: string; TransactionType: number; TransactionDesc: string; ReqRemark: string; RejectionReason: string; FileCount: number; FileUrl: string }[];
             logs: { Seqno: number; AuditStatus: number; AuditDate?: string; EmployeeID: string; Fullname: string; UserGroupName?: string; UserGroupNo?: string; UnitSide?: string }[];
           }) => ({
@@ -134,6 +336,12 @@ export default function TransactionProgressPage() {
             processStage: doc.processStage as 1 | 2 | 3,
             createdDate: dayjs(doc.createDate).format('DD/MM/BBBB'),
             typeCategory: doc.typeCategory,
+            businessUnitId: normalizeOptionValue(doc.businessUnitId, doc.businessUnitName),
+            businessUnitName: normalizeOptionValue(doc.businessUnitName, doc.businessUnitId),
+            divisionId: normalizeOptionValue(doc.divisionId, doc.divisionName),
+            divisionName: normalizeOptionValue(doc.divisionName, doc.divisionId),
+            agencyId: normalizeOptionValue(doc.agencyId, doc.agencyName),
+            agencyName: normalizeOptionValue(doc.agencyName, doc.agencyId),
             items: doc.items.map((i) => ({
               id: i.ItemID,
               typeLabel: i.TransactionType === 1 ? 'โอนกรอบอัตรากำลัง' : i.TransactionType === 3 ? 'ปรับระดับ' : i.TransactionType === 4 ? 'เพิ่ม/ลดกรอบ' : i.TransactionType === 6 ? 'ยืม' : 'อื่นๆ',
@@ -176,9 +384,69 @@ export default function TransactionProgressPage() {
     }
   };
 
+  const fetchFilterOptions = async () => {
+    try {
+      const { employeeId, userGroupNo } = getUserContext();
+      if (!employeeId || !userGroupNo) {
+        setBusinessUnitOptions([]);
+        setLineOfWorkOptions([]);
+        setOrgUnitOptions([]);
+        return;
+      }
+
+      const query = new URLSearchParams({
+        effectiveDate: toEffectiveDateParam(),
+        employeeId,
+        userGroupNo,
+      });
+      if (selectedBusinessUnit) query.set('bgNo', selectedBusinessUnit);
+      if (selectedDivision) query.set('division', selectedDivision);
+
+      const res = await fetch(`/api/report/report3/filters?${query.toString()}`);
+      const payload: Report3FilterResponse | null = await res.json().catch(() => null);
+      if (!res.ok || !payload || payload.status !== 200 || !payload.data) {
+        setBusinessUnitOptions([]);
+        setLineOfWorkOptions([]);
+        setOrgUnitOptions([]);
+        return;
+      }
+
+      const nextBusiness = uniqueOptions(
+        payload.data.businessUnits.map(toBgOption).filter((item): item is FilterOption => item !== null)
+      );
+      const nextLines = uniqueOptions(
+        payload.data.lines.map(toLineOption).filter((item): item is FilterOption => item !== null)
+      );
+      const nextUnits = uniqueOptions(
+        payload.data.units.map(toUnitOption).filter((item): item is FilterOption => item !== null)
+      );
+
+      setBusinessUnitOptions(nextBusiness);
+      setLineOfWorkOptions(nextLines);
+      setOrgUnitOptions(nextUnits);
+
+      const nextBu = syncSelected(selectedBusinessUnit, nextBusiness);
+      const nextLine = syncSelected(selectedDivision, nextLines);
+      const nextUnit = syncSelected(selectedAgency, nextUnits);
+
+      if (nextBu !== selectedBusinessUnit) setSelectedBusinessUnit(nextBu);
+      if (nextLine !== selectedDivision) setSelectedDivision(nextLine);
+      if (nextUnit !== selectedAgency) setSelectedAgency(nextUnit);
+    } catch (error) {
+      console.error('Error fetching progress filter options:', error);
+      setBusinessUnitOptions([]);
+      setLineOfWorkOptions([]);
+      setOrgUnitOptions([]);
+    }
+  };
+
   useEffect(() => {
     fetchProgress();
   }, []);
+
+  useEffect(() => {
+    void fetchFilterOptions();
+  }, [selectedMonth, selectedYear, selectedBusinessUnit, selectedDivision]);
 
   // ============================================================================
   // 3. HELPERS & HANDLERS
@@ -296,11 +564,23 @@ export default function TransactionProgressPage() {
     if (filterCat && item.category !== filterCat) return false;
     if (filterRes && !item.resolution.toLowerCase().includes(filterRes.toLowerCase())) return false;
     if (filterStatus && item.statusLabel !== filterStatus) return false;
-    if (selectedBusinessUnit && !item.resolution.toLowerCase().includes(selectedBusinessUnit.toLowerCase())) return false;
-    if (selectedDivision && !item.resolution.toLowerCase().includes(selectedDivision.toLowerCase())) return false;
-    if (selectedAgency && !item.resolution.toLowerCase().includes(selectedAgency.toLowerCase())) return false;
+    if (selectedBusinessUnit && item.businessUnitId !== selectedBusinessUnit) return false;
+    if (selectedDivision && item.divisionId !== selectedDivision) return false;
+    if (selectedAgency && item.agencyId !== selectedAgency) return false;
     return true;
   });
+
+  // Calculate Paginated Data
+  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / itemsPerPage));
+  const paginatedTransactions = filteredTransactions.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterInbox, filterCat, filterRes, filterStatus, selectedBusinessUnit, selectedDivision, selectedAgency, transactions]);
 
   return (
     <Main currentPath="/transaction/progress">
@@ -353,57 +633,70 @@ export default function TransactionProgressPage() {
             {/* หน่วยธุรกิจ */}
             <div className="flex items-center gap-3">
                 <label className="text-sm font-medium text-gray-700 whitespace-nowrap">หน่วยธุรกิจ :</label>
-                <div className="relative">
-                    <input type="text" value={selectedBusinessUnit} onChange={(e) => setSelectedBusinessUnit(e.target.value)} placeholder="เลือกหน่วยธุรกิจ..." className="w-48 pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow" />
-                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-                </div>
+                <ScrollableSelectFilter
+                  value={selectedBusinessUnit}
+                  options={businessUnitOptions}
+                  placeholder="เลือกหน่วยธุรกิจ..."
+                  onChange={(nextValue) => {
+                    setSelectedBusinessUnit(nextValue);
+                    setSelectedDivision('');
+                    setSelectedAgency('');
+                  }}
+                />
             </div>
 
             {/* สายงาน */}
             <div className="flex items-center gap-3">
                 <label className="text-sm font-medium text-gray-700 whitespace-nowrap">สายงาน :</label>
-                <div className="relative">
-                    <input type="text" value={selectedDivision} onChange={(e) => setSelectedDivision(e.target.value)} placeholder="เลือกสายงาน..." className="w-56 pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow" />
-                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-                </div>
+                <ScrollableSelectFilter
+                  value={selectedDivision}
+                  options={lineOfWorkOptions}
+                  placeholder="เลือกสายงาน..."
+                  onChange={(nextValue) => {
+                    setSelectedDivision(nextValue);
+                    setSelectedAgency('');
+                  }}
+                />
             </div>
 
             {/* หน่วยงาน */}
             <div className="flex items-center gap-3">
                 <label className="text-sm font-medium text-gray-700 whitespace-nowrap">หน่วยงาน :</label>
-                <div className="relative">
-                    <input type="text" value={selectedAgency} onChange={(e) => setSelectedAgency(e.target.value)} placeholder="เลือกหน่วยงาน..." className="w-56 pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow" />
-                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-                </div>
+                <ScrollableSelectFilter
+                  value={selectedAgency}
+                  options={orgUnitOptions}
+                  placeholder="เลือกหน่วยงาน..."
+                  onChange={(nextValue) => setSelectedAgency(nextValue)}
+                />
             </div>
 
             <div className="flex-1"></div>
         </div>
 
         {/* 3. TABLE CARD */}
-        <Card className="bg-white border-0 shadow-sm overflow-hidden">
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
+        <Card className="bg-white border-0 shadow-sm overflow-hidden flex flex-col h-[calc(100vh-270px)]">
+          <CardContent className="p-0 flex-1 overflow-y-auto relative">
+            <div className="min-w-full inline-block align-middle">
+              <table className="w-full relative">
+                <thead className="sticky top-0 z-20">
                   {/* 3.1 Main Headers */}
-                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-700">
-                    <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[200px]">
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-700 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+                    <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[200px] border-b border-gray-200">
                         <div className="flex items-center gap-1"><Hash className="w-3 h-3 text-gray-400" />Inbox No.</div>
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[200px]">ประเภท</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold w-[50%]">มติ / เรื่อง</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap w-[200px]">สถานะ</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap">Action</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[200px] border-b border-gray-200">ประเภท</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold w-[50%] border-b border-gray-200">มติ / เรื่อง</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap w-[200px] border-b border-gray-200">สถานะ</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap border-b border-gray-200">Action</th>
                   </tr>
                   
                   {/* 3.2 Column Filters */}
-                  <tr className="bg-white border-b border-gray-100">
-                    <th className="px-4 py-2">
-                        <input type="text" value={filterInbox} onChange={(e) => setFilterInbox(e.target.value)} placeholder="ค้นหา..." className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-blue-400 focus:outline-none" />
+                  <tr className="bg-gray-50 shadow-[0_4px_6px_-1px_rgba(0,0,0,0.05)] border-b border-gray-200 relative z-10">
+                    <th className="px-4 py-2 border-b border-gray-200 font-normal">
+                        <input type="text" value={filterInbox} onChange={(e) => setFilterInbox(e.target.value)} placeholder="ค้นหา..." className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:outline-none" />
                     </th>
-                    <th className="px-4 py-2">
-                        <select value={filterCat} onChange={(e) => setFilterCat(e.target.value)} className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-blue-400 focus:outline-none bg-white">
+                    <th className="px-4 py-2 border-b border-gray-200 font-normal">
+                        <select value={filterCat} onChange={(e) => setFilterCat(e.target.value)} className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:outline-none bg-white">
                           <option value="">ทั้งหมด</option>
                           <option value="ภายใต้ ผช.">ภายใต้ ผช.</option>
                           <option value="โอนกรอบอื่นๆ">โอนกรอบอื่นๆ</option>
@@ -412,27 +705,27 @@ export default function TransactionProgressPage() {
                           <option value="ยืม">ยืม</option>
                         </select>
                     </th>
-                    <th className="px-4 py-2">
-                        <input type="text" value={filterRes} onChange={(e) => setFilterRes(e.target.value)} placeholder="ค้นหา..." className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-blue-400 focus:outline-none" />
+                    <th className="px-4 py-2 border-b border-gray-200 font-normal">
+                        <input type="text" value={filterRes} onChange={(e) => setFilterRes(e.target.value)} placeholder="ค้นหา..." className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:outline-none" />
                     </th>
-                    <th className="px-4 py-2">
-                        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-blue-400 focus:outline-none bg-white">
+                    <th className="px-4 py-2 border-b border-gray-200 font-normal">
+                        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:outline-none bg-white">
                           <option value="">ทั้งหมด</option>
                           <option value="Waiting HRVerify">Waiting HRVerify</option>
                           <option value="Waiting HRUser">Waiting HRUser</option>
                           <option value="Complete">Complete</option>
                         </select>
                     </th>
-                    <th className="px-4 py-2"></th>
+                    <th className="px-4 py-2 border-b border-gray-200"></th>
                   </tr>
                 </thead>
                 
                 <tbody>
                   {isLoading ? (
                     <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">กำลังโหลดข้อมูล...</td></tr>
-                  ) : filteredTransactions.length === 0 ? (
+                  ) : paginatedTransactions.length === 0 ? (
                     <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">ไม่มีรายการ</td></tr>
-                  ) : filteredTransactions.map((item, index) => (
+                  ) : paginatedTransactions.map((item, index) => (
                     <tr key={item.id} className={`border-b border-gray-100 hover:bg-blue-50/30 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
                       {/* Inbox No. (Clickable) */}
                       <td className="px-4 py-4 text-sm font-medium align-top">
@@ -469,6 +762,71 @@ export default function TransactionProgressPage() {
               </table>
             </div>
           </CardContent>
+
+          {/* Pagination Controls */}
+          <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between sm:px-6">
+            <div className="flex-1 flex justify-between sm:hidden">
+              <Button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                variant="outline"
+                className="relative inline-flex items-center text-sm font-medium"
+              >
+                Previous
+              </Button>
+              <Button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                variant="outline"
+                className="ml-3 relative inline-flex items-center text-sm font-medium"
+              >
+                Next
+              </Button>
+            </div>
+            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+              <div className="flex items-center gap-4">
+                <p className="text-sm text-gray-700">
+                  Showing <span className="font-medium">{filteredTransactions.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}</span> to <span className="font-medium">{Math.min(currentPage * itemsPerPage, filteredTransactions.length)}</span> of <span className="font-medium">{filteredTransactions.length}</span> results
+                </p>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 max-w-[100px] border border-gray-300 rounded text-sm px-2 text-gray-700 bg-white"
+                >
+                  <option value={10}>10 รายการ</option>
+                  <option value={20}>20 รายการ</option>
+                  <option value={50}>50 รายการ</option>
+                  <option value={100}>100 รายการ</option>
+                </select>
+              </div>
+              <div>
+                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="sr-only">Previous</span>
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="sr-only">Next</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </nav>
+              </div>
+            </div>
+          </div>
         </Card>
       </div>
 
