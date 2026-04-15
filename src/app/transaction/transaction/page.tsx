@@ -109,6 +109,15 @@ interface SavedTransaction {
   createdAt: Date;
 }
 
+const uniqueSavedTransactions = (transactions: SavedTransaction[]): SavedTransaction[] => {
+  const deduped = new Map<string, SavedTransaction>();
+  transactions.forEach((tx) => {
+    // Keep latest payload for the same TransactionNo to avoid duplicate React keys.
+    deduped.set(tx.id, tx);
+  });
+  return Array.from(deduped.values());
+};
+
 interface CalendarWindowState {
   isChecking: boolean;
   isAllowed: boolean;
@@ -623,7 +632,7 @@ export default function TransactionPage() {
               createdAt: new Date(item.CreateDate || Date.now()),
             }));
             
-            setSavedTransactions(loadedDrafts);
+            setSavedTransactions(uniqueSavedTransactions(loadedDrafts));
           } else {
             // No drafts for this month, clear list
             setSavedTransactions([]);
@@ -1058,7 +1067,7 @@ export default function TransactionPage() {
         },
         createdAt: new Date(),
       };
-      setSavedTransactions([...savedTransactions, newTransaction]);
+      setSavedTransactions((prev) => uniqueSavedTransactions([...prev, newTransaction]));
       
       setAlertInfo({ show: true, title: 'สำเร็จ', message: 'บันทึก Transaction สำเร็จ (Draft)', type: 'success' });
       // Optional: reset form fields here if needed
@@ -1930,7 +1939,7 @@ export default function TransactionPage() {
                     <div className="text-center py-12 text-gray-400"><p>ยังไม่มีรายการ Transaction</p></div>
                   ) : (
                     savedTransactions.map((t, idx) => (
-                      <div key={t.id} className={`border-2 rounded-lg p-4 ${t.transactionData.transactionType ? getTitleColorClass(t.transactionData.transactionType) : ''}`}>
+                      <div key={`${t.id}-${idx}`} className={`border-2 rounded-lg p-4 ${t.transactionData.transactionType ? getTitleColorClass(t.transactionData.transactionType) : ''}`}>
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
@@ -2062,7 +2071,7 @@ export default function TransactionPage() {
                               <div className={`rounded-md border-2 overflow-hidden ${getTitleColorClass(parseInt(type) as TransactionTypeEnum)}`}>
                                 <div className="divide-y divide-black/10">
                                   {typeList.map((t, idx) => (
-                                    <div key={t.id} className="p-2 hover:bg-white/20">
+                                    <div key={`${t.id}-${idx}`} className="p-2 hover:bg-white/20">
                                       <div className="flex items-center gap-2 text-xs">
                                         <span className="font-bold bg-white/80 px-1.5 rounded">#{idx + 1}</span>
                                         <span className="text-xs leading-relaxed opacity-90">{generateTransactionDesc(t.transactionData, t.detailData)}</span>

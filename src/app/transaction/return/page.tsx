@@ -12,11 +12,14 @@ import {
   Users,
   Calendar,
   Check,
+  AlertCircle,
+  Info,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import buddhistEra from 'dayjs/plugin/buddhistEra';
 
 dayjs.extend(buddhistEra);
+const THAI_MONTH_NAMES = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
 
 // ============================================================================
 // 1. TYPES DEFINITION
@@ -111,6 +114,8 @@ export default function ReturnPage() {
   const [selectedReturns, setSelectedReturns] = useState<Map<string, SelectedReturn>>(new Map());
   const [returnCounts, setReturnCounts] = useState<Record<string, number | ''>>({});
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [isSubmitConfirmModalOpen, setIsSubmitConfirmModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [borrowRecords, setBorrowRecords] = useState<BorrowRecord[]>([]);
 
@@ -120,6 +125,13 @@ export default function ReturnPage() {
   // State for Request Modal & Approvers
   const [selectedApprovers, setSelectedApprovers] = useState<Record<string, string[]>>({});
   const [dynamicApprovers, setDynamicApprovers] = useState<Record<string, ApproverUser[]>>({});
+  const [alertInfo, setAlertInfo] = useState<{ show: boolean, title: string, message: string, type: 'success' | 'error' | 'warning' | 'info' }>({
+    show: false,
+    title: '',
+    message: '',
+    type: 'info'
+  });
+  const closeAlert = () => setAlertInfo((prev) => ({ ...prev, show: false }));
   const getDepartmentName = (id: string, resolvedName?: string) =>
     resolvedName || departments.find(d => d.id === id)?.name || id;
 
@@ -152,7 +164,7 @@ export default function ReturnPage() {
   const fetchReturnHistory = async (borrowId: string, documentNo: string) => {
     try {
       setBorrowRecords(prev => prev.map(r => r.TransactionNo === borrowId ? { ...r, isFetchingReturns: true } : r));
-      const res = await fetch(`/api/transactions/return-history/${documentNo}`);
+      const res = await fetch(`/api/transactions/return-history/${documentNo}?_t=${Date.now()}`);
       if (res.ok) {
         const result = await res.json();
         setBorrowRecords(prev => prev.map(r => r.TransactionNo === borrowId ? { ...r, returns: result.data || [], isFetchingReturns: false } : r));
@@ -170,9 +182,9 @@ export default function ReturnPage() {
         next.delete(id);
       } else {
         next.add(id);
-        // Fetch history if not already fetched
+        // Always refresh history on expand so new pending/approved returns appear immediately.
         const record = borrowRecords.find(r => r.TransactionNo === id);
-        if (record && !record.returns && !record.isFetchingReturns) {
+        if (record && !record.isFetchingReturns) {
           fetchReturnHistory(id, documentNo);
         }
       }
@@ -228,7 +240,7 @@ export default function ReturnPage() {
 
   const handleRequest = async () => {
     if (selectedReturns.size === 0) {
-      alert('กรุณาเลือกรายการคืนอย่างน้อย 1 รายการ');
+      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาเลือกรายการคืนอย่างน้อย 1 รายการ', type: 'warning' });
       return;
     }
 
@@ -237,7 +249,7 @@ export default function ReturnPage() {
       r => r.returnCount === '' || Number(r.returnCount) <= 0
     );
     if (invalidReturns.length > 0) {
-      alert('กรุณาระบุจำนวนคืนให้ถูกต้อง (มากกว่า 0)');
+      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาระบุจำนวนคืนให้ถูกต้อง (มากกว่า 0)', type: 'warning' });
       return;
     }
 
@@ -292,7 +304,7 @@ export default function ReturnPage() {
       setIsRequestModalOpen(true);
     } catch (e) {
       console.error("Failed to load approvers", e);
-      alert('เกิดข้อผิดพลาดในการโหลดรายชื่อผู้อนุมัติ');
+      setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: 'เกิดข้อผิดพลาดในการโหลดรายชื่อผู้อนุมัติ', type: 'error' });
     }
   };
 
@@ -301,11 +313,12 @@ export default function ReturnPage() {
     const missingGroups = Object.keys(groups).filter(key => !selectedApprovers[key] || selectedApprovers[key].length === 0);
 
     if (missingGroups.length > 0) {
-      alert('กรุณาเลือกผู้ตรวจสอบสำหรับทุกกลุ่ม');
+      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาเลือกผู้ตรวจสอบสำหรับทุกกลุ่ม', type: 'warning' });
       return;
     }
 
     try {
+      setIsSubmitting(true);
       let employeeId = 'SYSTEM';
       let userGroupNo = '';
       const userDataStr = localStorage.getItem('user_data');
@@ -317,7 +330,8 @@ export default function ReturnPage() {
         } catch { }
       }
 
-      const itemsPayload = Array.from(selectedReturns.values()).map(ret => {
+      const selectedReturnsSnapshot = Array.from(selectedReturns.values());
+      const itemsPayload = selectedReturnsSnapshot.map(ret => {
         const key = `${ret.UnitReceive}-${ret.UnitTransfer}`;
         const selectedEmpIds = selectedApprovers[key] || [];
         const groupApprovers = dynamicApprovers[key] || [];
@@ -345,11 +359,13 @@ export default function ReturnPage() {
 
         return {
           itemId: `TEMP_${ret.borrowId}_${Date.now()}`, // Temporary ID for DocumentItem
+          borrowId: ret.borrowId,
+          parentDocumentNo: ret.ParentDocumentNo,
           approvers: itemApprovers,
           draftData: {
             transactionType: 7, // Return transaction
-            effectiveMonth: dayjs().month() + 1,
-            effectiveYear: dayjs().year() + 543,
+            effectiveMonth: THAI_MONTH_NAMES[dayjs().month()],
+            effectiveYear: String(dayjs().year() + 543),
             unitReceive: ret.UnitReceive,
             unitTransfer: ret.UnitTransfer,
             levelGroupTo: ret.LevelGroupTo,
@@ -386,41 +402,91 @@ export default function ReturnPage() {
           body: formDataPayload
         });
 
-        if (!response.ok) throw new Error('Failed to save draft for return');
+        if (!response.ok) {
+          let errData: { message?: string; error?: string } | null = null;
+          try {
+            errData = await response.json();
+          } catch {
+            throw new Error('Failed to save draft for return');
+          }
+          throw new Error(errData?.error?.trim() || errData?.message?.trim() || 'Failed to save draft for return');
+        }
         const data = await response.json();
+        const transactionNo = String(data?.data?.transactionNo || '').trim();
+        if (!transactionNo) {
+          throw new Error('Draft saved but transaction number is missing');
+        }
         return {
-           itemId: data.data.transactionNo,
+           itemId: transactionNo,
+           borrowId: item.borrowId,
+           parentDocumentNo: item.parentDocumentNo,
            approvers: item.approvers
         };
       }));
 
-      // 2. Submit document
-      const payload = {
-        documentType: 1, // Transaction Document
-        userGroupNo: userGroupNo || undefined,
-        items: savedDocs,
-        parentDocumentNo: itemsPayload.length > 0 ? itemsPayload[0].draftData.parentDocumentNo : undefined
-      };
-
-      const submitRes = await fetch('/api/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      // 2. Submit document(s) grouped by parent borrow document
+      const groupedByParent = new Map<string, typeof savedDocs>();
+      savedDocs.forEach((doc) => {
+        const parentKey = String(doc.parentDocumentNo || '').trim();
+        const current = groupedByParent.get(parentKey) || [];
+        current.push(doc);
+        groupedByParent.set(parentKey, current);
       });
 
-      if (!submitRes.ok) {
-        throw new Error('Failed to submit documents');
+      for (const [parentDocumentNo, docs] of groupedByParent.entries()) {
+        const payload = {
+          documentType: 1, // Transaction Document
+          userGroupNo: userGroupNo || undefined,
+          items: docs.map((d) => ({ itemId: d.itemId, approvers: d.approvers })),
+          parentDocumentNo: parentDocumentNo || undefined,
+          createBy: employeeId
+        };
+
+        const submitRes = await fetch('/api/documents/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!submitRes.ok) {
+          let errData: { message?: string; error?: string } | null = null;
+          try {
+            errData = await submitRes.json();
+          } catch {
+            throw new Error('Failed to submit documents');
+          }
+          const reason = errData?.error?.trim() || errData?.message?.trim() || 'Failed to submit documents';
+          throw new Error(parentDocumentNo ? `Parent ${parentDocumentNo}: ${reason}` : reason);
+        }
       }
 
-      alert('ส่งขอการอนุมัติคืนเรียบร้อย!');
+      await fetchBorrowRecords();
+      setExpandedRows(new Set(selectedReturnsSnapshot.map((ret) => ret.borrowId)));
+      selectedReturnsSnapshot.forEach((ret) => {
+        fetchReturnHistory(ret.borrowId, ret.ParentDocumentNo);
+      });
+      setAlertInfo({ show: true, title: 'สำเร็จ', message: 'ส่งขอการอนุมัติคืนเรียบร้อย!', type: 'success' });
+      setIsSubmitConfirmModalOpen(false);
       setIsRequestModalOpen(false);
       setSelectedReturns(new Map());
       setSelectedApprovers({});
-      fetchBorrowRecords(); 
     } catch (error) {
       console.error('Error submitting request:', error);
-      alert('เกิดข้อผิดพลาดในการส่งคำขออนุมัติ');
+      const errorMessage = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการส่งคำขออนุมัติ';
+      setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: `เกิดข้อผิดพลาดในการส่งคำขออนุมัติ: ${errorMessage}`, type: 'error' });
+    } finally {
+      setIsSubmitting(false);
     }
+  };
+
+  const handleOpenSubmitConfirm = () => {
+    const groups = getReturnsByDepartmentPair();
+    const missingGroups = Object.keys(groups).filter(key => !selectedApprovers[key] || selectedApprovers[key].length === 0);
+    if (missingGroups.length > 0) {
+      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาเลือกผู้ตรวจสอบสำหรับทุกกลุ่ม', type: 'warning' });
+      return;
+    }
+    setIsSubmitConfirmModalOpen(true);
   };
 
   const toggleApprover = (groupKey: string, approverId: string) => {
@@ -618,18 +684,13 @@ export default function ReturnPage() {
                         {/* Main Borrow Row */}
                         <tr className={`border-b border-gray-100 hover:bg-blue-50/30 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'} ${isSelected ? 'bg-blue-50' : ''}`}>
                           <td className="px-4 py-4 text-center">
-                            {(record.returns && record.returns.length > 0) && (
+                            {record.isFetchingReturns && (
+                              <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                            )}
+                            {!record.isFetchingReturns && (
                               <button onClick={() => toggleRow(record.TransactionNo, record.DocumentNo)} className="text-gray-500 hover:text-blue-600 transition-colors">
                                 {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
                               </button>
-                            )}
-                            {(!record.returns && !record.isFetchingReturns && record.TotalReturned > 0) && (
-                              <button onClick={() => toggleRow(record.TransactionNo, record.DocumentNo)} className="text-gray-500 hover:text-blue-600 transition-colors">
-                                <ChevronRight className="w-5 h-5" />
-                              </button>
-                            )}
-                            {record.isFetchingReturns && (
-                              <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
                             )}
                           </td>
                           <td className="px-4 py-4 text-sm font-medium">
@@ -711,6 +772,14 @@ export default function ReturnPage() {
                         </tr>
 
                         {/* Return Records (Child Rows) */}
+                        {isExpanded && !record.isFetchingReturns && (!record.returns || record.returns.length === 0) && (
+                          <tr className="bg-purple-50/50 border-b border-purple-100">
+                            <td className="px-4 py-3"></td>
+                            <td className="px-4 py-3 text-sm text-purple-700" colSpan={9}>
+                              ยังไม่มีประวัติการคืนของเอกสารนี้
+                            </td>
+                          </tr>
+                        )}
                         {isExpanded && record.returns && record.returns.map((ret) => (
                           <tr key={ret.TransactionNo} className="bg-purple-50/50 border-b border-purple-100">
                             <td className="px-4 py-3"></td>
@@ -891,7 +960,57 @@ export default function ReturnPage() {
 
             <div className="px-6 py-4 border-t border-gray-200 bg-white flex justify-end gap-3">
               <Button variant="outline" onClick={() => setIsRequestModalOpen(false)} className="px-6">CANCEL</Button>
-              <Button onClick={confirmRequest} className="bg-purple-600 hover:bg-purple-700 text-white px-8 gap-2"><CheckCircle className="h-5 w-5" /> CONFIRM</Button>
+              <Button onClick={handleOpenSubmitConfirm} className="bg-purple-600 hover:bg-purple-700 text-white px-8 gap-2"><CheckCircle className="h-5 w-5" /> CONFIRM</Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isSubmitConfirmModalOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">ยืนยันการส่งขออนุมัติ</h3>
+              <p className="text-sm text-gray-500 mt-1">ต้องการส่งคำขออนุมัติรายการคืนที่เลือกไว้ใช่หรือไม่</p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setIsSubmitConfirmModalOpen(false)}
+                disabled={isSubmitting}
+                className="px-4 font-semibold"
+              >
+                ยกเลิก
+              </Button>
+              <Button
+                onClick={confirmRequest}
+                disabled={isSubmitting}
+                className="bg-purple-600 hover:bg-purple-700 text-white px-4 font-semibold"
+              >
+                {isSubmitting ? 'กำลังส่ง...' : 'ยืนยัน'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {alertInfo.show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+            <div className="p-6 text-center">
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${
+                alertInfo.type === 'success' ? 'bg-green-100' :
+                alertInfo.type === 'error' ? 'bg-red-100' :
+                alertInfo.type === 'warning' ? 'bg-orange-100' : 'bg-blue-100'
+              }`}>
+                {alertInfo.type === 'success' && <CheckCircle className="h-8 w-8 text-green-500" />}
+                {alertInfo.type === 'error' && <X className="h-8 w-8 text-red-500" />}
+                {alertInfo.type === 'warning' && <AlertCircle className="h-8 w-8 text-orange-500" />}
+                {alertInfo.type === 'info' && <Info className="h-8 w-8 text-blue-500" />}
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">{alertInfo.title}</h3>
+              <p className="text-gray-500 text-sm whitespace-pre-wrap text-left">{alertInfo.message}</p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-center rounded-b-xl">
+              <Button onClick={closeAlert} className="px-8 font-semibold w-full bg-blue-600 hover:bg-blue-700 text-white">ตกลง</Button>
             </div>
           </div>
         </div>
