@@ -414,7 +414,7 @@ export default function Home() {
                 const itemKey = normalizeItemId(row?.ItemID);
                 if (!itemKey || myActiveByItem.has(itemKey)) return;
                 const parsedSeqno = toNumberOrUndefined(row.Seqno);
-                if (!Number.isFinite(parsedSeqno) || parsedSeqno <= 0) return;
+                if (parsedSeqno === undefined || parsedSeqno <= 0) return;
                 myActiveByItem.set(itemKey, {
                   seqno: parsedSeqno,
                   unitSide: row.UnitSide

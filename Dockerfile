@@ -9,6 +9,7 @@ FROM oven/bun:latest AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN rm -rf .next
 RUN bun run build
 
 # Stage 3: Runner 
