@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
 import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
+import { saveExcelFile } from '@/utils/fileDownload';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -221,7 +221,7 @@ export default function HistoryApproveDetailClient({ mkdId, token, currentUser, 
 
             const buffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-            saveAs(blob, `MKD_Approved_${header.RequestNo}_${dayjs().format('YYYYMMDD')}.xlsx`);
+            await saveExcelFile(blob, `MKD_Approved_${header.RequestNo}_${dayjs().format('YYYYMMDD')}.xlsx`);
         } catch {
             toast.error("Export failed");
         }

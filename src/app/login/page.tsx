@@ -9,7 +9,6 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Toaster } from '@/components/ui/sonner';
 import { Eye, EyeOff, Lock, User } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -19,6 +18,7 @@ import { toast } from 'sonner';
 import { useMsal } from '@azure/msal-react';
 import { loginRequest } from '@/lib/msalConfig';
 import { b2cInstance, b2cLoginRequest } from '@/lib/msalB2CConfig';
+import type { RedirectRequest } from '@azure/msal-browser';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -48,7 +48,7 @@ export default function LoginForm() {
         let isB2C = false;
 
         // 1. Handle Redirect from IDP (AD/B2C)
-        let response = await instance.handleRedirectPromise();
+        const response = await instance.handleRedirectPromise();
         if (response && response.accessToken) {
             currentResponse = response;
         }
@@ -150,7 +150,7 @@ export default function LoginForm() {
       // Initialize msal if not already
       await instance.initialize().catch(() => {});
 
-      const redirectConfig: any = {
+      const redirectConfig: RedirectRequest = {
           ...loginRequest,
           prompt: "select_account" // Allow choosing account without mandatory logout
       };
@@ -175,7 +175,7 @@ export default function LoginForm() {
   const handleB2CLogin = async () => {
       setIsLoading(true);
       try {
-        const redirectConfig: any = {
+        const redirectConfig: RedirectRequest = {
             ...b2cLoginRequest,
             prompt: "select_account"
         };
@@ -486,8 +486,6 @@ export default function LoginForm() {
           </CardContent>
         </Card>
 
-        {/* Sonner Toaster */}
-        <Toaster richColors position="top-right" />
       </div>
 
       {isLoading && (

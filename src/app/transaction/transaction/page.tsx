@@ -109,9 +109,86 @@ interface SavedTransaction {
   createdAt: Date;
 }
 
+interface CalendarWindowState {
+  isChecking: boolean;
+  isAllowed: boolean;
+  message: string;
+  startDate: Date | null;
+  endDate: Date | null;
+}
 
 
 const months = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+const CALENDAR_TYPE_END = 1;
+const CALENDAR_TYPE_START = 3;
+
+const toAdYear = (yearRaw: string): number | null => {
+  const parsed = Number.parseInt(String(yearRaw || '').trim(), 10);
+  if (!Number.isInteger(parsed)) return null;
+  return parsed > 2400 ? parsed - 543 : parsed;
+};
+
+const formatThaiDateTime = (date: Date): string => {
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const yearBE = date.getFullYear() + 543;
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  return `${day}/${month}/${yearBE} ${hour}:${minute}`;
+};
+
+// SQL DateTime can be serialized as UTC; normalize to local wall-clock value.
+const normalizeUtcDateToLocalClock = (date: Date): Date => {
+  return new Date(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+    date.getUTCHours(),
+    date.getUTCMinutes(),
+    date.getUTCSeconds(),
+    date.getUTCMilliseconds()
+  );
+};
+
+const parseCalendarDate = (value: unknown): Date | null => {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return normalizeUtcDateToLocalClock(value);
+  }
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+
+    if (typeof value === 'string') {
+      const hasTimezoneHint = /([zZ]|[+-]\d{2}:?\d{2})$/.test(value.trim());
+      if (hasTimezoneHint) {
+        return normalizeUtcDateToLocalClock(parsed);
+      }
+    }
+    return parsed;
+  }
+
+  return null;
+};
+
+const extractCalendarType = (row: Record<string, unknown>): number | null => {
+  const raw = row.resourceId ?? row.ResourceId ?? row.ConfigType ?? row.configType;
+  const parsed = Number.parseInt(String(raw ?? '').trim(), 10);
+  return Number.isInteger(parsed) ? parsed : null;
+};
+
+const extractCalendarDate = (row: Record<string, unknown>): Date | null => {
+  const raw =
+    row.start ??
+    row.Start ??
+    row.ConfigDate ??
+    row.configDate ??
+    row.ConfigDateLimit ??
+    row.configDateLimit;
+
+  return parseCalendarDate(raw);
+};
 
 // Helper to generate years
 const getYears = () => {
@@ -149,6 +226,13 @@ export default function TransactionPage() {
   const [activeTab, setActiveTab] = useState<TransactionTypeEnum | null>(null);
   const [savedTransactions, setSavedTransactions] = useState<SavedTransaction[]>([]);
   const [existingFiles, setExistingFiles] = useState<{id: string, name: string, conclusionNo: string, fileUrl: string}[]>([]);
+  const [calendarWindowState, setCalendarWindowState] = useState<CalendarWindowState>({
+    isChecking: true,
+    isAllowed: false,
+    message: 'กำลังตรวจสอบช่วงเวลาปฏิทิน...',
+    startDate: null,
+    endDate: null
+  });
 
   // State for Request Modal
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -337,6 +421,124 @@ export default function TransactionPage() {
       window.removeEventListener('user-units-changed', handleUnitsChanged);
     };
   }, [units.length]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const validateCalendarWindow = async () => {
+      const selectedMonthIndex = months.indexOf(formData.effectiveMonth);
+      const selectedYearAd = toAdYear(formData.effectiveYear);
+
+      if (selectedMonthIndex < 0 || !selectedYearAd) {
+        if (!isMounted) return;
+        setCalendarWindowState({
+          isChecking: false,
+          isAllowed: false,
+          message: 'เดือนหรือปีที่เลือกไม่ถูกต้อง',
+          startDate: null,
+          endDate: null
+        });
+        return;
+      }
+
+      if (isMounted) {
+        setCalendarWindowState((prev) => ({
+          ...prev,
+          isChecking: true
+        }));
+      }
+
+      try {
+        const token = localStorage.getItem('auth_token');
+        const response = await fetch('/api/calendar', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+
+        if (!response.ok) {
+          throw new Error(`Calendar API returned ${response.status}`);
+        }
+
+        const body = await response.json();
+        const rows = Array.isArray(body?.data) ? (body.data as Record<string, unknown>[]) : [];
+        const monthlyEvents = rows
+          .map((row) => ({
+            type: extractCalendarType(row),
+            date: extractCalendarDate(row)
+          }))
+          .filter((event): event is { type: number; date: Date } => {
+            if (!event.type || !event.date) return false;
+            return (
+              event.date.getFullYear() === selectedYearAd &&
+              event.date.getMonth() === selectedMonthIndex
+            );
+          });
+
+        const startDates = monthlyEvents
+          .filter((event) => event.type === CALENDAR_TYPE_START)
+          .map((event) => event.date);
+        const endDates = monthlyEvents
+          .filter((event) => event.type === CALENDAR_TYPE_END)
+          .map((event) => event.date);
+
+        if (!startDates.length || !endDates.length) {
+          if (!isMounted) return;
+          setCalendarWindowState({
+            isChecking: false,
+            isAllowed: false,
+            message: 'ยังไม่กำหนดช่วงเวลา START/END ในปฏิทินของเดือนที่เลือก',
+            startDate: null,
+            endDate: null
+          });
+          return;
+        }
+
+        const startDate = new Date(Math.min(...startDates.map((date) => date.getTime())));
+        const endDate = new Date(Math.max(...endDates.map((date) => date.getTime())));
+
+        if (startDate.getTime() > endDate.getTime()) {
+          if (!isMounted) return;
+          setCalendarWindowState({
+            isChecking: false,
+            isAllowed: false,
+            message: 'ช่วงเวลาในปฏิทินไม่ถูกต้อง (START มากกว่า END)',
+            startDate,
+            endDate
+          });
+          return;
+        }
+
+        const now = new Date();
+        const isAllowed = now.getTime() >= startDate.getTime() && now.getTime() <= endDate.getTime();
+
+        if (!isMounted) return;
+        setCalendarWindowState({
+          isChecking: false,
+          isAllowed,
+          message: isAllowed
+            ? 'อยู่ในช่วงเวลาที่อนุญาตให้ทำรายการ'
+            : 'นอกช่วงเวลาที่อนุญาตให้ทำรายการตามปฏิทิน',
+          startDate,
+          endDate
+        });
+      } catch (error) {
+        console.error('Error validating calendar window:', error);
+        if (!isMounted) return;
+        setCalendarWindowState({
+          isChecking: false,
+          isAllowed: false,
+          message: 'ไม่สามารถตรวจสอบช่วงเวลาปฏิทินได้ กรุณาลองใหม่อีกครั้ง',
+          startDate: null,
+          endDate: null
+        });
+      }
+    };
+
+    validateCalendarWindow();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [formData.effectiveMonth, formData.effectiveYear]);
 
   // Fetch Draft Transactions when effective month/year changes
   useEffect(() => {
@@ -542,6 +744,16 @@ export default function TransactionPage() {
     allUnits.find((u) => u.id === id)?.name ||
     id;
   const getTransactionTypeName = (type: TransactionTypeEnum) => transactionTypes.find((t) => t.id === type)?.label || '';
+  const getUnitReceiveOptionList = () =>
+    units.filter((unit) => {
+      if (formData.poolRsFlag === 2) {
+        return unit.IsSecondment === 1;
+      }
+      if (activeTab === 1) {
+        return unit.IsAssistant === 1 || unit.IsUnder === 1;
+      }
+      return true;
+    });
 
   const getTitleColorClass = (type: TransactionTypeEnum) => {
     const item = transactionTypes.find((t) => t.id === type);
@@ -586,8 +798,52 @@ export default function TransactionPage() {
     return desc;
   };
 
+  const calendarWindowRangeText =
+    calendarWindowState.startDate && calendarWindowState.endDate
+      ? `${formatThaiDateTime(calendarWindowState.startDate)} - ${formatThaiDateTime(calendarWindowState.endDate)}`
+      : '';
+
+  const showCalendarWindowBlockedAlert = () => {
+    const message = calendarWindowRangeText
+      ? `${calendarWindowState.message}\nช่วงเวลาที่อนุญาต: ${calendarWindowRangeText}`
+      : calendarWindowState.message;
+
+    setAlertInfo({
+      show: true,
+      title: 'ไม่สามารถดำเนินการได้',
+      message,
+      type: 'warning'
+    });
+  };
+
+  const canProceedByCalendar = !calendarWindowState.isChecking && calendarWindowState.isAllowed;
+  const canSubmitPendingTransactions = canProceedByCalendar;
+
+  const ensureCalendarReadyForAction = (): boolean => {
+    if (calendarWindowState.isChecking) {
+      setAlertInfo({
+        show: true,
+        title: 'กรุณารอสักครู่',
+        message: 'ระบบกำลังตรวจสอบช่วงเวลาปฏิทิน',
+        type: 'info'
+      });
+      return false;
+    }
+
+    if (!calendarWindowState.isAllowed) {
+      showCalendarWindowBlockedAlert();
+      return false;
+    }
+
+    return true;
+  };
+
   // --- HANDLERS ---
   const handleTabChange = (type: TransactionTypeEnum | null) => {
+    if (!ensureCalendarReadyForAction()) {
+      return;
+    }
+
     setActiveTab(type);
     if (type) {
       setFormData({
@@ -651,6 +907,7 @@ export default function TransactionPage() {
   const shouldShowExtraFields = () => formData.poolRsFlag === 2;
 
   const isFormValid = () => {
+    if (!canProceedByCalendar) return false;
     if (!activeTab) return false;
     if (!formData.effectiveMonth || !formData.effectiveYear) return false;
 
@@ -681,6 +938,10 @@ export default function TransactionPage() {
   };
 
   const handleSave = async () => {
+    if (!ensureCalendarReadyForAction()) {
+      return;
+    }
+
     try {
       // Get employeeId (username) from localStorage user_data
       let employeeId = 'SYSTEM';
@@ -760,13 +1021,15 @@ export default function TransactionPage() {
       });
 
       if (!response.ok) {
-        let errData;
+        let errData: { message?: string; error?: string } | null = null;
         try {
           errData = await response.json();
         } catch {
           throw new Error('Failed to save draft and failed to parse response');
         }
-        throw new Error(errData.message || errData.error || 'Failed to save draft');
+        const detailError = errData?.error?.trim();
+        const genericMessage = errData?.message?.trim();
+        throw new Error(detailError || genericMessage || 'Failed to save draft');
       }
       
       const responseData = await response.json();
@@ -791,7 +1054,10 @@ export default function TransactionPage() {
       
     } catch (error) {
       console.error('Error saving transaction:', error);
-      setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล', type: 'error' });
+      const errorMessage = error instanceof Error && error.message
+        ? `เกิดข้อผิดพลาดในการบันทึกข้อมูล: ${error.message}`
+        : 'เกิดข้อผิดพลาดในการบันทึกข้อมูล';
+      setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: errorMessage, type: 'error' });
     }
   };
 
@@ -835,6 +1101,10 @@ export default function TransactionPage() {
   };
 
   const handleRequest = async () => {
+    if (!ensureCalendarReadyForAction()) {
+      return;
+    }
+
     if (savedTransactions.length === 0) {
       setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาเพิ่ม Transaction อย่างน้อย 1 รายการ', type: 'warning' });
       return;
@@ -938,6 +1208,10 @@ export default function TransactionPage() {
   };
 
   const confirmRequest = () => {
+    if (!ensureCalendarReadyForAction()) {
+      return;
+    }
+
     const activeDepts = Object.keys(getTransactionsByDept());
     const missingDepts: string[] = [];
 
@@ -980,6 +1254,10 @@ export default function TransactionPage() {
   };
 
   const processSubmitDocument = async () => {
+    if (!ensureCalendarReadyForAction()) {
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       let employeeId = 'SYSTEM';
@@ -1133,11 +1411,23 @@ export default function TransactionPage() {
                   <select
                     value={activeTab || ''}
                     onChange={(e) => handleTabChange(e.target.value ? (parseInt(e.target.value) as TransactionTypeEnum) : null)}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    className={cn(
+                      "w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500",
+                      !canProceedByCalendar ? "border-red-300 bg-red-50" : "border-gray-300"
+                    )}
                   >
                     <option value="">เลือกประเภทการเปลี่ยนแปลง...</option>
                     {transactionTypes.map((type) => <option key={type.id} value={type.id}>{type.label}</option>)}
                   </select>
+                  {calendarWindowState.isChecking && (
+                    <p className="text-xs text-blue-600 mt-2">กำลังตรวจสอบช่วงเวลาตามปฏิทิน...</p>
+                  )}
+                  {!calendarWindowState.isChecking && !calendarWindowState.isAllowed && (
+                    <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                      <p>{calendarWindowState.message}</p>
+                      {calendarWindowRangeText && <p className="mt-1">ช่วงเวลาที่อนุญาต: {calendarWindowRangeText}</p>}
+                    </div>
+                  )}
                 </div>
 
                 {/* Management Type - Show only when activeTab is selected */}
@@ -1262,17 +1552,7 @@ export default function TransactionPage() {
                           <CommandList>
                             <CommandEmpty>ไม่พบหน่วยงาน</CommandEmpty>
                             <CommandGroup>
-                              {units
-                                .filter((unit) => {
-                                  if (formData.poolRsFlag === 2) {
-                                    return unit.IsSecondment === 1;
-                                  }
-                                  if (activeTab === 1) {
-                                    return unit.IsAssistant === 1 || unit.IsUnder === 1;
-                                  }
-                                  return true;
-                                })
-                                .map((unit) => (
+                              {getUnitReceiveOptionList().map((unit) => (
                                 <CommandItem
                                   key={unit.id}
                                   value={unit.unitText || unit.name}
@@ -1342,7 +1622,7 @@ export default function TransactionPage() {
                                 <CommandList>
                                   <CommandEmpty>ไม่พบหน่วยงาน</CommandEmpty>
                                   <CommandGroup>
-                                    {allUnits
+                                    {(activeTab === 1 ? getUnitReceiveOptionList() : allUnits)
                                       .filter((unit) => unit.id !== formData.unitReceive)
                                       .map((unit) => (
                                       <CommandItem
@@ -1723,13 +2003,19 @@ export default function TransactionPage() {
                   <h3 className="text-lg font-semibold text-gray-900">รายการ Transaction ({savedTransactions.length})</h3>
                   {savedTransactions.length > 0 && (
                     <Button 
-                      onClick={handleRequest} 
-                      className={`px-4 py-2 text-white rounded-lg font-semibold text-sm ${typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-500 hover:bg-blue-600'}`}
+                      onClick={handleRequest}
+                      disabled={!canSubmitPendingTransactions}
+                      className={`px-4 py-2 text-white rounded-lg font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed ${typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-500 hover:bg-blue-600'}`}
                     >
                       {typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04' ? 'อนุมัติรายการ' : 'REQUEST'}
                     </Button>
                   )}
                 </div>
+                {!canSubmitPendingTransactions && savedTransactions.length > 0 && (
+                  <p className="text-xs text-red-600 mb-3">
+                    รายการที่ค้างอยู่ยังไม่สามารถส่งได้ เนื่องจากนอกช่วงเวลาปฏิทิน
+                  </p>
+                )}
                 <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
                   {savedTransactions.length === 0 ? (
                     <div className="text-center py-12 text-gray-400"><p>ยังไม่มีรายการ Transaction</p></div>

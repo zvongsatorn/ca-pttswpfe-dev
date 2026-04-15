@@ -21,12 +21,17 @@ interface RateRecord {
     Rate: number;
 }
 
+interface BadgeProps {
+    count: string;
+    style?: React.CSSProperties;
+}
+
 function getToken(): string {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem('auth_token') || '';
 }
 
-function Badge({ count, style }: any) {
+function Badge({ count, style }: BadgeProps) {
     return <span style={{ ...style, padding: '2px 10px', borderRadius: '15px', fontSize: '12px' }}>{count}</span>;
 }
 

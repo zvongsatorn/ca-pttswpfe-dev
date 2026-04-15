@@ -75,7 +75,6 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import * as mkdService from '@/services/mkdService';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { Toaster } from '@/components/ui/sonner';
 
 interface MKDRecord {
   no: number;
@@ -1223,7 +1222,6 @@ const handleViewDashboard = (mkdId: string) => {
         </DialogContent>
       </Dialog>
 
-      <Toaster position="top-right" richColors />
 
       {/* Result Modal */}
       <Dialog open={isResultModalOpen} onOpenChange={setIsResultModalOpen}>

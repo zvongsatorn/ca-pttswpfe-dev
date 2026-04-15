@@ -113,7 +113,16 @@ function MenuRightContent() {
 
             {selectedRole ? (
                 <Spin spinning={loading}>
-                    <Table columns={columns} dataSource={menuItems} rowKey="MenuID" pagination={false} defaultExpandAllRows bordered className="border-slate-100" />
+                    <Table 
+                        columns={columns} 
+                        dataSource={menuItems} 
+                        rowKey="MenuID" 
+                        pagination={false} 
+                        defaultExpandAllRows 
+                        bordered 
+                        className="border-slate-100" 
+                        scroll={{ y: 'calc(100vh - 400px)' }}
+                    />
                 </Spin>
             ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-slate-400">

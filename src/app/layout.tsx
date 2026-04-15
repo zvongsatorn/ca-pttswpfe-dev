@@ -46,7 +46,7 @@ export default function RootLayout({
           >
             <MsalProvider>
                 {children}
-                <Toaster richColors />
+                <Toaster richColors position="top-right" />
             </MsalProvider>
           </ConfigProvider>
         </AntdRegistry>

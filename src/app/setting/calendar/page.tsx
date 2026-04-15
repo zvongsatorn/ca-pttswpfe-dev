@@ -3,8 +3,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Calendar, Modal, Form, DatePicker, Select, Radio, Card, Popconfirm, App, Badge, Space } from 'antd';
 import type { Dayjs } from 'dayjs';
+import type { CalendarProps } from 'antd';
 import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
 import 'dayjs/locale/th';
 import locale from 'antd/es/date-picker/locale/th_TH';
 import { CalendarCog, Trash2, Clock } from 'lucide-react';
@@ -12,13 +12,47 @@ import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
 import { getCalendarConfigs, createCalendarConfig, deleteCalendarConfig, checkCalendarDuplicate, CalendarConfig } from '@/services/calendarService';
 
-dayjs.extend(utc);
 dayjs.locale('th');
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem('auth_token') || '';
 }
+
+const normalizeUtcDateToLocalClock = (date: Date): Date => {
+    return new Date(
+        date.getUTCFullYear(),
+        date.getUTCMonth(),
+        date.getUTCDate(),
+        date.getUTCHours(),
+        date.getUTCMinutes(),
+        date.getUTCSeconds(),
+        date.getUTCMilliseconds()
+    );
+};
+
+const parseCalendarDate = (value: unknown): Date | null => {
+    if (value instanceof Date) {
+        if (Number.isNaN(value.getTime())) return null;
+        return normalizeUtcDateToLocalClock(value);
+    }
+
+    if (typeof value === 'string' || typeof value === 'number') {
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return null;
+
+        if (typeof value === 'string') {
+            const hasTimezoneHint = /([zZ]|[+-]\d{2}:?\d{2})$/.test(value.trim());
+            if (hasTimezoneHint) {
+                return normalizeUtcDateToLocalClock(parsed);
+            }
+        }
+
+        return parsed;
+    }
+
+    return null;
+};
 
 function CalendarContent() {
     const { message: messageApi, notification } = App.useApp();
@@ -40,13 +74,20 @@ function CalendarContent() {
 
     const getListData = useCallback((value: Dayjs) => {
         const dateStr = value.format('YYYY-MM-DD');
+        const toDateTimeKey = (raw: unknown) => {
+            const parsed = parseCalendarDate(raw);
+            return parsed ? dayjs(parsed).format('YYYY-MM-DD HH:mm') : '';
+        };
+
         return events.filter((event) => {
             if (!event.start) return false;
-            return dayjs.utc(event.start).format('YYYY-MM-DD') === dateStr;
+            const eventDate = parseCalendarDate(event.start);
+            if (!eventDate) return false;
+            return dayjs(eventDate).format('YYYY-MM-DD') === dateStr;
         }).filter((event, index, self) => 
             index === self.findIndex((e) => (
-                e.resourceId === event.resourceId && 
-                dayjs.utc(e.start).format('YYYY-MM-DD HH:mm') === dayjs.utc(event.start).format('YYYY-MM-DD HH:mm')
+                e.resourceId === event.resourceId &&
+                toDateTimeKey(e.start) === toDateTimeKey(event.start)
             ))
         );
     }, [events]);
@@ -57,7 +98,7 @@ function CalendarContent() {
             const res = await deleteCalendarConfig(id, currentUser?.employeeID || 'SYSTEM', token);
             if (res && res.status === 200) {
                 setEvents(prev => prev.filter(e => String(e.id) !== id));
-                notification.success({ message: 'สำเร็จ', description: 'ลบข้อมูลเรียบร้อยแล้ว' });
+                notification.success({ title: 'สำเร็จ', description: 'ลบข้อมูลเรียบร้อยแล้ว' });
             } else {
                 messageApi.error(res?.message || 'ลบไม่สำเร็จ');
             }
@@ -111,7 +152,7 @@ function CalendarContent() {
                     }
                 }
                 await Promise.all(promises);
-                notification.success({ message: 'สำเร็จ', description: 'บันทึกข้อมูลแบบรายเดือนเรียบร้อย' });
+                notification.success({ title: 'สำเร็จ', description: 'บันทึกข้อมูลแบบรายเดือนเรียบร้อย' });
                 window.location.reload();
             } else {
                 const res = await createCalendarConfig({
@@ -122,7 +163,7 @@ function CalendarContent() {
                 }, token);
 
                 if (res && res.status === 200) {
-                    notification.success({ message: 'สำเร็จ', description: 'บันทึกข้อมูลเรียบร้อยแล้ว' });
+                    notification.success({ title: 'สำเร็จ', description: 'บันทึกข้อมูลเรียบร้อยแล้ว' });
                     window.location.reload();
                 } else {
                     messageApi.error(res?.message || 'บันทึกไม่สำเร็จ');
@@ -137,7 +178,7 @@ function CalendarContent() {
         }
     };
 
-    const cellRender = (value: Dayjs, info: { originNode: React.ReactNode, type: string }) => {
+    const cellRender: CalendarProps<Dayjs>['cellRender'] = (value, info) => {
         if (info.type === 'date') {
             const isCurrentMonth = value.month() === viewDate.month();
             if (!isCurrentMonth) return null;
@@ -150,17 +191,18 @@ function CalendarContent() {
                         const isEnd = item.resourceId === 1;
                         const colorClass = isStart ? 'bg-amber-100 text-amber-700 border-amber-200' : isEnd ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200';
                         const dotClass = isStart ? 'bg-amber-500' : isEnd ? 'bg-rose-500' : 'bg-emerald-500';
+                        const startDate = parseCalendarDate(item.start);
                         
                         return (
                             <div key={`${item.id}-${index}`} className="group relative">
                                 <div className={`text-[10px] md:text-[11px] leading-tight py-1 px-2 rounded-lg border flex justify-between items-center shadow-xs transition-all hover:shadow-md ${colorClass}`}>
-                                    <div className="flex items-center gap-1 truncate font-bold">
-                                        <div className={`w-1.5 h-1.5 rounded-full ${dotClass} shrink-0`} />
-                                        <span>{dayjs.utc(item.start).format('HH:mm')}</span>
-                                        <span className="truncate opacity-80 uppercase tracking-tighter hidden md:inline">
-                                            {isStart ? 'START' : isEnd ? 'END' : 'ALERT'}
-                                        </span>
-                                    </div>
+                                        <div className="flex items-center gap-1 truncate font-bold">
+                                            <div className={`w-1.5 h-1.5 rounded-full ${dotClass} shrink-0`} />
+                                            <span>{startDate ? dayjs(startDate).format('HH:mm') : '-'}</span>
+                                            <span className="truncate opacity-80 uppercase tracking-tighter hidden md:inline">
+                                                {isStart ? 'START' : isEnd ? 'END' : 'ALERT'}
+                                            </span>
+                                        </div>
                                     <Popconfirm
                                         title="ลบรายการแจ้งเตือนนี้?"
                                         onConfirm={(e) => {
@@ -196,7 +238,7 @@ function CalendarContent() {
 
             <Card className="shadow-lg border-slate-200 rounded-2xl overflow-hidden p-0" styles={{ body: { padding: 0 } }}>
                 <Calendar
-                    cellRender={cellRender as any}
+                    cellRender={cellRender}
                     onSelect={onSelect}
                     onPanelChange={(date) => setViewDate(date)}
                     locale={locale}

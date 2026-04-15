@@ -9,6 +9,7 @@ import { Trash2, KeyRound } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
+import { saveExcelFile } from '@/utils/fileDownload';
 import { getMasterKeys, createMasterKey, updateMasterKey } from '@/services/mkdService';
 
 const API_BASE_URL = '';
@@ -116,9 +117,20 @@ function MKDContent() {
         reader.readAsArrayBuffer(file);
     };
 
-    const handleDownloadTemplate = () => {
-        // Backend populates the template with data and serves with proper Content-Disposition headers
-        window.location.href = `${API_BASE_URL}/api/mkd/template/master-keys?populate=true`;
+    const handleDownloadTemplate = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/mkd/template/master-keys?populate=true`);
+            if (!res.ok) throw new Error('Download failed');
+            
+            const blob = await res.blob();
+            await saveExcelFile(blob, 'templatekeyman.xlsx');
+        } catch (error) {
+            console.error('Template Download Error:', error);
+            message.error('ไม่สามารถดาวน์โหลด Template ได้');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const columns: ColumnsType<MKDDataType> = [

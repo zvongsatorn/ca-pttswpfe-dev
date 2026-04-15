@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { DatePicker, Button, Table, Card, Space, Typography, App } from 'antd';
+import type { ColumnsType, ColumnType } from 'antd/es/table';
 import { SearchOutlined, DownloadOutlined } from '@ant-design/icons';
 import { FileSpreadsheet } from 'lucide-react';
 import dayjs from 'dayjs';
@@ -9,7 +10,7 @@ import 'dayjs/locale/th';
 import buddhistEra from 'dayjs/plugin/buddhistEra';
 import locale from 'antd/es/date-picker/locale/th_TH';
 import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
+import { saveExcelFile } from '@/utils/fileDownload';
 import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
 import { exportPosition } from '@/services/mkdService';
@@ -24,14 +25,23 @@ function getToken(): string {
     return localStorage.getItem('auth_token') || '';
 }
 
+type ExportPositionValue = string | number | null | undefined;
+type ExportPositionRow = Record<string, ExportPositionValue> & { key: string };
+
+interface ExportPositionResponse {
+    success?: boolean;
+    message?: string;
+    data?: Array<Record<string, ExportPositionValue>>;
+}
+
 function ExportPositionContent() {
     const { message, notification } = App.useApp();
     const token = getToken();
     const currentUser = getUserFromToken();
     const [date, setDate] = useState<dayjs.Dayjs | null>(dayjs());
     const [loading, setLoading] = useState(false);
-    const [data, setData] = useState<any[]>([]);
-    const [columns, setColumns] = useState<any[]>([]);
+    const [data, setData] = useState<ExportPositionRow[]>([]);
+    const [columns, setColumns] = useState<ColumnsType<ExportPositionRow>>([]);
 
     const handleFetchData = async () => {
         if (!date) { message.warning('กรุณาเลือกวันที่'); return; }
@@ -43,30 +53,33 @@ function ExportPositionContent() {
                 employeeId: currentUser?.employeeID || '',
                 userGroupNo,
                 exportType: 2
-            }, token);
+            }, token) as ExportPositionResponse | null;
 
             if (res?.success) {
-                const dataWithKeys = res.data.map((item: any, index: number) => ({ ...item, key: `row-${index}` }));
+                const rows = Array.isArray(res.data) ? res.data : [];
+                const dataWithKeys: ExportPositionRow[] = rows.map((item, index) => ({ ...item, key: `row-${index}` }));
                 setData(dataWithKeys);
-                if (res.data.length > 0) {
-                    const existingKeys = Object.keys(res.data[0]);
+                if (rows.length > 0) {
+                    const existingKeys = Object.keys(rows[0] || {});
                     const mapping: Record<string, string> = {
                         'ชื่อย่อหน่วยงาน': 'ชื่อย่อ', 'UnitAbbr': 'ชื่อย่อ',
                         'ชื่อหน่วยงาน': 'ชื่อหน่วยงาน', 'UnitName': 'ชื่อหน่วยงาน',
                         'BU': 'BU', 'BGNo': 'BU', 'BGName': 'BU'
                     };
-                    const cols = existingKeys.filter(key => key !== 'key').map(key => {
-                        const baseCol: any = { title: mapping[key] || key, dataIndex: key, key, ellipsis: true, width: 180, className: 'text-[13px] font-medium' };
+                    const cols: ColumnsType<ExportPositionRow> = existingKeys.filter(key => key !== 'key').map(key => {
+                        const baseCol: ColumnType<ExportPositionRow> = { title: mapping[key] || key, dataIndex: key, key, ellipsis: true, width: 180, className: 'text-[13px] font-medium' };
                         if (['OrgUnitID', 'UnitAbbr', 'UnitName', 'BGNo', 'ชื่อย่อหน่วยงาน', 'ชื่อหน่วยงาน', 'BU'].includes(key)) {
-                            const uniqueValues = Array.from(new Set(res.data.map((item: any) => item[key]))).filter(v => v !== null && v !== undefined && v !== '').sort();
+                            const uniqueValues = Array.from(new Set(rows.map((item) => item[key])))
+                                .filter((v): v is string | number => v !== null && v !== undefined && v !== '')
+                                .sort((a, b) => String(a).localeCompare(String(b)));
                             baseCol.filters = uniqueValues.map(v => ({ text: String(v), value: v }));
-                            baseCol.onFilter = (value: any, record: any) => record[key] === value;
+                            baseCol.onFilter = (value, record) => record[key] === value;
                             baseCol.filterSearch = true;
                         }
                         return baseCol;
                     });
                     setColumns(cols);
-                    notification.success({ title: 'โหลดข้อมูลสำเร็จ', description: `พบข้อมูลทั้งหมด ${res.data.length} รายการ` });
+                    notification.success({ title: 'โหลดข้อมูลสำเร็จ', description: `พบข้อมูลทั้งหมด ${rows.length} รายการ` });
                 } else {
                     message.info('ไม่พบข้อมูลในช่วงเวลาที่เลือก'); setColumns([]);
                 }
@@ -107,7 +120,7 @@ function ExportPositionContent() {
                 column.width = Math.min(maxLength + 5, 50);
             });
             const buffer = await workbook.xlsx.writeBuffer();
-            saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `Position_Export_${date?.format('DDMMBBBB') || 'Data'}.xlsx`);
+            await saveExcelFile(buffer, `Position_Export_${date?.format('DDMMBBBB') || 'Data'}.xlsx`);
             notification.success({ title: 'Export สำเร็จ', description: 'ดาวน์โหลดไฟล์ Excel เรียบร้อยแล้ว' });
         } catch { message.error('เกิดข้อผิดพลาดในการ Export Excel'); }
         finally { setLoading(false); }

@@ -9,7 +9,6 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Toaster } from '@/components/ui/sonner';
 import { ArrowLeft, CheckCircle2, Mail, User } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -296,8 +295,6 @@ function RegisterContent() {
           </CardContent>
         </Card>
 
-        {/* Sonner Toaster */}
-        <Toaster richColors position="top-right" />
       </div>
     </>
   );

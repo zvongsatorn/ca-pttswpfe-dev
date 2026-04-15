@@ -4,6 +4,7 @@ import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle, Trash2, X, Search, Save, User, ShieldCheck, Users } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 
 // --- TYPE DEFINITIONS ---
@@ -124,7 +125,7 @@ export default function BorrowReturnPage() {
   };
 
   const getEligibleApproverGroups = (receiverDeptId: string, fromDeptId: string) => {
-    const groups: { title: string; users: UserData[]; icon: any; color: string }[] = [];
+    const groups: { title: string; users: UserData[]; icon: LucideIcon; color: string }[] = [];
 
     // ตรวจสอบว่าเป็นหน่วยงานเดียวกันหรือไม่
     const isSameDepartment = receiverDeptId === fromDeptId;

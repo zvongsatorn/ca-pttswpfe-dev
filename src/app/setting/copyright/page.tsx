@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Select, Button, Modal, App, Card, Divider } from 'antd';
+import { Select, Button, App, Card, Divider } from 'antd';
 import { Users, Copy, ArrowRight } from 'lucide-react';
-import { InfoCircleOutlined } from '@ant-design/icons';
 import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
 import { fetchUserGroups, fetchUserGroupMembers, copyOrgRights } from '@/services/userRightService';
@@ -11,6 +10,30 @@ import { fetchUserGroups, fetchUserGroupMembers, copyOrgRights } from '@/service
 function getToken(): string {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem('auth_token') || '';
+}
+
+function normalizeCode(value: string | number | null | undefined, length: number): string {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '';
+    return /^\d+$/.test(raw) ? raw.padStart(length, '0') : raw;
+}
+
+interface UserGroupApiRow {
+    userGroupNo?: string | number | null;
+    userGroupName?: string;
+}
+
+interface UserGroupMemberApiRow {
+    employeeID?: string | number | null;
+    EmployeeID?: string | number | null;
+    nameAll?: string;
+    NameAll?: string;
+}
+
+interface CopyOrgRightsResponse {
+    success?: boolean;
+    error?: string;
+    message?: string;
 }
 
 function CopyrightContent() {
@@ -30,31 +53,41 @@ function CopyrightContent() {
         const fetchGroups = async () => {
             const groupsRes = await fetchUserGroups(token);
             if (Array.isArray(groupsRes)) {
-                let filtered = groupsRes;
+                const groups = groupsRes as UserGroupApiRow[];
+                let filtered = groups;
                 const userGroupNo = currentUser?.userGroups?.[0]?.userGroupNo || '';
                 if (userGroupNo === "07") {
-                    filtered = groupsRes.filter((g: any) => g.userGroupNo !== '04' && g.userGroupNo !== '01');
+                    filtered = groups.filter((g) => g.userGroupNo !== '04' && g.userGroupNo !== '01');
                 }
-                setUserGroups(filtered.map((g: any) => ({ value: g.userGroupNo, label: g.userGroupName })));
+                setUserGroups(filtered.map((g) => ({
+                    value: normalizeCode(g.userGroupNo, 2),
+                    label: g.userGroupName || ''
+                })));
             }
         };
         fetchGroups();
     }, [token]);
 
     const handleGroupChange = useCallback(async (value: string) => {
-        setSelectedGroup(value);
+        const groupNo = normalizeCode(value, 2);
+        setSelectedGroup(groupNo);
         setSelectedUserFrom(null);
         setSelectedUserTo(null);
         setPageLoader(true);
         try {
-            const res = await fetchUserGroupMembers(value, token);
+            const res = await fetchUserGroupMembers(groupNo, token);
             if (res && Array.isArray(res)) {
-                setUsersInGroup(res.map((u: any) => ({ value: u.employeeID, label: `${u.nameAll}` })));
+                const members = res as UserGroupMemberApiRow[];
+                setUsersInGroup(members.map((u) => {
+                    const employeeId = normalizeCode(u.employeeID || u.EmployeeID, 8);
+                    const name = String(u.nameAll || u.NameAll || employeeId);
+                    return { value: employeeId, label: `${name} (${employeeId})` };
+                }));
             } else {
-                notification.error({ message: 'ข้อผิดพลาด', description: 'ไม่สามารถโหลดรายชื่อผู้ใช้งานได้' });
+                notification.error({ title: 'ข้อผิดพลาด', description: 'ไม่สามารถโหลดรายชื่อผู้ใช้งานได้' });
             }
         } catch {
-            notification.error({ message: 'ข้อผิดพลาด', description: 'เกิดข้อผิดพลาดในการโหลดข้อมูล' });
+            notification.error({ title: 'ข้อผิดพลาด', description: 'เกิดข้อผิดพลาดในการโหลดข้อมูล' });
         } finally {
             setPageLoader(false);
         }
@@ -87,19 +120,22 @@ function CopyrightContent() {
                 setLoading(true);
                 try {
                     const res = await copyOrgRights({
-                        UserGroupNo: selectedGroup,
-                        EmployeeIDFrom: selectedUserFrom,
-                        EmployeeIDTo: selectedUserTo,
-                        CreateBy: currentUser?.employeeID || 'SYSTEM'
-                    }, token);
+                        UserGroupNo: normalizeCode(selectedGroup, 2),
+                        EmployeeIDFrom: normalizeCode(selectedUserFrom, 8),
+                        EmployeeIDTo: normalizeCode(selectedUserTo, 8),
+                        CreateBy: normalizeCode(currentUser?.employeeID, 8) || 'SYSTEM'
+                    }, token) as CopyOrgRightsResponse | null;
                     
                     if (res?.success) {
-                        notification.success({ message: 'สำเร็จ', description: 'คัดลอกสิทธิ์เรียบร้อยแล้ว' });
+                        notification.success({ title: 'สำเร็จ', description: 'คัดลอกสิทธิ์เรียบร้อยแล้ว' });
                         setSelectedUserFrom(null);
                         setSelectedUserTo(null);
                     } else {
-                        notification.error({ message: 'ข้อผิดพลาด', description: res?.error || 'ไม่สามารถคัดลอกสิทธิ์ได้' });
+                        notification.error({ title: 'ข้อผิดพลาด', description: res?.error || res?.message || 'ไม่สามารถคัดลอกสิทธิ์ได้' });
                     }
+                } catch (error: unknown) {
+                    const errorMessage = error instanceof Error ? error.message : 'ไม่สามารถคัดลอกสิทธิ์ได้';
+                    notification.error({ title: 'ข้อผิดพลาด', description: errorMessage });
                 } finally {
                     setLoading(false);
                 }

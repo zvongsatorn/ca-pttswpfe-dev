@@ -6,7 +6,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { Trash2, Download, Upload, FileText, Plus, Info, FileSpreadsheet, FilePieChart, MessageSquare, Clipboard } from 'lucide-react';
 import { FilePdfOutlined, SearchOutlined } from '@ant-design/icons';
 import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
+import { saveExcelFile } from '@/utils/fileDownload';
 import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
 import { getPIR, getPIROrg, getFileAttach, getRemark, uploadFilePIR, deleteFileAttach, exportExcel, insertPIR, deletePIR, copyPIR, insertRemark, deleteRemark } from '@/services/pirService';
@@ -67,9 +67,9 @@ function PIRContent() {
         const loadUnits = async () => {
             const unitsData = await fetchAllUnits(token);
             if (Array.isArray(unitsData)) {
-                setUnitOptions(unitsData.map((u: any) => ({
+                setUnitOptions(unitsData.map((u: Record<string, string | number | undefined>) => ({
                     value: String(u.OrgUnitNo || u.id),
-                    label: u.UnitText || u.unitText || u.name || u.OrgUnitNo || u.id
+                    label: String(u.UnitText || u.unitText || u.name || u.OrgUnitNo || u.id)
                 })));
             }
         };
@@ -173,7 +173,7 @@ function PIRContent() {
                 worksheet.addRows(res.data);
                 worksheet.getRow(1).eachCell((cell) => { cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } }; });
                 const buffer = await workbook.xlsx.writeBuffer();
-                saveAs(new Blob([buffer]), `PIR_Export_${effectiveYear}.xlsx`);
+                await saveExcelFile(buffer, `PIR_Export_${effectiveYear}.xlsx`);
                 notification.success({ title: 'สำเร็จ', description: 'Export ข้อมูลเรียบร้อยแล้ว' });
             } else { messageApi.info('ไม่พบข้อมูลสำหรับ Export'); }
         } catch { messageApi.error('Export ล้มเหลว'); }
@@ -190,19 +190,19 @@ function PIRContent() {
                 const workbook = new ExcelJS.Workbook();
                 await workbook.xlsx.load(buffer);
                 const worksheet = workbook.worksheets[0];
-                const rows: any[] = [];
-                let headers: string[] = [];
+                const rows: Record<string, string | number>[] = [];
+                let headers: (string | number)[] = [];
                 worksheet.eachRow((row, rowNum) => {
-                    const rowValues = row.values as any[];
+                    const rowValues = row.values as (string | number)[];
                     if (rowNum === 1) headers = rowValues;
-                    else { const rowData: any = {}; headers.forEach((h, i) => { if (h) rowData[h.toString().toUpperCase()] = rowValues[i]; }); rows.push(rowData); }
+                    else { const rowData: Record<string, string | number> = {}; headers.forEach((h, i) => { if (h) rowData[h.toString().toUpperCase()] = rowValues[i]; }); rows.push(rowData); }
                 });
                 let count = 0;
                 for (const row of rows) {
                     if (!row.EFFECTIVEYEAR || !row.YEAR || row.RATE === undefined) continue;
-                    let eff = parseInt(row.EFFECTIVEYEAR); if (eff > 2500) eff -= 543;
-                    let yr = parseInt(row.YEAR); if (yr > 2500) yr -= 543;
-                    await insertPIR({ effectiveYear: eff.toString(), year: yr.toString(), rate: parseFloat(row.RATE), orgUnitNo: row.ORGUNITNO || '', createBy: currentUser?.employeeID || 'SYSTEM', import: 1 }, token);
+                    let eff = parseInt(String(row.EFFECTIVEYEAR)); if (eff > 2500) eff -= 543;
+                    let yr = parseInt(String(row.YEAR)); if (yr > 2500) yr -= 543;
+                    await insertPIR({ effectiveYear: eff.toString(), year: yr.toString(), rate: parseFloat(String(row.RATE)), orgUnitNo: String(row.ORGUNITNO || ''), createBy: currentUser?.employeeID || 'SYSTEM', import: 1 }, token);
                     count++;
                 }
                 notification.success({ title: 'นำเข้ารายการสำเร็จ', description: `นำเข้าข้อมูลจำนวน ${count} รายการเรียบร้อยแล้ว` });
@@ -268,7 +268,7 @@ function PIRContent() {
             <Card className="mb-6 shadow-sm border-slate-200" styles={{ body: { padding: '16px 24px' } }}>
                 <div className="flex flex-wrap items-end gap-6">
                     <div className="flex flex-col gap-1">
-                        <label className="text-slate-500 font-bold text-xs uppercase tracking-wider pl-1">ปีปัจจุบัน (Effective Year)</label>
+                        <label className="text-slate-500 font-bold text-xs uppercase tracking-wider pl-1">Effective Year</label>
                         <Select value={effectiveYear} onChange={setEffectiveYear} options={yearOptions} size="large" className="w-[180px]" />
                     </div>
                     <div className="flex flex-col gap-1  min-w-[300px]">

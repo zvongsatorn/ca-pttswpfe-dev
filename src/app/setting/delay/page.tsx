@@ -1,11 +1,20 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Table, Button, Modal, Form, Select, Input, Popconfirm, App, Tag, Space, Card } from 'antd';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Table, Button, Modal, Form, Select, Input, Popconfirm, App, Space, Card } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import Main from '@/components/layout/main';
-import { getDelayRetirementData, getEmployeeOptions, DelayRetirementDataType } from '@/services/delayService';
+import {
+    getDelayRetirementData,
+    getEmployeeOptions,
+    createDelayRetirement,
+    updateDelayRetirement,
+    deleteDelayRetirement,
+    DelayRetirementDataType,
+    DelayEmployeeOptionType
+} from '@/services/delayService';
+import { getUserFromToken } from '@/utils/auth';
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
@@ -16,42 +25,83 @@ function DelayRetirementContent() {
     const { notification } = App.useApp();
     const [form] = Form.useForm();
     const token = getToken();
+    const currentUser = getUserFromToken(token);
     
     const [selectedYear, setSelectedYear] = useState<string>('2568');
     const [searchText, setSearchText] = useState('');
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [editingKey, setEditingKey] = useState<string | null>(null);
+    const [tableLoading, setTableLoading] = useState(false);
     const [tableData, setTableData] = useState<DelayRetirementDataType[]>([]);
-    const [employeeOptions, setEmployeeOptions] = useState<any[]>([]);
+    const [employeeOptions, setEmployeeOptions] = useState<DelayEmployeeOptionType[]>([]);
+    const delayYearOptions = useMemo(() => {
+        const baseYear = Number.parseInt(selectedYear, 10);
+        if (Number.isNaN(baseYear)) return [];
 
-    useEffect(() => {
-        const fetchData = async () => {
+        return Array.from({ length: 5 }, (_, index) => {
+            const year = String(baseYear + index);
+            return { value: year, label: year };
+        });
+    }, [selectedYear]);
+
+    const fetchData = useCallback(async () => {
+        setTableLoading(true);
+        try {
             const [dataRes, empRes] = await Promise.all([
-                getDelayRetirementData(token),
+                getDelayRetirementData(token, selectedYear),
                 getEmployeeOptions(token)
             ]);
-            if (dataRes.data) setTableData(dataRes.data);
-            if (empRes.data) setEmployeeOptions(empRes.data);
-        };
-        fetchData();
-    }, [token]);
+
+            if (dataRes?.success && Array.isArray(dataRes.data)) {
+                setTableData(dataRes.data);
+            } else {
+                setTableData([]);
+                notification.error({ title: 'ไม่สามารถโหลดข้อมูลได้', description: dataRes?.message || 'เกิดข้อผิดพลาดในการดึงข้อมูล Delay' });
+            }
+
+            if (empRes?.success && Array.isArray(empRes.data)) {
+                setEmployeeOptions(empRes.data);
+            } else {
+                setEmployeeOptions([]);
+            }
+        } catch (error) {
+            console.error('Fetch Delay data failed:', error);
+            notification.error({ title: 'ไม่สามารถโหลดข้อมูลได้', description: 'เกิดข้อผิดพลาดในการเชื่อมต่อระบบ' });
+        } finally {
+            setTableLoading(false);
+        }
+    }, [notification, selectedYear, token]);
+
+    useEffect(() => {
+        void fetchData();
+    }, [fetchData]);
 
     const filteredData = useMemo(() => {
         return tableData.filter(item => {
             const matchesYear = item.DelayYear === selectedYear;
-            const matchesSearch = item.EmployeeID.includes(searchText) || item.PosName.includes(searchText);
+            const matchesSearch = item.EmployeeID.includes(searchText) || item.EmployeeName.includes(searchText) || item.PosName.includes(searchText);
             return matchesYear && matchesSearch;
         });
     }, [tableData, selectedYear, searchText]);
 
-    const handleDelete = async (key: string) => {
-        // Stub - future API integration
-        setTableData(prev => prev.filter(item => item.key !== key));
-        notification.success({ message: 'สำเร็จ', description: 'ลบข้อมูลเรียบร้อยแล้ว' });
+    const handleDelete = async (delayId: string) => {
+        try {
+            const response = await deleteDelayRetirement(delayId, currentUser?.employeeID || 'SYSTEM', token);
+            if (response?.success) {
+                notification.success({ title: 'สำเร็จ', description: 'ลบข้อมูลเรียบร้อยแล้ว' });
+                await fetchData();
+                return;
+            }
+
+            notification.error({ title: 'ไม่สำเร็จ', description: response?.message || 'ไม่สามารถลบข้อมูลได้' });
+        } catch (error) {
+            console.error('Delete Delay failed:', error);
+            notification.error({ title: 'ไม่สำเร็จ', description: 'เกิดข้อผิดพลาดในการลบข้อมูล' });
+        }
     };
 
     const handleEdit = (record: DelayRetirementDataType) => {
-        setEditingKey(record.key);
+        setEditingKey(record.DelayID);
         setIsModalVisible(true);
         form.setFieldsValue(record);
     };
@@ -60,30 +110,39 @@ function DelayRetirementContent() {
         setEditingKey(null);
         setIsModalVisible(true);
         form.resetFields();
-        form.setFieldsValue({ DelayYear: selectedYear, DelayStatus: 1 });
+        form.setFieldsValue({ DelayYear: selectedYear });
     };
 
     const handleSave = async () => {
         try {
             const values = await form.validateFields();
             const selectedEmp = employeeOptions.find(opt => opt.value === values.EmployeeID);
+
+            const payload = {
+                EmployeeID: values.EmployeeID,
+                PosName: selectedEmp?.position || values.PosName || '',
+                DelayYear: values.DelayYear,
+                DelayStatus: 1,
+                UserID: currentUser?.employeeID || 'SYSTEM'
+            };
+
             if (editingKey) {
-                setTableData(prev => prev.map(item => 
-                    item.key === editingKey ? { ...item, ...values, PosName: selectedEmp?.position || item.PosName } : item
-                ));
-                notification.success({ message: 'สำเร็จ', description: 'แก้ไขข้อมูลเรียบร้อยแล้ว' });
+                const response = await updateDelayRetirement(editingKey, payload, token);
+                if (!response?.success) {
+                    notification.error({ title: 'ไม่สำเร็จ', description: response?.message || 'ไม่สามารถแก้ไขข้อมูลได้' });
+                    return;
+                }
+                notification.success({ title: 'สำเร็จ', description: 'แก้ไขข้อมูลเรียบร้อยแล้ว' });
             } else {
-                const newEntry: DelayRetirementDataType = {
-                    key: Date.now().toString(),
-                    DelayID: (Math.floor(Math.random() * 9000) + 1000).toString(),
-                    EmployeeID: values.EmployeeID,
-                    PosName: selectedEmp?.position || '',
-                    DelayYear: values.DelayYear,
-                    DelayStatus: values.DelayStatus,
-                };
-                setTableData(prev => [...prev, newEntry]);
-                notification.success({ message: 'สำเร็จ', description: 'เพิ่มข้อมูลเรียบร้อยแล้ว' });
+                const response = await createDelayRetirement(payload, token);
+                if (!response?.success) {
+                    notification.error({ title: 'ไม่สำเร็จ', description: response?.message || 'ไม่สามารถเพิ่มข้อมูลได้' });
+                    return;
+                }
+                notification.success({ title: 'สำเร็จ', description: 'เพิ่มข้อมูลเรียบร้อยแล้ว' });
             }
+
+            await fetchData();
             setIsModalVisible(false);
         } catch (error) {
             console.error('Validate Failed:', error);
@@ -91,16 +150,16 @@ function DelayRetirementContent() {
     };
 
     const columns: ColumnsType<DelayRetirementDataType> = [
-        { title: 'รหัสพนักงาน', dataIndex: 'EmployeeID', key: 'EmployeeID', align: 'center', width: 140, render: (text) => <span className="font-bold text-slate-700">{text}</span> },
-        { title: 'ตำแหน่ง', dataIndex: 'PosName', key: 'PosName', render: (text) => <span className="text-slate-600 font-medium">{text}</span> },
-        { title: 'ปีที่ทด', dataIndex: 'DelayYear', key: 'DelayYear', align: 'center', width: 100 },
-        { title: 'สถานะ', dataIndex: 'DelayStatus', key: 'DelayStatus', align: 'center', width: 120, render: (status: number) => <Tag color={status === 1 ? 'green' : 'red'} variant="filled" className="rounded-full px-4 border-none font-bold">{status === 1 ? 'ใช้งาน' : 'ยกเลิก'}</Tag> },
+        { title: 'รหัสพนักงาน', dataIndex: 'EmployeeID', key: 'EmployeeID', align: 'center', width: 150, render: (text) => <span className="font-bold text-slate-700">{text}</span> },
+        { title: 'ชื่อพนักงาน', dataIndex: 'EmployeeName', key: 'EmployeeName', width: 260, ellipsis: true, render: (text) => <span className="block truncate text-slate-700 font-medium">{text || '-'}</span> },
+        { title: 'ตำแหน่ง', dataIndex: 'PosName', key: 'PosName', width: 420, ellipsis: true, render: (text) => <span className="block truncate text-slate-600 font-medium">{text || '-'}</span> },
+        { title: 'ปีที่ทด', dataIndex: 'DelayYear', key: 'DelayYear', align: 'center', width: 110 },
         {
             title: 'จัดการ', key: 'action', align: 'center', width: 120,
             render: (_, record) => (
-                <Space size="middle">
+                <Space size="small">
                     <Button type="text" className="text-blue-600 hover:bg-blue-50 rounded-full" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-                    <Popconfirm title="ยืนยันการลบข้อมูล" description="คุณแน่ใจหรือไม่ที่จะลบข้อมูลนี้?" onConfirm={() => handleDelete(record.key)} okText="ลบ" cancelText="ยกเลิก" okButtonProps={{ danger: true, className: "bg-red-600 font-bold" }}>
+                    <Popconfirm title="ยืนยันการลบข้อมูล" description="คุณแน่ใจหรือไม่ที่จะลบข้อมูลนี้?" onConfirm={() => handleDelete(record.DelayID)} okText="ลบ" cancelText="ยกเลิก" okButtonProps={{ danger: true, className: "bg-red-600 font-bold" }}>
                         <Button type="text" danger className="hover:bg-red-50 rounded-full" icon={<DeleteOutlined />} />
                     </Popconfirm>
                 </Space>
@@ -119,19 +178,30 @@ function DelayRetirementContent() {
                 <div className="flex flex-wrap items-end justify-between gap-4">
                     <div className="flex flex-wrap items-end gap-6">
                         <div className="flex flex-col gap-1">
-                            <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">เลือกปีเกษียณ (BE)</label>
+                            <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">เลือกปีเกษียณ</label>
                             <Select value={selectedYear} onChange={setSelectedYear} className="w-32" size="large" options={[{ value: '2568', label: '2568' }, { value: '2569', label: '2569' }, { value: '2570', label: '2570' }, { value: '2571', label: '2571' }]} />
                         </div>
                         <div className="flex flex-col gap-1">
                             <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">ค้นหาพนักงาน / ตำแหน่ง</label>
-                            <Input placeholder="รหัสพนักงาน หรือ ตำแหน่ง..." prefix={<SearchOutlined className="text-slate-400" />} className="w-72" size="large" allowClear onChange={(e) => setSearchText(e.target.value)} />
+                            <Input placeholder="รหัสพนักงาน ชื่อพนักงาน หรือ ตำแหน่ง..." prefix={<SearchOutlined className="text-slate-400" />} className="w-72" size="large" allowClear onChange={(e) => setSearchText(e.target.value)} />
                         </div>
                     </div>
                     <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd} size="large" className="bg-blue-600 hover:bg-blue-700 px-8 font-bold shadow-lg shadow-blue-100 rounded-xl">เพิ่มรายการ</Button>
                 </div>
             </Card>
 
-            <Table columns={columns} dataSource={filteredData} pagination={{ pageSize: 10 }} bordered rowClassName="hover:bg-blue-50/20 transition-colors" className="shadow-sm rounded-xl overflow-hidden border border-slate-100" />
+            <Table
+                columns={columns}
+                dataSource={filteredData}
+                rowKey="DelayID"
+                loading={tableLoading}
+                pagination={{ pageSize: 10 }}
+                bordered
+                tableLayout="fixed"
+                scroll={{ x: 1060 }}
+                rowClassName="hover:bg-blue-50/20 transition-colors"
+                className="shadow-sm rounded-xl overflow-hidden border border-slate-100"
+            />
 
             <Modal
                 title={<div className="font-bold text-lg border-b pb-3 mb-2">{editingKey ? 'แก้ไขข้อมูลพนักงานเกษียณ(ทด)' : 'เพิ่มพนักงานเกษียณ(ทด)'}</div>}
@@ -146,14 +216,9 @@ function DelayRetirementContent() {
                         <Form.Item name="PosName" label={<span className="font-bold text-slate-600 uppercase text-xs tracking-wider">ตำแหน่ง</span>}>
                             <Input disabled className="bg-slate-50 text-slate-900 font-medium h-11" />
                         </Form.Item>
-                        <div className="grid grid-cols-2 gap-4">
-                            <Form.Item name="DelayYear" label={<span className="font-bold text-slate-600 uppercase text-xs tracking-wider">ปีที่ทด</span>} rules={[{ required: true, message: 'กรุณาเลือกปี' }]}>
-                                <Select placeholder="เลือกปี" size="large" options={[{ value: '2568', label: '2568' }, { value: '2569', label: '2569' }, { value: '2570', label: '2570' }, { value: '2571', label: '2571' }, { value: '2572', label: '2572' }]} />
-                            </Form.Item>
-                            <Form.Item name="DelayStatus" label={<span className="font-bold text-slate-600 uppercase text-xs tracking-wider">สถานะ</span>} rules={[{ required: true }]}>
-                                <Select size="large" options={[{ value: 1, label: 'ใช้งาน (Active)' }, { value: 0, label: 'ยกเลิก (Inactive)' }]} />
-                            </Form.Item>
-                        </div>
+                        <Form.Item name="DelayYear" label={<span className="font-bold text-slate-600 uppercase text-xs tracking-wider">ปีที่ทด</span>} rules={[{ required: true, message: 'กรุณาเลือกปีที่ทด' }]}>
+                            <Select placeholder="เลือกปีที่ทด" size="large" options={delayYearOptions} />
+                        </Form.Item>
                     </Form>
                 </div>
             </Modal>

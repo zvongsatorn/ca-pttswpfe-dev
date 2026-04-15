@@ -879,7 +879,7 @@ function UserRightContent() {
             message.success('ดึงข้อมูลสำเร็จ');
         } catch (err) {
             console.error(err);
-            notification.error({ message: 'เกิดข้อผิดพลาดในการโหลดข้อมูล' });
+            notification.error({ title: 'เกิดข้อผิดพลาดในการโหลดข้อมูล' });
         } finally {
             setLoading(false);
         }

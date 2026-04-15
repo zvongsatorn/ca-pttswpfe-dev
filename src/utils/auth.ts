@@ -8,6 +8,7 @@ interface DecodedToken {
     email: string;
     position: string;
     orgUnit: string;
+    profilePicture?: string;
     exp: number;
     iat: number;
 }
@@ -34,7 +35,8 @@ export function getUserFromToken(token?: string) {
             position: decoded.position,
             orgUnit: decoded.orgUnit,
             userGroups: decoded.groups || [],
-            role: decoded.role
+            role: decoded.role,
+            profilePicture: decoded.profilePicture
         };
     } catch (error) {
         console.error("Invalid token:", error);

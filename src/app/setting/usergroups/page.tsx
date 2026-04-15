@@ -21,6 +21,18 @@ import {
 
 const API_URL = '';
 
+function dedupeLevels(levels: Level[]): Level[] {
+    const seen = new Set<string>();
+    const uniqueLevels: Level[] = [];
+    for (const level of levels) {
+        const key = String(level.levelGroupNo ?? '');
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        uniqueLevels.push(level);
+    }
+    return uniqueLevels;
+}
+
 function getToken(): string {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem('auth_token') || '';
@@ -103,8 +115,8 @@ function UserGroupsContent() {
                 getLevelsInGroup(group.userGroupNo, group.levelFlag, token),
                 getLevelCombo(group.userGroupNo, group.levelFlag, token)
             ]);
-            setLevelsInGroup(levelsData);
-            setAvailableLevels(comboData);
+            setLevelsInGroup(dedupeLevels(levelsData));
+            setAvailableLevels(dedupeLevels(comboData));
         } catch {
             message.error("ไม่สามารถโหลดข้อมูลระดับได้");
         } finally {

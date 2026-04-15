@@ -14,7 +14,8 @@ import {
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useRef, useState } from 'react';
 import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
+import { saveExcelFile } from '@/utils/fileDownload';
+import { ACTION_LOG, insertActionLog, setSelectedSubjectContext } from '@/services/actionLogService';
 import { ApiMenuItem } from '../../types/menu';
 import { getAuthToken } from '../../utils/auth';
 
@@ -36,11 +37,12 @@ const iconMap: Record<string, LucideIcon> = {
 };
 
 interface MenuItem {
+  menuId: number;
   key: string;
   icon: LucideIcon;
   label: string;
   hasSubmenu: boolean;
-  submenu?: { label: string; path: string }[];
+  submenu?: { menuId: number; label: string; path: string }[];
   path?: string;
   defaultExpanded?: boolean;
   badgeCount?: number;
@@ -100,7 +102,7 @@ export default function Sidebar({
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      saveAs(blob, `ExportMKDList_${Math.floor(Date.now() / 1000)}.xlsx`);
+      await saveExcelFile(blob, `ExportMKDList_${Math.floor(Date.now() / 1000)}.xlsx`);
 
     } catch (error) {
       console.error('Download error:', error);
@@ -162,11 +164,13 @@ export default function Sidebar({
 
         // Transform API data to UI format
         const transformedItems: MenuItem[] = data.map(item => ({
+          menuId: Number(item.MenuID) || 0,
           key: item.MenuKey || `menu-${item.MenuID}`,
           icon: (item.MenuIcon && iconMap[item.MenuIcon]) ? iconMap[item.MenuIcon] : FileText, // Default icon
           label: item.MenuName,
           hasSubmenu: item.SubMenu && (item.children?.length ?? 0) > 0,
           submenu: item.children?.map(child => ({
+            menuId: Number(child.MenuID) || 0,
             label: child.MenuName,
             path: child.MenuPath || '#'
           })) || [],
@@ -209,6 +213,23 @@ export default function Sidebar({
   useEffect(() => {
     if (menuItems.length > 0) {
       setExpandedMenus(getInitialExpandedState(currentPath, menuItems));
+    }
+  }, [menuItems, currentPath]);
+
+  useEffect(() => {
+    if (!currentPath || menuItems.length === 0) return;
+
+    for (const item of menuItems) {
+      if (item.path && currentPath.startsWith(item.path)) {
+        setSelectedSubjectContext(item.menuId, item.label, item.path);
+        return;
+      }
+      for (const subItem of item.submenu || []) {
+        if (currentPath.startsWith(subItem.path)) {
+          setSelectedSubjectContext(subItem.menuId, subItem.label, subItem.path);
+          return;
+        }
+      }
     }
   }, [menuItems, currentPath]);
 
@@ -293,11 +314,27 @@ export default function Sidebar({
 
   const isActive = (path: string) => currentPath === path;
 
-  const handleNavigation = (path: string) => {
+  const handleNavigation = (path: string, menuMeta?: { menuId?: number; label?: string }) => {
+    const resolvedMenuId = Number(menuMeta?.menuId ?? 0);
+
     if (path === 'mkd/download' || path === '/mkd/download' || path === '#download-mkd') {
+      if (Number.isFinite(resolvedMenuId) && resolvedMenuId > 0) {
+        setSelectedSubjectContext(resolvedMenuId, menuMeta?.label || path, path);
+      }
       handleDownloadMKD();
       return;
     }
+
+    if (Number.isFinite(resolvedMenuId) && resolvedMenuId > 0) {
+      const menuName = (menuMeta?.label || path || '').trim();
+      setSelectedSubjectContext(resolvedMenuId, menuName, path);
+      void insertActionLog({
+        actionId: ACTION_LOG.ENTRY_MENU,
+        subjectId: resolvedMenuId,
+        note: menuName,
+      });
+    }
+
     router.push(path);
     if (collapsed) {
       setHoveredMenu(null);
@@ -321,6 +358,9 @@ export default function Sidebar({
             item.path === 'mkd/download' || 
             item.path === '/mkd/download'
           ) {
+            if (item.menuId > 0) {
+              setSelectedSubjectContext(item.menuId, item.label, item.path || '#');
+            }
             handleDownloadMKD();
             return;
           }
@@ -328,7 +368,7 @@ export default function Sidebar({
             toggleMenu(item.key);
           } else {
             if (item.path) {
-              handleNavigation(item.path);
+              handleNavigation(item.path, { menuId: item.menuId, label: item.label });
             }
           }
         }}
@@ -374,7 +414,7 @@ export default function Sidebar({
                 ? 'bg-blue-100 text-blue-700'
                 : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
                 }`}
-              onClick={() => handleNavigation(subItem.path)}
+              onClick={() => handleNavigation(subItem.path, { menuId: subItem.menuId, label: subItem.label })}
             >
               {subItem.label}
             </div>
@@ -439,7 +479,7 @@ export default function Sidebar({
                       ? 'bg-blue-100 text-blue-700'
                       : 'text-gray-600 hover:bg-blue-50 hover:text-blue-600'
                       }`}
-                    onClick={() => handleNavigation(subItem.path)}
+                    onClick={() => handleNavigation(subItem.path, { menuId: subItem.menuId, label: subItem.label })}
                   >
                     {subItem.label}
                   </div>

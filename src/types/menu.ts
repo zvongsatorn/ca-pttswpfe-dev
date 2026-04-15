@@ -7,7 +7,7 @@ export interface ApiMenuItem {
     MenuPath: string | null;
     SubMenu: boolean;
     ShowCounter: boolean;
-    Expanded: boolean; // default from DB, but UI state controls actual expansion
+    Expanded: boolean; 
     MenuIcon: string | null;
     color: string | null;
     lightColor: string | null;

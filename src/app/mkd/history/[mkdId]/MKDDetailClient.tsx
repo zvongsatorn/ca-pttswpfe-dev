@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import dayjs from 'dayjs';
 import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
+import { saveExcelFile } from '@/utils/fileDownload';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -706,7 +706,11 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
 
     const handleExportExcel = async () => {
         try {
-            const workbook = new ExcelJS.Workbook();
+            // Force safe import for browser context
+            const exceljsLib = await import('exceljs');
+            const ExcelJSClient = exceljsLib.default || exceljsLib;
+
+            const workbook = new ExcelJSClient.Workbook();
             const worksheet = workbook.addWorksheet('Manpower Key Driver Summary');
             const headers = ["Manpower Key Driver", "Unit", "Weight(%)", ...allYears.map(y => getYearLabel(y).replace('\n ', ''))];
             const headerRow = worksheet.addRow(headers);
@@ -735,9 +739,13 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
 
             const buffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-            saveAs(blob, `MKD_${header.RequestNo}_${dayjs().format('YYYYMMDD')}.xlsx`);
-        } catch {
-            toast.error("Export failed");
+            await saveExcelFile(blob, `MKD_${header.RequestNo}_${dayjs().format('YYYYMMDD')}.xlsx`);
+            
+        } catch (error: unknown) {
+            console.error("[MKD Export Error]:", error);
+            const message = error instanceof Error ? error.message : "Unknown error";
+            toast.error("Export failed: " + message);
+            alert("Export failed: " + message);
         }
     };
 

@@ -81,6 +81,7 @@ interface APIMKDInboxItem {
   ApproveID?: string | number;
   Detail1?: string;
   Detail2?: string;
+  FullDetail?: string;
 }
 
 interface APIDocRequestItem {
@@ -216,7 +217,7 @@ export default function Home() {
 
             map.set('MKD_' + mkdId, {
               id: mkdId,
-              displayId: item.RefNo ? `[${item.RefNo}]` : `[#${item.ApproveID || mkdId}]`,
+              displayId: item.RefNo ? `[${item.RefNo}]` : `[${item.ApproveID || mkdId}]`,
               title: item.Detail1 || 'ขออนุมัติ Manpower Key Driver',
               subtitle: item.Detail2,
               date: displayDate,

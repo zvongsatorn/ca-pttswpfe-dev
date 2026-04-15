@@ -26,11 +26,31 @@ export interface TrackingParams {
 }
 
 export const getTrackingUsers = async (params: TrackingParams, token?: string) => {
-    const query = new URLSearchParams(params as any).toString();
+    const query = new URLSearchParams({
+        dmonth: params.dmonth,
+        dyear: params.dyear,
+        userGroupNo: params.userGroupNo,
+        employeeId: params.employeeId,
+    }).toString();
     return await fetchWithAuth(`/api/tracking/users?${query}`, token);
 };
 
 export const getTrackingUnits = async (params: TrackingParams, token?: string) => {
-    const query = new URLSearchParams(params as any).toString();
+    const query = new URLSearchParams({
+        dmonth: params.dmonth,
+        dyear: params.dyear,
+        userGroupNo: params.userGroupNo,
+        employeeId: params.employeeId,
+    }).toString();
     return await fetchWithAuth(`/api/tracking/units?${query}`, token);
+};
+
+export const getTransactionPendingByEmployeeId = async (employeeId: string, token?: string) => {
+    const query = new URLSearchParams({ employeeId }).toString();
+    const res = await fetchWithAuth(`/api/documents/my-requests?${query}`, token);
+
+    if (!res) return [];
+    if (Array.isArray(res)) return res;
+    if (Array.isArray(res.data)) return res.data;
+    return [];
 };

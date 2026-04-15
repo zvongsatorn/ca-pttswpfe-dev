@@ -80,6 +80,7 @@ interface SelectedReturn {
   UnitReceiveName: string;
   LevelGroupToName: string;
   ParentDocumentNo: string;
+  RefTransactionNo: string;
 }
 
 export interface ApproverUser {
@@ -199,7 +200,8 @@ export default function ReturnPage() {
           UnitTransferName: record.UnitTransferName,
           UnitReceiveName: record.UnitReceiveName,
           LevelGroupToName: record.LevelGroupToName,
-          ParentDocumentNo: record.DocumentNo
+          ParentDocumentNo: record.DocumentNo,
+          RefTransactionNo: record.TransactionNo
         });
       }
       return next;
@@ -354,6 +356,7 @@ export default function ReturnPage() {
             levelGroupFrom: ret.LevelGroupTo,
             amount: Number(ret.returnCount),
             parentDocumentNo: ret.ParentDocumentNo, // Linking to original borrow
+            refTransactionNo: ret.RefTransactionNo,
             remark: 'รายการคืน',
             employeeId
           }
@@ -369,15 +372,18 @@ export default function ReturnPage() {
              levelGroupTo: item.draftData.levelGroupTo,
              unitTransfer: item.draftData.unitTransfer,
              amount: item.draftData.amount,
+             refTransactionNo: item.draftData.refTransactionNo,
              conclusionNo: '',
              conclusionDate: ''
           }
         };
 
+        const formDataPayload = new FormData();
+        formDataPayload.append('payload', JSON.stringify(payload));
+
         const response = await fetch('/api/transactions/draft', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ payload })
+          body: formDataPayload
         });
 
         if (!response.ok) throw new Error('Failed to save draft for return');

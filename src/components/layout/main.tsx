@@ -2,21 +2,24 @@
 
 import Header from '@/components/layout/header';
 import Sidebar from '@/components/layout/sidebar';
+import { ACTION_LOG, insertActionLog } from '@/services/actionLogService';
 import { usePathname } from 'next/navigation';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface MainProps {
   children: React.ReactNode;
   currentPath?: string;
+  hideChrome?: boolean;
 }
 
-export default function MainLayout({ children, currentPath }: MainProps) {
+export default function MainLayout({ children, currentPath, hideChrome = false }: MainProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [sidebarVisible, setSidebarVisible] = useState(true); // เพิ่ม state สำหรับ visible
   const [currentBreakpoint, setCurrentBreakpoint] = useState<
     'mobile' | 'tablet' | 'desktop'
   >('desktop');
   const pathname = usePathname();
+  const viewedPathRef = useRef<Set<string>>(new Set());
 
   // Auto-collapse based on screen size และติดตาม breakpoint
   useEffect(() => {
@@ -70,18 +73,57 @@ export default function MainLayout({ children, currentPath }: MainProps) {
     // ใน mobile ไม่ให้เปลี่ยน collapsed state
   };
 
+  useEffect(() => {
+    if (!pathname || !pathname.startsWith('/report')) return;
+    if (viewedPathRef.current.has(pathname)) return;
+
+    let stopped = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+
+    const tryInsertViewLog = async () => {
+      if (stopped) return;
+      attempt += 1;
+
+      const success = await insertActionLog({
+        actionId: ACTION_LOG.VIEW,
+        note: `View ${pathname}`,
+      });
+
+      if (success) {
+        viewedPathRef.current.add(pathname);
+        return;
+      }
+
+      if (attempt < 8) {
+        retryTimer = setTimeout(() => {
+          void tryInsertViewLog();
+        }, 350);
+      }
+    };
+
+    void tryInsertViewLog();
+
+    return () => {
+      stopped = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [pathname]);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Fixed Header Component */}
-      <Header
-        sidebarCollapsed={sidebarCollapsed}
-        onToggleSidebar={handleToggleSidebar}
-      />
+      <div className={hideChrome ? 'hidden' : ''}>
+        <Header
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebar={handleToggleSidebar}
+        />
+      </div>
 
       {/* Main Layout - เว้นพื้นที่สำหรับ fixed header */}
-      <div className="flex pt-16">
+      <div className={`flex ${hideChrome ? 'pt-0' : 'pt-16'}`}>
         {/* Sidebar Component - แสดงเฉพาะเมื่อ visible */}
-        {sidebarVisible && (
+        {!hideChrome && sidebarVisible && (
           <Sidebar
             collapsed={sidebarCollapsed}
             currentPath={currentPath || pathname}
@@ -92,8 +134,8 @@ export default function MainLayout({ children, currentPath }: MainProps) {
         {/* Main Content */}
         <main
           className={`
-          flex-1 min-w-0 transition-all duration-300 p-6
-          ${!sidebarVisible ? 'ml-0' : sidebarCollapsed ? 'ml-16' : 'ml-64'}
+          flex-1 min-w-0 transition-all duration-300 ${hideChrome ? 'p-0' : 'p-6'}
+          ${hideChrome ? 'ml-0' : !sidebarVisible ? 'ml-0' : sidebarCollapsed ? 'ml-16' : 'ml-64'}
         `}
         >
           {children}

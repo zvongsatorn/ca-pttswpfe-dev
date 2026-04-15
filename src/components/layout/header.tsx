@@ -9,7 +9,10 @@ import {
   LogOut,
   User,
   UserCog,
+  Camera,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 import { getUserFromToken } from '@/utils/auth';
@@ -24,6 +27,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ACTION_LOG, clearSelectedSubjectContext, insertActionLog } from '@/services/actionLogService';
 
 interface HeaderProps {
   sidebarCollapsed: boolean;
@@ -52,6 +56,7 @@ interface UserData {
   orgUnit: string;
   email: string;
   userGroups: RawUserGroup[];
+  profilePicture?: string;
 }
 
 
@@ -78,6 +83,10 @@ export default function Header({
       role: '',
     },
   });
+
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
 
   const { userData, userGroups, activeGroup } = userState;
   const [logoError, setLogoError] = useState(false);
@@ -128,12 +137,15 @@ export default function Header({
         localStorage.setItem('selected_usergroup_role', mappedGroups[0].role);
       }
       
-      // eslint-disable-next-line
       setUserState({
         userData: user,
         userGroups: mappedGroups,
         activeGroup: initialActiveGroup
       });
+
+      if (user?.profilePicture) {
+        setProfileImageUrl(`/api/users/profile-picture/${user.profilePicture}`);
+      }
     }
   }, []);
 
@@ -167,11 +179,17 @@ export default function Header({
   };
 
   const confirmLogout = () => {
+    void insertActionLog({
+      actionId: ACTION_LOG.LOGOUT,
+      note: 'Log out',
+    });
+
     // Clear any stored authentication data
     document.cookie = "auth_token=; path=/; max-age=0; SameSite=Strict";
     localStorage.removeItem('user_data');
     localStorage.removeItem('selected_usergroup');
     localStorage.removeItem('selected_usergroup_role');
+    clearSelectedSubjectContext();
 
     // Redirect to login page
     window.location.href = '/login';
@@ -269,8 +287,72 @@ export default function Header({
     window.dispatchEvent(new CustomEvent('user-group-changed', { detail: group }));
   };
 
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userData?.employeeID) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('กรุณาเลือกไฟล์รูปภาพเท่านั้น');
+      return;
+    }
+
+    // Validate file size (2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('ขนาดไฟล์ต้องไม่เกิน 2MB');
+      return;
+    }
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('employeeId', userData.employeeID);
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch('/api/users/profile-picture', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        toast.success('อัปโหลดรูปภาพสำเร็จ');
+        setProfileImageUrl(result.data.url);
+        
+        // Update user state and token for persistence
+        if (result.data.token) {
+          localStorage.setItem('auth_token', result.data.token);
+          document.cookie = `auth_token=${result.data.token}; path=/; max-age=86400; SameSite=Strict`;
+        }
+
+        setUserState(prev => ({
+          ...prev,
+          userData: prev.userData ? { 
+            ...prev.userData, 
+            profilePicture: result.data.filename 
+          } : null
+        }));
+      } else {
+        toast.error(result.message || 'เกิดข้อผิดพลาดในการอัปโหลด');
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
-    <header className="fixed top-0 left-0 right-0 w-full bg-linear-to-r from-white to-blue-700 h-16 flex items-center justify-between px-4 z-[100] shadow-sm border-b border-blue-200 backdrop-blur-sm">
+    <header className="fixed top-0 left-0 right-0 w-full bg-linear-to-r from-white to-blue-700 h-16 flex items-center justify-between px-4 z-[1200] shadow-sm border-b border-blue-200 backdrop-blur-sm">
       <div className="flex items-center space-x-15">
         {/* Logo */}
         <div className="hidden sm:flex items-center -ml-6">
@@ -366,7 +448,7 @@ export default function Header({
 
           {/* Group Selector Dropdown */}
           {showGroupSelector && (
-            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-80 bg-white rounded-md shadow-2xl border border-gray-200 z-[110] overflow-hidden">
+            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-80 bg-white rounded-md shadow-2xl border border-gray-200 z-[1210] overflow-hidden">
               {/* Header */}
               {/* <div className="px-6 py-4 border-b border-gray-200">
                 <h3 className="font-semibold text-gray-900 text-center text-base">
@@ -436,8 +518,19 @@ export default function Header({
             onClick={() => setShowUserMenu(!showUserMenu)}
             className="flex items-center space-x-2  bg-white  rounded-2xl px-3 py-1 gap-1 backdrop-blur-sm hover:bg-gray-50 transition-colors"
           >
-            <div className="w-9 h-9 bg-linear-to-br from-blue-500 to-red-500 rounded-full flex items-center justify-center shadow-sm">
-              <User className="h-5 w-5 text-white" />
+            <div className="w-9 h-9 bg-linear-to-br from-blue-500 to-red-500 rounded-full flex items-center justify-center shadow-sm overflow-hidden border border-gray-200">
+              {profileImageUrl ? (
+                <Image 
+                  src={profileImageUrl} 
+                  alt="Avatar" 
+                  width={36} 
+                  height={36} 
+                  className="w-full h-full object-cover"
+                  unoptimized
+                />
+              ) : (
+                <User className="h-5 w-5 text-white" />
+              )}
             </div>
             <div className="hidden sm:flex flex-col justify-start items-start">
               <span className="text-sm font-medium text-gray-700">
@@ -454,12 +547,23 @@ export default function Header({
 
           {/* User Menu Dropdown */}
           {showUserMenu && (
-            <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-lg shadow-xl border border-gray-200 z-[110] overflow-hidden">
+            <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-lg shadow-xl border border-gray-200 z-[1210] overflow-hidden">
               {/* User Info Header */}
               <div className="p-4 border-b border-gray-200 bg-linear-to-r from-blue-50 to-red-50">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-linear-to-br from-blue-500 to-red-500 rounded-full flex items-center justify-center shadow-sm">
-                    <User className="h-6 w-6 text-white" />
+                  <div className="w-12 h-12 bg-linear-to-br from-blue-500 to-red-500 rounded-full flex items-center justify-center shadow-sm overflow-hidden border-2 border-white">
+                    {profileImageUrl ? (
+                      <Image 
+                        src={profileImageUrl} 
+                        alt="Profile" 
+                        width={48} 
+                        height={48} 
+                        className="w-full h-full object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      <User className="h-6 w-6 text-white" />
+                    )}
                   </div>
                   <div>
                     <h3 className="font-semibold text-gray-900">
@@ -505,14 +609,48 @@ export default function Header({
             <DialogTitle className="text-center text-2xl font-bold bg-linear-to-r from-blue-600 to-red-500 bg-clip-text text-transparent">
               ข้อมูลผู้ใช้งาน
             </DialogTitle>
+            <DialogDescription className="text-center text-gray-500">
+              จัดการข้อมูลส่วนตัวและรูปโปรไฟล์ของคุณ
+            </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col items-center gap-6 py-4">
             {/* Avatar */}
             <div className="relative">
-              <div className="w-24 h-24 bg-linear-to-br from-blue-500 to-red-500 rounded-full flex items-center justify-center shadow-lg transform hover:scale-105 transition-transform duration-300">
-                <User className="h-12 w-12 text-white" />
+              <div className="w-24 h-24 bg-linear-to-br from-blue-500 to-red-500 rounded-full flex items-center justify-center shadow-lg overflow-hidden border-4 border-white">
+                {profileImageUrl ? (
+                   <Image 
+                     src={profileImageUrl} 
+                     alt="Profile" 
+                     width={96} 
+                     height={96} 
+                     className="w-full h-full object-cover"
+                     unoptimized
+                   />
+                ) : (
+                  <User className="h-12 w-12 text-white" />
+                )}
+                
+                {uploading && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-full">
+                    <Loader2 className="h-8 w-8 text-white animate-spin" />
+                  </div>
+                )}
               </div>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileChange} 
+                className="hidden" 
+                accept="image/*"
+              />
+              <button 
+                onClick={handleUploadClick}
+                className="absolute -right-1 -bottom-1 bg-blue-600 p-2 rounded-full border-2 border-white shadow-md hover:bg-blue-700 transition-colors cursor-pointer"
+                title="เปลี่ยนรูปโปรไฟล์"
+              >
+                 <Camera className="h-4 w-4 text-white" />
+              </button>
             </div>
 
             {/* Info Form */}
