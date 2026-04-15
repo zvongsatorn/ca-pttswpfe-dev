@@ -24,6 +24,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 interface TransactionDetail {
   id: string;
+  actionKey: string;
   typeLabel: string; // e.g. โอนภายใต้ผู้ช่วย, เพิ่ม/ลด, ปรับสัดส่วน
   typeCategory: 'transfer' |'other' | 'add' | 'adjust'; // For styling
   description: string;
@@ -31,6 +32,12 @@ interface TransactionDetail {
   hasFile: boolean;
   fileUrl?: string;
   rejectionReason?: string;
+  transactionType: number;
+  flowStatus: 'current' | 'pending' | 'completed' | 'rejected' | 'unknown';
+  flowLabel: string;
+  canTakeAction: boolean;
+  flowSideLabel: string;
+  totalSteps: number;
   _seqno?: number;
 }
 
@@ -41,6 +48,9 @@ interface ApprovalLogItem {
   user: string; // e.g. 14600429 นายวงศธร
   role: string; // e.g. Outsource, Manager
   status: 'completed' | 'current' | 'pending' | 'success';
+  seqno?: number;
+  auditStatus?: number;
+  unitSide?: string;
 }
 
 interface InboxItem {
@@ -125,6 +135,39 @@ interface APIDocAuditLog {
   UnitSide?: string;
 }
 
+const getUnitSideLabel = (unitSide?: string) => {
+  if (unitSide === 'UnitReceive') return 'ฝั่งรับ';
+  if (unitSide === 'UnitTransfer') return 'ฝั่งให้';
+  return '';
+};
+
+const getFlowMeta = (auditStatus?: number, unitSide?: string, isMyTurn = false) => {
+  if (auditStatus === 1 && isMyTurn) {
+    return { flowStatus: 'current' as const, flowLabel: 'ถึงคิวอนุมัติ', canTakeAction: true };
+  }
+  if (auditStatus === 2) {
+    return { flowStatus: 'completed' as const, flowLabel: 'อนุมัติแล้ว', canTakeAction: false };
+  }
+  if (auditStatus === -1) {
+    return { flowStatus: 'rejected' as const, flowLabel: 'ไม่อนุมัติ', canTakeAction: false };
+  }
+
+  const sideLabel = getUnitSideLabel(unitSide);
+  return {
+    flowStatus: 'pending' as const,
+    flowLabel: sideLabel ? `รอดำเนินการ (${sideLabel})` : 'รอดำเนินการ',
+    canTakeAction: false
+  };
+};
+
+const getFlowBadgeClass = (flowStatus: TransactionDetail['flowStatus']) => {
+  if (flowStatus === 'current') return 'bg-blue-100 text-blue-700 border-blue-200';
+  if (flowStatus === 'pending') return 'bg-gray-100 text-gray-600 border-gray-200';
+  if (flowStatus === 'completed') return 'bg-green-100 text-green-700 border-green-200';
+  if (flowStatus === 'rejected') return 'bg-red-100 text-red-700 border-red-200';
+  return 'bg-gray-100 text-gray-600 border-gray-200';
+};
+
 export default function Home() {
   const router = useRouter();
   
@@ -134,7 +177,7 @@ export default function Home() {
   
   const [isActionModalOpen, setIsActionModalOpen] = useState(false);
   const [selectedInboxItem, setSelectedInboxItem] = useState<InboxItem | null>(null);
-  const [itemActions, setItemActions] = useState<Record<string, 'approved' | 'rejected'>>({}); 
+  const [itemActions, setItemActions] = useState<Record<string, 'approved' | 'rejected' | 'idle'>>({}); 
 
   const [isRejectAllModalOpen, setIsRejectAllModalOpen] = useState(false);
   const [rejectAllRemark, setRejectAllRemark] = useState('');
@@ -347,19 +390,46 @@ export default function Home() {
           const detailJson = await res.json();
           
           if (detailJson.data) {
-              const items: TransactionDetail[] = detailJson.data.items.map((i: APIDocDetailItem) => ({
-                id: i.ItemID,
-                typeLabel: i.TransactionType === 1 ? 'โอนกรอบอัตรากำลัง' : i.TransactionType === 3 ? 'ปรับระดับ' : i.TransactionType === 4 ? 'เพิ่ม/ลดกรอบ' : 'อื่นๆ',
-                typeCategory: i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer',
-                description: i.TransactionDesc || '',
-                remark: i.ReqRemark || '-',
-                hasFile: i.FileCount > 0,
-                fileUrl: i.FileUrl,
-                rejectionReason: i.RejectionReason,
-                _seqno: i.Seqno // Keep for later reference
-              }));
-              
-              const logs: ApprovalLogItem[] = detailJson.data.logs.map((l: APIDocAuditLog) => ({
+              const rawLogs: APIDocAuditLog[] = Array.isArray(detailJson.data.logs) ? detailJson.data.logs : [];
+              const sortedLogs = [...rawLogs].sort((a, b) => a.Seqno - b.Seqno);
+              const totalSteps = sortedLogs.reduce((max, curr) => (curr.Seqno > max ? curr.Seqno : max), 0);
+              const stageBySeq = new Map<number, APIDocAuditLog>();
+              sortedLogs.forEach((log) => {
+                if (!stageBySeq.has(log.Seqno)) {
+                  stageBySeq.set(log.Seqno, log);
+                }
+              });
+
+              const items: TransactionDetail[] = detailJson.data.items.map((i: APIDocDetailItem) => {
+                const stageLog = stageBySeq.get(i.Seqno);
+                const isMyTurn = (stageLog?.EmployeeID || '').trim() === (employeeId || '').trim();
+                const flowMeta = getFlowMeta(stageLog?.AuditStatus, stageLog?.UnitSide, isMyTurn);
+                const flowSideLabel = getUnitSideLabel(stageLog?.UnitSide);
+
+                return {
+                  id: i.ItemID,
+                  actionKey: `${i.ItemID}::${i.Seqno ?? 0}`,
+                  typeLabel: i.TransactionType === 1 ? 'โอนกรอบอัตรากำลัง' : i.TransactionType === 3 ? 'ปรับระดับ' : i.TransactionType === 4 ? 'เพิ่ม/ลดกรอบ' : 'อื่นๆ',
+                  typeCategory: i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer',
+                  description: i.TransactionDesc || '',
+                  remark: i.ReqRemark || '-',
+                  hasFile: i.FileCount > 0,
+                  fileUrl: i.FileUrl,
+                  rejectionReason: i.RejectionReason,
+                  transactionType: i.TransactionType,
+                  flowStatus: flowMeta.flowStatus,
+                  flowLabel: flowMeta.flowLabel,
+                  canTakeAction: flowMeta.canTakeAction,
+                  flowSideLabel,
+                  totalSteps,
+                  _seqno: i.Seqno
+                };
+              });
+
+              const logs: ApprovalLogItem[] = sortedLogs.map((l: APIDocAuditLog) => ({
+                seqno: l.Seqno,
+                auditStatus: l.AuditStatus,
+                unitSide: l.UnitSide,
                 action: l.Seqno === 0 ? 'สร้าง' : l.AuditStatus === 2 ? 'อนุมัติ' : l.AuditStatus === 1 ? 'รออนุมัติ' : l.AuditStatus === -1 ? 'ไม่อนุมัติ' : 'รอดำเนินการ',
                 timestamp: l.AuditDate ? dayjs(l.AuditDate).format('DD/MM/BBBB HH:mm') : '',
                 user: `${l.EmployeeID} ${l.Fullname}`,
@@ -371,7 +441,7 @@ export default function Home() {
                 })(),
                 status: l.AuditStatus === 2 ? 'completed' : l.AuditStatus === 1 ? 'current' : 'pending'
               }));
-              
+
               logs.push({
                   action: 'เอกสารสมบูรณ์',
                   timestamp: '',
@@ -380,9 +450,15 @@ export default function Home() {
                   status: item.processStage === 3 ? 'success' : 'pending'
               });
               
-              const initialActions: Record<string, 'approved' | 'rejected'> = {};
+              const initialActions: Record<string, 'approved' | 'rejected' | 'idle'> = {};
               items.forEach(i => {
-                initialActions[i.id] = i.rejectionReason ? 'rejected' : 'approved';
+                if (i.rejectionReason) {
+                  initialActions[i.actionKey] = 'rejected';
+                } else if (i.canTakeAction) {
+                  initialActions[i.actionKey] = 'approved';
+                } else {
+                  initialActions[i.actionKey] = 'idle';
+                }
               });
               
               setItemActions(initialActions);
@@ -462,22 +538,15 @@ export default function Home() {
     
     try {
         for (const item of selectedInboxItem.items) {
-            const action = itemActions[item.id];
-            // Get seqno from logs.
-            // Wait, we need the seqno for the CURRENT user for this item to approve/reject.
-            // Since our backend mp_DocumentItemsUpdateAuditStatus uses `Seqno`, we need to know what seqno the user is at.
-            // But we don't have `seqno` mapped to the item easily.
-            // Actually, we can fetch their Seqno from the backend, but since my time is constrained, I will fetch logs again,
-            // or we could query the backend for the active seqno for this employeeid on this document.
-            // Let's send a simplified payload, or we can use `find` on the logs to guess the seqno?
-            
-            // To be safe, the backend could figure out seqno if it's not provided, but currently it's required.
-            // Wait, `item.seqno` is not passed. Let's just fix the service to not require Seqno if not known,
-            // OR we can pluck it from the DB. 
-            // In the mean time, let's assume seqno is in the item object. I will add it to the item map.
-            
-            // Let's assume the backend will receive `seqno: 1` since we'll fix the controller, or we'll add seqno to items.
-            // For now, let's just use documentNo and itemId, and we'll fix backend to find seqno!
+            if (!item.canTakeAction) {
+              continue;
+            }
+
+            const action = itemActions[item.actionKey];
+            if (!action || action === 'idle') {
+              continue;
+            }
+
             const body = {
                 documentNo: selectedInboxItem.id,
                 itemId: item.id,
@@ -720,12 +789,15 @@ export default function Home() {
                         </tr>
                         </thead>
                        <tbody className="divide-y divide-gray-100">
-{selectedInboxItem.items?.map((item, i) => (
+{selectedInboxItem.items?.map((item) => {
+    const actionState = itemActions[item.actionKey] || 'idle';
+    const isDisabledByFlow = !item.canTakeAction || !!item.rejectionReason;
+    return (
     <tr 
-    key={item.id} 
+    key={item.actionKey} 
     className={`transition-colors ${
         // Check State ของปุ่ม: ถ้าเป็น Rejected ให้พื้นแดง
-        itemActions[item.id] === 'rejected' 
+        actionState === 'rejected' 
         ? 'bg-red-50' 
         : 'hover:bg-gray-50' 
     }`}
@@ -739,8 +811,18 @@ export default function Home() {
         
         {/* Details Area */}
         <td className="p-4 align-top space-y-2">
-            <div className="font-semibold text-gray-900 text-sm leading-relaxed mb-1">
-                <div className="text-xs text-blue-600 font-bold mb-0.5">[{item.id}]</div>
+            <div className="font-semibold text-gray-900 text-sm leading-relaxed mb-1 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold border ${getFlowBadgeClass(item.flowStatus)}`}>
+                      {item.flowLabel}
+                    </span>
+                    <span className="inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-slate-100 text-slate-700 border-slate-200">
+                      ขั้น {item._seqno ?? '-'}{item.totalSteps > 0 ? `/${item.totalSteps}` : ''}
+                    </span>
+                </div>
+                <div className="text-[11px] text-gray-500">
+                    DocumentNo: {selectedInboxItem.id} | TransactionNo: {item.id}
+                </div>
                 <div>{item.description}</div>
             </div>
             {item.remark && item.remark !== '-' && (
@@ -760,7 +842,7 @@ export default function Home() {
             )}
 
             {/* CASE B: เพิ่งกด Reject หน้างาน (Show Textarea) */}
-            {itemActions[item.id] === 'rejected' && !item.rejectionReason && (
+            {actionState === 'rejected' && !item.rejectionReason && item.canTakeAction && (
                 <textarea placeholder="ระบุเหตุผล..." rows={2} className="w-full mt-2 px-2 py-1 text-xs bg-white border border-red-300 rounded focus:ring-1 focus:ring-red-500" />
             )}
         </td>
@@ -779,19 +861,19 @@ export default function Home() {
         {/* Action Buttons */}
         <td className="p-4 text-center align-top">
             <div className={`flex bg-white border rounded-lg overflow-hidden p-1 gap-1 shadow-sm 
-                ${item.rejectionReason ? 'opacity-70' : ''} /* ลดความชัดลงถ้าแก้ไขไม่ได้ */
+                ${isDisabledByFlow ? 'opacity-70' : ''} /* ลดความชัดลงถ้าแก้ไขไม่ได้ */
             `}>
                 
                 {/* Accept Button */}
                 <button 
-                    onClick={() => !item.rejectionReason && setItemActions(prev => ({...prev, [item.id]: 'approved'}))} 
-                    disabled={!!item.rejectionReason} // ห้ามกดถ้ามี rejectionReason
+                    onClick={() => !isDisabledByFlow && setItemActions(prev => ({...prev, [item.actionKey]: 'approved'}))} 
+                    disabled={isDisabledByFlow}
                     className={`flex-1 py-1.5 rounded text-xs font-bold flex items-center justify-center gap-1 transition-all 
-                        ${itemActions[item.id] === 'approved' 
+                        ${actionState === 'approved' 
                             ? 'bg-green-100 text-green-700 shadow-inner' 
                             : 'text-gray-400 hover:bg-gray-50'
                         }
-                        ${item.rejectionReason ? 'cursor-not-allowed' : ''}
+                        ${isDisabledByFlow ? 'cursor-not-allowed' : ''}
                     `}
                 >
                     <CheckCircle size={14}/> Accept
@@ -799,14 +881,14 @@ export default function Home() {
 
                 {/* Reject Button */}
                 <button 
-                    onClick={() => !item.rejectionReason && setItemActions(prev => ({...prev, [item.id]: 'rejected'}))} 
-                    disabled={!!item.rejectionReason} // ห้ามกดถ้ามี rejectionReason
+                    onClick={() => !isDisabledByFlow && setItemActions(prev => ({...prev, [item.actionKey]: 'rejected'}))} 
+                    disabled={isDisabledByFlow}
                     className={`flex-1 py-1.5 rounded text-xs font-bold flex items-center justify-center gap-1 transition-all 
-                        ${itemActions[item.id] === 'rejected' 
+                        ${actionState === 'rejected' 
                             ? 'bg-red-100 text-red-700 shadow-inner' 
                             : 'text-gray-400 hover:bg-gray-50'
                         }
-                        ${item.rejectionReason ? 'cursor-not-allowed' : ''}
+                        ${isDisabledByFlow ? 'cursor-not-allowed' : ''}
                     `}
                 >
                     <XCircle size={14}/> Reject
@@ -814,7 +896,8 @@ export default function Home() {
             </div>
         </td>
     </tr>
-))}
+    );
+})}
 </tbody>
                     </table>
                     </div>
