@@ -139,10 +139,25 @@ interface APIDocAuditLog {
   UnitSide?: string;
 }
 
+interface APIDocMyActiveApproval {
+  ItemID: string;
+  Seqno: number;
+  EmployeeID?: string;
+  AuditStatus?: number;
+  UnitSide?: string;
+}
+
 const getUnitSideLabel = (unitSide?: string) => {
   if (unitSide === 'UnitReceive') return 'ฝั่งรับ';
   if (unitSide === 'UnitTransfer') return 'ฝั่งให้';
   return '';
+};
+
+const normalizeEmployeeId = (value?: string) => String(value || '').trim().toUpperCase();
+const normalizeItemId = (value?: string) => String(value || '').trim().toUpperCase();
+const toNumberOrUndefined = (value: unknown): number | undefined => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 };
 
 const getFlowMeta = (auditStatus?: number, unitSide?: string, isMyTurn = false) => {
@@ -177,6 +192,7 @@ export default function Home() {
 
   const [isRejectAllModalOpen, setIsRejectAllModalOpen] = useState(false);
   const [rejectAllRemark, setRejectAllRemark] = useState('');
+  const [isSubmitConfirmModalOpen, setIsSubmitConfirmModalOpen] = useState(false);
 
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false);
   const [trackingFilter, setTrackingFilter] = useState<'transaction_pending' | 'mkd_pending' | null>(null);
@@ -389,34 +405,61 @@ export default function Home() {
               const rawLogs: APIDocAuditLog[] = Array.isArray(detailJson.data.logs) ? detailJson.data.logs : [];
               const sortedLogs = [...rawLogs].sort((a, b) => a.Seqno - b.Seqno);
               const totalSteps = sortedLogs.reduce((max, curr) => (curr.Seqno > max ? curr.Seqno : max), 0);
-              const normalizedEmployeeId = (employeeId || '').trim();
+              const normalizedEmployeeId = normalizeEmployeeId(employeeId);
+              const myActiveRows: APIDocMyActiveApproval[] = Array.isArray(detailJson.data.myActiveApprovals)
+                ? detailJson.data.myActiveApprovals
+                : [];
+              const myActiveByItem = new Map<string, { seqno: number; unitSide?: string }>();
+              myActiveRows.forEach((row) => {
+                const itemKey = normalizeItemId(row?.ItemID);
+                if (!itemKey || myActiveByItem.has(itemKey)) return;
+                const parsedSeqno = toNumberOrUndefined(row.Seqno);
+                if (!Number.isFinite(parsedSeqno) || parsedSeqno <= 0) return;
+                myActiveByItem.set(itemKey, {
+                  seqno: parsedSeqno,
+                  unitSide: row.UnitSide
+                });
+              });
 
               const items: TransactionDetail[] = detailJson.data.items.map((i: APIDocDetailItem) => {
-                const itemAuditStatus = typeof i.AuditStatus === 'number' ? i.AuditStatus : undefined;
-                const itemEmployeeId = (i.EmployeeID || '').trim();
+                const normalizedItemId = normalizeItemId(i.ItemID);
+                const itemSeq = toNumberOrUndefined(i.Seqno) || 0;
+                const itemAuditStatus = toNumberOrUndefined(i.AuditStatus);
                 const itemUnitSide = i.UnitSide;
+                const myActive = myActiveByItem.get(normalizedItemId);
 
-                const matchedByItemAndSeq = sortedLogs.find((l) => l.ItemID === i.ItemID && l.Seqno === i.Seqno);
-                const matchedByItemAndCurrent = sortedLogs.find((l) => l.ItemID === i.ItemID && l.AuditStatus === 1);
+                const matchedByItemAndSeq = sortedLogs.find((l) => normalizeItemId(l.ItemID) === normalizedItemId && toNumberOrUndefined(l.Seqno) === itemSeq);
+                const matchedByItemAndCurrent = sortedLogs.find((l) => normalizeItemId(l.ItemID) === normalizedItemId && toNumberOrUndefined(l.AuditStatus) === 1);
                 const matchedByOwnSeq = sortedLogs.find((l) =>
-                  l.Seqno === i.Seqno &&
-                  (l.EmployeeID || '').trim() === normalizedEmployeeId &&
-                  (!l.ItemID || l.ItemID === i.ItemID)
+                  toNumberOrUndefined(l.Seqno) === itemSeq &&
+                  normalizeEmployeeId(l.EmployeeID) === normalizedEmployeeId &&
+                  toNumberOrUndefined(l.AuditStatus) === 1 &&
+                  (!l.ItemID || normalizeItemId(l.ItemID) === normalizedItemId)
                 );
-                const matchedBySeq = sortedLogs.find((l) => l.Seqno === i.Seqno && (!l.ItemID || l.ItemID === i.ItemID));
+                const matchedBySeq = sortedLogs.find((l) => toNumberOrUndefined(l.Seqno) === itemSeq && (!l.ItemID || normalizeItemId(l.ItemID) === normalizedItemId));
                 const stageLog = matchedByItemAndSeq || matchedByItemAndCurrent || matchedByOwnSeq || matchedBySeq;
 
-                const resolvedAuditStatus = typeof itemAuditStatus === 'number' ? itemAuditStatus : stageLog?.AuditStatus;
-                const resolvedUnitSide = itemUnitSide || stageLog?.UnitSide;
-                const resolvedEmployeeId = itemEmployeeId || (stageLog?.EmployeeID || '').trim();
+                const resolvedSeqno = myActive ? myActive.seqno : itemSeq;
+                const resolvedAuditStatus = myActive
+                  ? 1
+                  : (typeof itemAuditStatus === 'number' ? itemAuditStatus : toNumberOrUndefined(stageLog?.AuditStatus));
+                const resolvedUnitSide = myActive?.unitSide || itemUnitSide || stageLog?.UnitSide;
 
-                const isMyTurn = resolvedAuditStatus === 1 && resolvedEmployeeId === normalizedEmployeeId;
-                const flowMeta = getFlowMeta(resolvedAuditStatus, resolvedUnitSide, isMyTurn);
+                const canActByLogFallback = sortedLogs.some((l) =>
+                  toNumberOrUndefined(l.AuditStatus) === 1 &&
+                  normalizeEmployeeId(l.EmployeeID) === normalizedEmployeeId &&
+                  normalizeItemId(l.ItemID) === normalizedItemId
+                );
+
+                // Source of truth: ItemID + EmployeeID(login) + AuditStatus=1
+                const isMyTurn = !!myActive || canActByLogFallback;
+                const effectiveAuditStatus = isMyTurn ? 1 : resolvedAuditStatus;
+                const flowMeta = getFlowMeta(effectiveAuditStatus, resolvedUnitSide, isMyTurn);
                 const flowSideLabel = getUnitSideLabel(resolvedUnitSide);
 
                 return {
                   id: i.ItemID,
-                  actionKey: `${i.ItemID}::${i.Seqno ?? 0}`,
+                  actionKey: `${i.ItemID}::${resolvedSeqno ?? 0}`,
                   typeLabel: i.TransactionType === 1 ? 'โอนกรอบอัตรากำลัง' : i.TransactionType === 3 ? 'ปรับระดับ' : i.TransactionType === 4 ? 'เพิ่ม/ลดกรอบ' : 'อื่นๆ',
                   typeCategory: i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer',
                   description: i.TransactionDesc || '',
@@ -424,21 +467,14 @@ export default function Home() {
                   hasFile: i.FileCount > 0,
                   fileUrl: i.FileUrl,
                   rejectionReason: i.RejectionReason,
-                  transactionType: i.TransactionType,
+                  transactionType: toNumberOrUndefined(i.TransactionType) || 0,
                   flowStatus: flowMeta.flowStatus,
                   flowLabel: flowMeta.flowLabel,
                   canTakeAction: flowMeta.canTakeAction,
                   flowSideLabel,
                   totalSteps,
-                  _seqno: i.Seqno
+                  _seqno: resolvedSeqno
                 };
-              });
-
-              const transactionTypeByItemId = new Map<string, number>();
-              detailJson.data.items.forEach((i: APIDocDetailItem) => {
-                if (!transactionTypeByItemId.has(i.ItemID)) {
-                  transactionTypeByItemId.set(i.ItemID, i.TransactionType);
-                }
               });
 
               const logs: ApprovalLogItem[] = sortedLogs.map((l: APIDocAuditLog) => ({
@@ -447,11 +483,7 @@ export default function Home() {
                 unitSide: l.UnitSide,
                 action: l.Seqno === 0 ? 'สร้าง' : l.AuditStatus === 2 ? 'อนุมัติ' : l.AuditStatus === 1 ? 'รออนุมัติ' : l.AuditStatus === -1 ? 'ไม่อนุมัติ' : 'รอดำเนินการ',
                 timestamp: l.AuditDate ? dayjs(l.AuditDate).format('DD/MM/BBBB HH:mm') : '',
-                user: (() => {
-                  const txType = l.ItemID ? transactionTypeByItemId.get(l.ItemID) : undefined;
-                  const isTransferOther = txType === 2;
-                  return `${l.EmployeeID} ${l.Fullname}${isTransferOther ? ' [โอนอื่นๆ]' : ''}`;
-                })(),
+                user: `${l.EmployeeID} ${l.Fullname}`,
                 role: (() => {
                   if (l.Seqno === 0) return l.UserGroupName || 'ผู้สร้างรายการ';
                   const baseName = l.UserGroupName || l.UserGroupNo || '';
@@ -635,6 +667,11 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleConfirmSubmit = async () => {
+    setIsSubmitConfirmModalOpen(false);
+    await handleProcessActions();
   };
 
   return (
@@ -971,7 +1008,13 @@ export default function Home() {
   }}><XCircle className="mr-2 h-4 w-4"/> Reject All</Button>
 
                 
-  <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleProcessActions} disabled={isLoading}><CheckCircle className="mr-2 h-4 w-4"/> {isLoading ? 'Processing...' : 'Submit'}</Button>
+  <Button
+    className="bg-green-600 hover:bg-green-700 text-white"
+    onClick={() => setIsSubmitConfirmModalOpen(true)}
+    disabled={isLoading}
+  >
+    <CheckCircle className="mr-2 h-4 w-4"/> {isLoading ? 'Processing...' : 'Submit'}
+  </Button>
 
             </div>
           </div>
@@ -1005,6 +1048,27 @@ export default function Home() {
                 disabled={isLoading || !rejectAllRemark.trim()}
               >
                 {isLoading ? 'Processing...' : 'ยืนยัน Reject All'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1.6: SUBMIT CONFIRM MODAL */}
+      {isSubmitConfirmModalOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden border-t-4 border-green-600">
+            <div className="px-6 py-4 flex justify-between items-center border-b bg-green-50">
+              <h3 className="text-lg font-bold text-green-700 flex items-center gap-2"><CheckCircle size={20} /> ยืนยันการส่งผลตรวจสอบ</h3>
+              <button onClick={() => setIsSubmitConfirmModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+            </div>
+            <div className="p-6 text-sm text-gray-700">
+              ต้องการยืนยันการ Submit ใช่หรือไม่
+            </div>
+            <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setIsSubmitConfirmModalOpen(false)}>ยกเลิก</Button>
+              <Button onClick={handleConfirmSubmit} className="bg-green-600 hover:bg-green-700 text-white" disabled={isLoading}>
+                {isLoading ? 'Processing...' : 'ยืนยัน Submit'}
               </Button>
             </div>
           </div>
