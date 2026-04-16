@@ -13,7 +13,11 @@ async function fetchWithAuth(url: string, token?: string, options: RequestInit =
 
     if (!res.ok) {
         console.error(`Fetch failed: ${url}`, res.statusText);
-        return null;
+        try {
+            return await res.json();
+        } catch {
+            return null;
+        }
     }
     return res.json();
 }

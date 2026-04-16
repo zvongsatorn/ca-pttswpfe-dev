@@ -582,14 +582,14 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
             const approveIdToPass = isCreatorBack ? (header.ApproveID || undefined) : undefined;
             console.log('[requestApproveAction] id:', mkdId, 'user:', currentUser?.employeeID, 'approveIdToPass:', approveIdToPass, 'isCreatorBack:', isCreatorBack);
             const res = await requestApproveMKD(mkdId, currentUser?.employeeID || 'SYSTEM', approveIdToPass, token);
-            const data = await res.json();
-            if (data?.success) { 
+            if (res?.success) { 
                 toast.success('ส่งคำขออนุมัติเรียบร้อยแล้ว'); 
                 router.push('/home'); 
             } else { 
-                toast.error(data?.message || 'เกิดข้อผิดพลาดในการส่งคำขออนุมัติ'); 
+                toast.error(res?.message || 'เกิดข้อผิดพลาดในการส่งคำขออนุมัติ'); 
             }
-        } catch { 
+        } catch (error) { 
+            console.error('requestApproveAction Error:', error);
             toast.error('เกิดข้อผิดพลาด'); 
         } finally { 
             setLoading(false); 
