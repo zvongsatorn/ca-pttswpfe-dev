@@ -42,20 +42,30 @@ interface Report10SummaryApiResponse {
 }
 
 type Report10LevelGroup = '010' | '020_030' | '040' | '050' | 'OTHER';
-type Report10GroupType = 'PTT' | 'SPEC' | 'SECONDMENT';
 
 interface Report10DetailApiRow {
     key?: unknown;
     level_group?: unknown;
     level_name?: unknown;
     position_name?: unknown;
+    position_short_name?: unknown;
+    unit_name?: unknown;
+    parent_unit_name?: unknown;
+    unit_level_no?: unknown;
+    unit_level_name?: unknown;
+    jg?: unknown;
     position_id?: unknown;
     employee_id?: unknown;
     full_name?: unknown;
-    dashboard_group?: unknown;
-    group_type?: unknown;
     org_type?: unknown;
+    pool_rs_flag?: unknown;
+    strg_flag?: unknown;
+    bs_type?: unknown;
     spec_flag?: unknown;
+    frame_type?: unknown;
+    strategic?: unknown;
+    business_support?: unknown;
+    specific_rate?: unknown;
     [key: string]: unknown;
 }
 
@@ -63,6 +73,16 @@ interface Report10DetailApiResponse {
     status: number;
     data?: Report10DetailApiRow[];
     message?: string;
+}
+
+interface UserContext {
+    employeeID?: string;
+    employeeId?: string;
+    EmployeeID?: string;
+    userGroupNo?: string;
+    roleId?: string;
+    role?: string;
+    userGroups?: Array<{ userGroupNo?: string }>;
 }
 
 interface Report10SummaryDataType {
@@ -85,18 +105,22 @@ interface Report10SummaryDataType {
 interface Report10DetailDataType {
     key: string;
     levelGroup: Report10LevelGroup;
-    levelName: string;
-    positionName: string;
-    positionId: string;
+    isSecondment: boolean;
     employeeId: string;
-    fullName: string;
-    dashboardGroup: string;
-    groupType: Report10GroupType;
-}
-
-interface ExportEntry {
-    position: string;
     name: string;
+    positionNameFull: string;
+    positionNameShort: string;
+    unitName: string;
+    parentUnitName: string;
+    unitLevelNo: string;
+    jg: string;
+    positionId: string;
+    frameType: string;
+    strategic: string;
+    businessSupport: string;
+    specificRate: string;
+    orgType: number;
+    poolRsFlag: number;
 }
 
 const toNumber = (value: unknown): number => {
@@ -112,22 +136,49 @@ const toText = (value: unknown): string => {
 
 const resolveUserContext = () => {
     let employeeId = '99999999';
-    let userGroupNo = '04';
+    let userGroupNo = '';
 
     if (typeof window !== 'undefined') {
+        const selectedGroup = localStorage.getItem('selected_usergroup')?.trim() || '';
         const userDataStr = localStorage.getItem('user_data');
+
         if (userDataStr) {
             try {
-                const userData = JSON.parse(userDataStr) as { employeeID?: string; roleId?: string };
-                employeeId = userData.employeeID || employeeId;
-                userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || userGroupNo;
+                const userData = JSON.parse(userDataStr) as UserContext;
+                const fallbackGroup = userData.userGroups?.[0]?.userGroupNo?.trim() || '';
+
+                employeeId = (
+                    userData.employeeID ||
+                    userData.employeeId ||
+                    userData.EmployeeID ||
+                    employeeId
+                ).trim();
+
+                userGroupNo = (
+                    selectedGroup ||
+                    userData.userGroupNo ||
+                    userData.roleId ||
+                    userData.role ||
+                    fallbackGroup ||
+                    ''
+                ).trim();
             } catch {
                 // use fallback defaults
             }
+        } else {
+            userGroupNo = selectedGroup;
         }
     }
 
     return { employeeId, userGroupNo };
+};
+
+const readJsonSafely = async <T,>(response: Response): Promise<T | null> => {
+    try {
+        return (await response.json()) as T;
+    } catch {
+        return null;
+    }
 };
 
 const REPORT10_LEVEL_ORDER = [
@@ -135,13 +186,6 @@ const REPORT10_LEVEL_ORDER = [
     'ประธานเจ้าหน้าที่/รองกรรมการผู้จัดการใหญ่',
     'ผู้ช่วยกรรมการผู้จัดการใหญ่',
     'ผู้จัดการฝ่าย',
-];
-
-const REPORT10_SHEET_CONFIGS: Array<{ key: Exclude<Report10LevelGroup, 'OTHER'>; name: string; label: string }> = [
-    { key: '010', name: 'ปธบ_กผญ.', label: 'ปธบ./กผญ.' },
-    { key: '020_030', name: 'ปธ._รองฯกผญ.', label: 'ประธานเจ้าหน้าที่/รองกรรมการผู้จัดการใหญ่' },
-    { key: '040', name: 'ผช.กผญ.', label: 'ผู้ช่วยกรรมการผู้จัดการใหญ่' },
-    { key: '050', name: 'ฝ่าย', label: 'ผู้จัดการฝ่าย' },
 ];
 
 const mapLevelGroup = (levelName: string): Report10LevelGroup => {
@@ -152,19 +196,47 @@ const mapLevelGroup = (levelName: string): Report10LevelGroup => {
     return 'OTHER';
 };
 
-const mapGroupType = (rawGroupType: unknown, rawDashboardGroup: unknown, rawOrgType: unknown, rawSpecFlag: unknown): Report10GroupType => {
-    const groupType = toText(rawGroupType).toUpperCase();
-    if (groupType === 'SECONDMENT' || groupType === 'SPEC' || groupType === 'PTT') {
-        return groupType;
-    }
+const mapLevelGroupByLevelNo = (rawLevelNo: unknown, fallbackLevelName: string): Report10LevelGroup => {
+    const levelNo = toText(rawLevelNo).replace(/\D/g, '');
+    if (levelNo === '010') return '010';
+    if (levelNo === '020' || levelNo === '030') return '020_030';
+    if (levelNo === '040') return '040';
+    if (levelNo === '050') return '050';
+    return mapLevelGroup(fallbackLevelName);
+};
 
-    const dashboardGroup = toText(rawDashboardGroup).toLowerCase();
+const mapFrameType = (rawFrameType: unknown, rawOrgType: unknown, rawPoolRsFlag: unknown): string => {
+    const frameType = toText(rawFrameType);
+    if (frameType) return frameType;
+
     const orgType = toNumber(rawOrgType);
-    const specFlag = toNumber(rawSpecFlag);
+    const poolRsFlag = toNumber(rawPoolRsFlag);
+    if (poolRsFlag === 1) return 'pool';
+    if (orgType === 2) return 'Secondment';
+    if (orgType === 1) return 'ปตท';
+    return '-';
+};
 
-    if (orgType === 2 || dashboardGroup.includes('second')) return 'SECONDMENT';
-    if (specFlag === 1 || dashboardGroup.includes('spec')) return 'SPEC';
-    return 'PTT';
+const mapStrategic = (rawStrategic: unknown, rawStrgFlag: unknown): string => {
+    const strategic = toText(rawStrategic).toUpperCase();
+    if (strategic === 'Y' || strategic === 'N') return strategic;
+    return toNumber(rawStrgFlag) === 1 ? 'Y' : 'N';
+};
+
+const mapBusinessSupport = (rawBusinessSupport: unknown, rawBsType: unknown): string => {
+    const businessSupport = toText(rawBusinessSupport);
+    if (businessSupport) return businessSupport;
+
+    const bsType = toNumber(rawBsType);
+    if (bsType === 1) return 'Business';
+    if (bsType === 2) return 'Support';
+    return '-';
+};
+
+const mapSpecificRate = (rawSpecificRate: unknown, rawSpecFlag: unknown): string => {
+    const specificRate = toText(rawSpecificRate).toUpperCase();
+    if (specificRate === 'Y' || specificRate === 'N') return specificRate;
+    return toNumber(rawSpecFlag) === 1 ? 'Y' : 'N';
 };
 
 const transformSummaryRows = (rows: Report10SummaryApiRow[]): Report10SummaryDataType[] => {
@@ -197,48 +269,68 @@ const transformSummaryRows = (rows: Report10SummaryApiRow[]): Report10SummaryDat
 };
 
 const transformDetailRows = (rows: Report10DetailApiRow[]): Report10DetailDataType[] => {
-    const groupSortOrder: Record<Report10GroupType, number> = {
-        PTT: 1,
-        SPEC: 2,
-        SECONDMENT: 3,
+    const levelSortOrder: Record<Report10LevelGroup, number> = {
+        '010': 1,
+        '020_030': 2,
+        '040': 3,
+        '050': 4,
+        'OTHER': 9,
     };
 
     return rows
         .map((row, index) => {
-            const levelName = toText(row.level_name) || toText(row.LevelName);
-            const levelGroup = (toText(row.level_group) as Report10LevelGroup) || mapLevelGroup(levelName);
-            const positionName = toText(row.position_name) || toText(row.PositionName);
-            const positionId = toText(row.position_id) || toText(row.PositionID);
-            const fullName = toText(row.full_name) || toText(row.FullName);
+            const unitLevelNo = toText(row.unit_level_no) || toText(row.UnitLevelNo);
+            const levelName = toText(row.level_name) || toText(row.LevelName) || toText(row.unit_level_name) || toText(row.UnitLevelName);
+            const levelGroupRaw = toText(row.level_group) as Report10LevelGroup;
+            const levelGroup = levelGroupRaw || mapLevelGroupByLevelNo(unitLevelNo, levelName);
+            const orgType = toNumber(row.org_type ?? row.OrgType);
+            const poolRsFlag = toNumber(row.pool_rs_flag ?? row.PoolRSFlag);
+            const employeeId = toText(row.employee_id) || toText(row.EmployeeID);
 
             return {
                 key: toText(row.key) || `r10e-${index + 1}`,
                 levelGroup,
-                levelName,
-                positionName,
-                positionId,
-                employeeId: toText(row.employee_id) || toText(row.EmployeeID),
-                fullName,
-                dashboardGroup: toText(row.dashboard_group) || toText(row.DashboardGroup),
-                groupType: mapGroupType(row.group_type, row.dashboard_group || row.DashboardGroup, row.org_type || row.OrgType, row.spec_flag || row.SpecFlag),
+                isSecondment: orgType === 2,
+                employeeId,
+                name: employeeId ? (toText(row.full_name) || toText(row.FULLNAMETH) || 'ไม่มีชื่อ') : 'ว่าง',
+                positionNameFull: toText(row.position_name) || toText(row.POSNAME) || '-',
+                positionNameShort: toText(row.position_short_name) || toText(row.UnitLevelName) || '-',
+                unitName: toText(row.unit_name) || toText(row.UnitName) || '-',
+                parentUnitName: toText(row.parent_unit_name) || toText(row.ParentUnitName) || '-',
+                unitLevelNo: unitLevelNo || '-',
+                jg: toText(row.jg) || toText(row.job_band) || toText(row.JobBand) || '-',
+                positionId: toText(row.position_id) || toText(row.POSCODE) || toText(row.PositionID) || '-',
+                frameType: mapFrameType(row.frame_type, row.org_type ?? row.OrgType, row.pool_rs_flag ?? row.PoolRSFlag),
+                strategic: mapStrategic(row.strategic, row.strg_flag ?? row.StrgFlag),
+                businessSupport: mapBusinessSupport(row.business_support, row.bs_type ?? row.BSType),
+                specificRate: mapSpecificRate(row.specific_rate, row.spec_flag ?? row.SpecFlag),
+                orgType,
+                poolRsFlag,
             };
         })
         .sort((a, b) => {
-            if (a.levelGroup !== b.levelGroup) return a.levelGroup.localeCompare(b.levelGroup);
-            if (groupSortOrder[a.groupType] !== groupSortOrder[b.groupType]) return groupSortOrder[a.groupType] - groupSortOrder[b.groupType];
+            if (levelSortOrder[a.levelGroup] !== levelSortOrder[b.levelGroup]) {
+                return levelSortOrder[a.levelGroup] - levelSortOrder[b.levelGroup];
+            }
 
-            const posA = a.positionName || a.positionId;
-            const posB = b.positionName || b.positionId;
-            const byPosition = posA.localeCompare(posB, 'th');
+            if (a.isSecondment !== b.isSecondment) {
+                return Number(a.isSecondment) - Number(b.isSecondment);
+            }
+
+            if (a.poolRsFlag !== b.poolRsFlag) {
+                return b.poolRsFlag - a.poolRsFlag;
+            }
+
+            const byPosition = a.positionNameFull.localeCompare(b.positionNameFull, 'th');
             if (byPosition !== 0) return byPosition;
 
-            return a.fullName.localeCompare(b.fullName, 'th');
+            return a.name.localeCompare(b.name, 'th');
         });
 };
 
-const createHeaderStyle = (cell: ExcelJS.Cell, fillColor: string) => {
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
-    cell.font = { name: 'Sarabun', bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+const createHeaderStyle = (cell: ExcelJS.Cell) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
+    cell.font = { name: 'Sarabun', bold: true, color: { argb: 'FF000000' }, size: 11 };
     cell.alignment = { horizontal: 'center', vertical: 'middle' };
     cell.border = {
         top: { style: 'thin' },
@@ -248,10 +340,9 @@ const createHeaderStyle = (cell: ExcelJS.Cell, fillColor: string) => {
     };
 };
 
-const createSubHeaderStyle = (cell: ExcelJS.Cell, fillColor: string) => {
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
-    cell.font = { name: 'Sarabun', bold: true, color: { argb: 'FF0F2B64' }, size: 11 };
-    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+const createBodyStyle = (cell: ExcelJS.Cell, horizontal: 'left' | 'center' = 'left') => {
+    cell.font = { name: 'Sarabun', color: { argb: 'FF000000' }, size: 11 };
+    cell.alignment = { horizontal, vertical: 'middle' };
     cell.border = {
         top: { style: 'thin' },
         left: { style: 'thin' },
@@ -260,129 +351,108 @@ const createSubHeaderStyle = (cell: ExcelJS.Cell, fillColor: string) => {
     };
 };
 
-const createBodyStyle = (cell: ExcelJS.Cell) => {
-    cell.font = { name: 'Sarabun', color: { argb: 'FF0F2B64' }, size: 11 };
-    cell.alignment = { horizontal: 'left', vertical: 'middle' };
-    cell.border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' },
-    };
-};
+type SheetFilter = (row: Report10DetailDataType) => boolean;
 
-const writeSectionAt = (
-    worksheet: ExcelJS.Worksheet,
-    row: number,
-    startCol: number,
-    sectionLabel: string,
-    entries: ExportEntry[],
-    sectionTheme: { header: string; subHeader: string },
-) => {
-    const endCol = startCol + 2;
-
-    worksheet.mergeCells(row, startCol, row, endCol);
-    const sectionCell = worksheet.getCell(row, startCol);
-    sectionCell.value = `${sectionLabel} (${entries.length} กรอบอัตรากำลัง)`;
-    createHeaderStyle(sectionCell, sectionTheme.header);
-
-    worksheet.mergeCells(row + 1, startCol, row + 1, endCol);
-    const rangeCell = worksheet.getCell(row + 1, startCol);
-    rangeCell.value = entries.length > 0 ? `${sectionLabel} ลำดับ 1-${entries.length}` : sectionLabel;
-    createHeaderStyle(rangeCell, sectionTheme.header);
-
-    const colNo = worksheet.getCell(row + 2, startCol);
-    const colPosition = worksheet.getCell(row + 2, startCol + 1);
-    const colName = worksheet.getCell(row + 2, startCol + 2);
-
-    colNo.value = 'ลำดับ';
-    colPosition.value = 'ตำแหน่ง';
-    colName.value = 'รายชื่อผู้บริหาร';
-
-    createSubHeaderStyle(colNo, sectionTheme.subHeader);
-    createSubHeaderStyle(colPosition, sectionTheme.subHeader);
-    createSubHeaderStyle(colName, sectionTheme.subHeader);
-};
+const REPORT10_EXPORT_SHEETS: Array<{ name: string; label: string; filter: SheetFilter }> = [
+    { name: 'รวม', label: 'รวม', filter: () => true },
+    { name: 'ปธบ', label: 'ปธบ', filter: (row) => row.levelGroup === '010' && !row.isSecondment },
+    { name: 'ปธบ(sec)', label: 'ปธบ (sec)', filter: (row) => row.levelGroup === '010' && row.isSecondment },
+    { name: 'รอง', label: 'รอง', filter: (row) => row.levelGroup === '020_030' && !row.isSecondment },
+    { name: 'รอง(sec)', label: 'รอง (sec)', filter: (row) => row.levelGroup === '020_030' && row.isSecondment },
+    { name: 'ผู้ช่วย', label: 'ผู้ช่วย', filter: (row) => row.levelGroup === '040' && !row.isSecondment },
+    { name: 'ผู้ช่วย(sec)', label: 'ผู้ช่วย (sec)', filter: (row) => row.levelGroup === '040' && row.isSecondment },
+    { name: 'ฝ่าย', label: 'ฝ่าย', filter: (row) => row.levelGroup === '050' && !row.isSecondment },
+    { name: 'ฝ่าย(sec)', label: 'ฝ่าย (sec)', filter: (row) => row.levelGroup === '050' && row.isSecondment },
+];
 
 const buildDetailWorkbook = async (rows: Report10DetailDataType[], effectiveDate: Dayjs) => {
     const workbook = new ExcelJS.Workbook();
+    const headers = [
+        'ลำดับที่',
+        'ชื่อ',
+        'ชื่อตำแหน่งเต็ม',
+        'ชื่อย่อตำแหน่ง',
+        'หน่วยงาน',
+        'สายงาน',
+        'ระดับ',
+        'JG',
+        'เลข Position',
+        'ประเภทกรอบ',
+        'Strategic',
+        'Business/Support',
+        'อัตราเฉพาะตัว',
+    ];
 
-    for (const sheetConfig of REPORT10_SHEET_CONFIGS) {
+    const centerColumns = new Set([1, 7, 8, 9, 10, 11, 12, 13]);
+    const columnWidths = [10, 32, 34, 18, 25, 22, 10, 8, 16, 14, 12, 18, 14];
+
+    for (const sheetConfig of REPORT10_EXPORT_SHEETS) {
         const worksheet = workbook.addWorksheet(sheetConfig.name);
+        const sheetRows = rows.filter(sheetConfig.filter);
+        const title = `กรอบอัตรากำลังและผู้บริหาร ${sheetConfig.label} (${sheetRows.length} รายการ) ณ วันที่ ${effectiveDate.format('DD/MM/YYYY')}`;
 
-        const sectionRows = rows.filter((item) => item.levelGroup === sheetConfig.key);
-        const pttRows = sectionRows.filter((item) => item.groupType !== 'SECONDMENT');
-        const secRows = sectionRows.filter((item) => item.groupType === 'SECONDMENT');
-
-        const resolveName = (employeeId: string, fullName: string) => {
-            if (!employeeId) return 'ว่าง';
-            if (!fullName) return 'ไม่มีชื่อ';
-            return fullName;
-        };
-
-        const toEntry = (item: Report10DetailDataType): ExportEntry => ({
-            position: item.positionName || item.positionId || '-',
-            name: resolveName(item.employeeId, item.fullName),
-        });
-
-        const pttEntries = pttRows.map(toEntry);
-        const secEntries = secRows.map(toEntry);
-
-        const totalCount = sectionRows.length;
-        const title = `กรอบอัตรากำลังและผู้บริหาร ระดับ ${sheetConfig.label} (${totalCount} กรอบ : ใน ปตท. ${pttEntries.length} กรอบ / Sec ${secEntries.length} กรอบ)`;
-
-        worksheet.mergeCells('A1:G1');
+        worksheet.mergeCells('A1:M1');
         const titleCell = worksheet.getCell('A1');
         titleCell.value = title;
-        titleCell.font = { name: 'Sarabun', bold: true, size: 14, color: { argb: 'FF0F2B64' } };
+        titleCell.font = { name: 'Sarabun', bold: true, size: 12, color: { argb: 'FF000000' } };
         titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
 
-        const startRow = 3;
-        writeSectionAt(worksheet, startRow, 1, 'ใน ปตท.', pttEntries, { header: 'FF2F5597', subHeader: 'FFD9E2F3' });
-        writeSectionAt(worksheet, startRow, 5, 'Secondment', secEntries, { header: 'FF375623', subHeader: 'FFE2EFDA' });
+        const headerRowIndex = 3;
+        headers.forEach((header, idx) => {
+            const cell = worksheet.getCell(headerRowIndex, idx + 1);
+            cell.value = header;
+            createHeaderStyle(cell);
+        });
 
-        const totalRows = Math.max(pttEntries.length, secEntries.length, 1);
-        for (let i = 0; i < totalRows; i++) {
-            const pttItem = pttEntries[i];
-            const secItem = secEntries[i];
-
-            const pttNoCell = worksheet.getCell(startRow + 3 + i, 1);
-            const pttPositionCell = worksheet.getCell(startRow + 3 + i, 2);
-            const pttNameCell = worksheet.getCell(startRow + 3 + i, 3);
-
-            pttNoCell.value = pttItem ? i + 1 : '';
-            pttPositionCell.value = pttItem ? pttItem.position : '';
-            pttNameCell.value = pttItem ? pttItem.name : '';
-
-            createBodyStyle(pttNoCell);
-            createBodyStyle(pttPositionCell);
-            createBodyStyle(pttNameCell);
-            pttNoCell.alignment = { horizontal: 'center', vertical: 'middle' };
-
-            const secNoCell = worksheet.getCell(startRow + 3 + i, 5);
-            const secPositionCell = worksheet.getCell(startRow + 3 + i, 6);
-            const secNameCell = worksheet.getCell(startRow + 3 + i, 7);
-
-            secNoCell.value = secItem ? i + 1 : '';
-            secPositionCell.value = secItem ? secItem.position : '';
-            secNameCell.value = secItem ? secItem.name : '';
-
-            createBodyStyle(secNoCell);
-            createBodyStyle(secPositionCell);
-            createBodyStyle(secNameCell);
-            secNoCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        if (!sheetRows.length) {
+            const noDataCell = worksheet.getCell(headerRowIndex + 1, 1);
+            noDataCell.value = 'ไม่พบข้อมูล';
+            noDataCell.font = { name: 'Sarabun', italic: true, color: { argb: 'FF666666' }, size: 11 };
         }
 
-        worksheet.getColumn(1).width = 7;
-        worksheet.getColumn(2).width = 33;
-        worksheet.getColumn(3).width = 34;
-        worksheet.getColumn(4).width = 4;
-        worksheet.getColumn(5).width = 7;
-        worksheet.getColumn(6).width = 33;
-        worksheet.getColumn(7).width = 34;
+        sheetRows.forEach((entry, index) => {
+            const rowIndex = headerRowIndex + 1 + index;
+            const isVacant = !entry.employeeId;
+            const values = [
+                index + 1,
+                entry.name,
+                entry.positionNameFull,
+                entry.positionNameShort,
+                entry.unitName,
+                entry.parentUnitName,
+                entry.unitLevelNo,
+                entry.jg,
+                entry.positionId,
+                entry.frameType,
+                entry.strategic,
+                entry.businessSupport,
+                entry.specificRate,
+            ];
 
-        for (let r = 3; r <= worksheet.rowCount; r++) {
-            worksheet.getRow(r).height = 24;
+            values.forEach((value, idx) => {
+                const col = idx + 1;
+                const cell = worksheet.getCell(rowIndex, col);
+                cell.value = value;
+                createBodyStyle(cell, centerColumns.has(col) ? 'center' : 'left');
+
+                if (isVacant) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+                }
+
+                if (isVacant && col === 2) {
+                    cell.font = { name: 'Sarabun', color: { argb: 'FFFF0000' }, size: 11, bold: true };
+                }
+            });
+        });
+
+        columnWidths.forEach((width, idx) => {
+            worksheet.getColumn(idx + 1).width = width;
+        });
+
+        worksheet.getRow(1).height = 22;
+        worksheet.getRow(headerRowIndex).height = 22;
+        for (let r = headerRowIndex + 1; r <= worksheet.rowCount; r++) {
+            worksheet.getRow(r).height = 20;
         }
     }
 
@@ -407,10 +477,11 @@ export default function Report10Page() {
         });
 
         const res = await fetch(`/api/report/report10?${query.toString()}`);
-        const payload: Report10SummaryApiResponse = await res.json();
+        const payload = await readJsonSafely<Report10SummaryApiResponse>(res);
 
-        if (!res.ok || payload.status !== 200 || !Array.isArray(payload.data)) {
-            throw new Error(payload.message || 'ไม่สามารถดึงข้อมูลรายงานได้');
+        if (!res.ok || !payload || payload.status !== 200 || !Array.isArray(payload.data)) {
+            const fallbackText = await res.text().catch(() => '');
+            throw new Error(payload?.message || fallbackText || 'ไม่สามารถดึงข้อมูลรายงานได้');
         }
 
         return transformSummaryRows(payload.data);
@@ -429,7 +500,7 @@ export default function Report10Page() {
             console.error('Failed to fetch report10 summary:', error);
             setTableData([]);
             setHasSearched(true);
-            alert('ไม่สามารถดึงข้อมูลรายงานได้');
+            alert(error instanceof Error ? error.message : 'ไม่สามารถดึงข้อมูลรายงานได้');
         } finally {
             setLoading(false);
         }
@@ -447,17 +518,18 @@ export default function Report10Page() {
             });
 
             const res = await fetch(`/api/report/report10/excel?${query.toString()}`);
-            const payload: Report10DetailApiResponse = await res.json();
+            const payload = await readJsonSafely<Report10DetailApiResponse>(res);
 
-            if (!res.ok || payload.status !== 200 || !Array.isArray(payload.data)) {
-                throw new Error(payload.message || 'ไม่สามารถดึงข้อมูล export ได้');
+            if (!res.ok || !payload || payload.status !== 200 || !Array.isArray(payload.data)) {
+                const fallbackText = await res.text().catch(() => '');
+                throw new Error(payload?.message || fallbackText || 'ไม่สามารถดึงข้อมูล export ได้');
             }
 
             const detailRows = transformDetailRows(payload.data);
             await buildDetailWorkbook(detailRows, currentSearchDate);
         } catch (error) {
             console.error('Failed to export report10 excel:', error);
-            alert('ไม่สามารถ export Excel ได้');
+            alert(error instanceof Error ? error.message : 'ไม่สามารถ export Excel ได้');
         } finally {
             setExporting(false);
         }

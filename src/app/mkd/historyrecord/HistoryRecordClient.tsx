@@ -62,6 +62,8 @@ interface HistoryRecordClientProps {
         EmployeeID?: string;
         userGroupNo?: string;
         roleId?: string;
+        role?: string;
+        userGroups?: { userGroupNo: string }[];
     } | null;
     initialYears: string[];
 }
@@ -104,6 +106,12 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
     const [filterOrgUnit, setFilterOrgUnit] = useState('');
     const [filterCreateBy, setFilterCreateBy] = useState('');
 
+    const normalizeUserGroupNo = (value: string): string => {
+        const trimmed = value.trim();
+        if (!trimmed) return '';
+        return /^\d+$/.test(trimmed) ? trimmed.padStart(2, '0') : trimmed;
+    };
+
     // --- Data Fetching ---
     const fetchHistory = useCallback(async () => {
         if (!currentUser) return;
@@ -111,11 +119,26 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
         try {
             const numericYear = parseInt(selectedYear);
             const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : selectedYear;
+
+            let userGroupNo = '';
+            if (typeof window !== 'undefined') {
+                userGroupNo = localStorage.getItem('selected_usergroup') || '';
+            }
+            if (!userGroupNo) {
+                userGroupNo = currentUser.userGroupNo || currentUser.roleId || currentUser.role || '';
+            }
+            if (!userGroupNo && currentUser.userGroups && currentUser.userGroups.length > 0) {
+                userGroupNo = currentUser.userGroups[0].userGroupNo || '';
+            }
+
+            const resolvedUserGroupNo = normalizeUserGroupNo(userGroupNo);
+            const employeeId = currentUser.employeeID || currentUser.EmployeeID || 'SYSTEM';
+            const canViewAllRecords = resolvedUserGroupNo === '04';
             
             const query = new URLSearchParams({
                 EffectiveYear: ceYear,
-                EmployeeID: currentUser.employeeID || currentUser.EmployeeID || 'SYSTEM',
-                UserGroupNo: currentUser.userGroupNo || currentUser.roleId || '',
+                EmployeeID: canViewAllRecords ? '' : employeeId,
+                UserGroupNo: resolvedUserGroupNo,
                 OrgUnitNo: '', 
                 RequestType: '2' 
             });

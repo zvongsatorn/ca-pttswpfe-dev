@@ -14,6 +14,7 @@ import TH_Locale from 'antd/es/date-picker/locale/th_TH';
 import { Card, CardContent } from '@/components/ui/card';
 import { Search, LayoutDashboard } from 'lucide-react';
 import { saveExcelFile } from '@/utils/fileDownload';
+import MultiSelectFilter from '@/components/filters/MultiSelectFilter';
 
 // Setup dayjs
 dayjs.extend(buddhistEra);
@@ -43,6 +44,8 @@ const BDatePicker = generatePicker<dayjs.Dayjs>(customGenerateConfig);
 // --- Types ---
 interface DashboardData {
     name: string;
+    orgUnitNo: string;
+    bgNo: string;
     contractOut: number;
     contractSub: number;
     frame: number;
@@ -54,6 +57,8 @@ interface DashboardData {
 interface UnitOption {
     value: string;
     label: string;
+    isAssistant?: number;
+    isUnder?: number;
 }
 
 interface RawUnitData {
@@ -62,9 +67,13 @@ interface RawUnitData {
     unitText?: string;
     OrgUnitNo?: string;
     UnitName?: string;
+    IsAssistant?: number;
+    IsUnder?: number;
 }
 
 interface RawDashboardRow {
+    OrgUnitNo?: string | number;
+    BGNo?: string | number;
     UnitAbbr?: string;
     c?: string | number;
     csub?: string | number;
@@ -143,15 +152,16 @@ const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
 export default function DashboardPage() {
     const [filterDate, setFilterDate] = useState(dayjs());
     const [employeeType, setEmployeeType] = useState('0'); // 0: พนง. ทั้งหมด, 1: พนง.ปตท., 2: Secondment
-    const [showContractOut, setShowContractOut] = useState('1'); // 1: ไม่แสดง Contract out, 2: แสดง Contract out
-    const [unit, setUnit] = useState<string | undefined>(undefined);
+    const [filterType, setFilterType] = useState('ALL'); // 'ALL', 'BU', 'LINE', 'UNIT'
+    const [units, setUnits] = useState<string[]>([]);
+    const [appliedUnits, setAppliedUnits] = useState<string[]>([]);
     
     const [dashboardData, setDashboardData] = useState<DashboardData[]>([]);
-    const [unitOptions, setUnitOptions] = useState<UnitOption[]>([]);
+    const [businessUnitOptions, setBusinessUnitOptions] = useState<UnitOption[]>([]);
+    const [lineOfWorkOptions, setLineOfWorkOptions] = useState<UnitOption[]>([]);
+    const [orgUnitOptions, setOrgUnitOptions] = useState<UnitOption[]>([]);
     const [loading, setLoading] = useState(false);
-    const [appliedFilters, setAppliedFilters] = useState({
-        showContractOut: '1'
-    });
+    const [hasSearched, setHasSearched] = useState(false);
 
     const resolveUserContext = () => {
         let employeeId = 'SYSTEM';
@@ -196,67 +206,101 @@ export default function DashboardPage() {
         return typeof v === 'number' ? v : (parseInt(v) || 0);
     };
 
+    const filteredUnitOptions = React.useMemo(() => {
+        if (filterType === 'BU') return businessUnitOptions;
+        if (filterType === 'LINE') return lineOfWorkOptions;
+        if (filterType === 'UNIT') return orgUnitOptions;
+        
+        // ALL
+        const all = [...businessUnitOptions, ...lineOfWorkOptions, ...orgUnitOptions];
+        const unique = new Map(all.map(item => [item.value, item]));
+        return Array.from(unique.values());
+    }, [filterType, businessUnitOptions, lineOfWorkOptions, orgUnitOptions]);
+
+    useEffect(() => {
+        setUnits([]);
+    }, [filterType]);
+
     // Initial Unit Load
     useEffect(() => {
         const fetchUnits = async () => {
             const { employeeId, userGroupNo } = resolveUserContext();
             const dateStr = filterDate.format('YYYY-MM-01');
 
-            let units: RawUnitData[] = [];
-            if (employeeId && employeeId !== 'SYSTEM' && userGroupNo) {
-                const scopedRes = await fetch(`/api/units/by-role?empId=${employeeId}&roleId=${userGroupNo}`);
-                if (scopedRes.ok) {
-                    const scopedData = await scopedRes.json();
-                    if (scopedData.success && scopedData.data) {
-                        units = scopedData.data;
+            try {
+                const res = await fetch(`/api/report/report3/filters?effectiveDate=${dateStr}&employeeId=${employeeId}&userGroupNo=${userGroupNo}&division=`);
+                if (res.ok) {
+                    const result = await res.json();
+                    if (result.status === 200 && result.data) {
+                        const toText = (v: any) => String(v || '').trim();
+                        const cleanUnitText = (str: string) => {
+                            if (!str) return '';
+                            let s = str.trim();
+                            if (s.toLowerCase().startsWith('รหัสหน่วยงาน:')) s = s.substring('รหัสหน่วยงาน:'.length).trim();
+                            if (s.toLowerCase().startsWith('รหัส:')) s = s.substring('รหัส:'.length).trim();
+                            const dashMatch = s.match(/^[0-9]{5,10}\s*-\s*/);
+                            if (dashMatch) s = s.substring(dashMatch[0].length).trim();
+                            return s;
+                        };
+
+                        const toBgOption = (row: any): UnitOption | null => {
+                            const value = toText(row.BGNo);
+                            const label = toText(row.BGName);
+                            if (!value || !label) return null;
+                            return { value, label };
+                        };
+
+                        const toLineOption = (row: any): UnitOption | null => {
+                            const value = toText(row.OrgUnitNo);
+                            const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
+                            if (!value || !label) return null;
+                            return { value, label: `${value} - ${label}` };
+                        };
+
+                        const toUnitOption = (row: any): UnitOption | null => {
+                            const value = toText(row.OrgUnitNo);
+                            const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
+                            if (!value || !label) return null;
+                            return { value, label: `${value} - ${label}` };
+                        };
+
+                        // Helper for uniqueness
+                        const uniqueOptions = (opts: UnitOption[]) => {
+                            const seen = new Set<string>();
+                            return opts.filter(o => {
+                                if (seen.has(o.value)) return false;
+                                seen.add(o.value);
+                                return true;
+                            });
+                        };
+
+                        setBusinessUnitOptions(uniqueOptions(result.data.businessUnits.map(toBgOption).filter((v: any) => v)));
+                        setLineOfWorkOptions(uniqueOptions(result.data.lines.map(toLineOption).filter((v: any) => v)));
+                        setOrgUnitOptions(uniqueOptions(result.data.units.map(toUnitOption).filter((v: any) => v)));
                     }
                 }
-            }
-
-            if (units.length === 0) {
-                const fallbackRes = await fetch(`/api/units/all?effectiveDate=${dateStr}`);
-                if (fallbackRes.ok) {
-                    const fallbackData = await fallbackRes.json();
-                    if (fallbackData.success && fallbackData.data) {
-                        units = fallbackData.data;
-                    }
-                }
-            }
-
-            const mappedOptions = units.map((u: RawUnitData) => {
-                const id = String(u.id || u.OrgUnitNo || '').trim();
-                const name = (u.name || u.UnitName || u.unitText || id).trim();
-                return {
-                    value: id,
-                    label: `${id} - ${name}`
-                };
-            }).filter((u: UnitOption) => u.value);
-
-            setUnitOptions(mappedOptions);
-            if (mappedOptions.length > 0) {
-                setUnit((prev) => prev || mappedOptions[0].value);
+            } catch (err) {
+                console.error("Failed to fetch report3/filters", err);
             }
         };
         fetchUnits();
-        // resolveUserContext is stable enough for client-side localStorage reads
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filterDate]);
 
     // Data Load function
     const loadData = useCallback(async () => {
+        setHasSearched(true);
         setLoading(true);
+        setAppliedUnits([...units]);
         try {
             const { employeeId, userGroupNo } = resolveUserContext();
 
             // employeeType correlates to isSecondment setting 
             const isSecondmentId = parseInt(employeeType); 
-            // Leveltype handling
-            const levelType = parseInt(showContractOut);
+            // Leveltype handling: Always แสดง Contract out
+            const levelType = 2;
             const monthStr = (filterDate.month() + 1).toString().padStart(2, '0');
             // Assuming the picker keeps Buddhist Era correctly
             const yearStr = (filterDate.year() > 2500 ? filterDate.year() - 543 : filterDate.year()).toString();
-
-            const divisionForQuery = unit || unitOptions[0]?.value || '';
 
             const query = new URLSearchParams({
                 effectiveMonth: monthStr,
@@ -265,7 +309,7 @@ export default function DashboardPage() {
                 userGroupNo,
                 isSecondment: isSecondmentId.toString(),
                 levelType: levelType.toString(),
-                division: divisionForQuery
+                division: ''
             });
 
             const res = await fetch(`/api/report/dashboard?${query}`);
@@ -281,6 +325,8 @@ export default function DashboardPage() {
 
                         return {
                             name: row.UnitAbbr || 'N/A',
+                            orgUnitNo: String(row.OrgUnitNo || ''),
+                            bgNo: String(row.BGNo || ''),
                             contractOut: safeNum(row.c),
                             contractSub: safeNum(row.csub),
                             frame: sumQ,
@@ -290,9 +336,6 @@ export default function DashboardPage() {
                         };
                     });
                     setDashboardData(parsedData);
-                    setAppliedFilters({
-                        showContractOut: showContractOut
-                    });
                 }
             }
         } catch (error) {
@@ -300,20 +343,19 @@ export default function DashboardPage() {
         } finally {
             setLoading(false);
         }
-    }, [filterDate, employeeType, showContractOut, unit, unitOptions]);
+    }, [filterDate, employeeType, units]);
 
-    useEffect(() => {
-        if (unitOptions.length > 0) {
-            loadData();
-        }
-    }, [loadData, unitOptions]);
+    const displayData = React.useMemo(() => {
+        if (!appliedUnits || appliedUnits.length === 0) return dashboardData;
+        return dashboardData.filter(item => appliedUnits.includes(item.bgNo) || appliedUnits.includes(item.orgUnitNo));
+    }, [dashboardData, appliedUnits]);
 
 
     // Determine which bars to show based on filters logic in applied (last searched) state
-    const isShowingContractOut = appliedFilters.showContractOut === '2'; // '2' = แสดง Contract out
+    const isShowingContractOut = true; // Always แสดง Contract out
 
     // --- Summary Calculation ---
-    const summary = dashboardData.reduce(
+    const summary = displayData.reduce(
         (acc, curr) => ({
             contractOut: acc.contractOut + curr.contractOut,
             contractSub: acc.contractSub + curr.contractSub,
@@ -345,11 +387,11 @@ export default function DashboardPage() {
             const { employeeId, userGroupNo } = resolveUserContext();
 
             const isSecondmentId = parseInt(employeeType); 
-            const levelType = parseInt(showContractOut);
+            const levelType = 2; // Always แสดง Contract out
             const monthStr = (filterDate.month() + 1).toString().padStart(2, '0');
             const yearStr = (filterDate.year() > 2500 ? filterDate.year() - 543 : filterDate.year()).toString();
 
-            const divisionForQuery = unit || unitOptions[0]?.value || '';
+            const divisionForQuery = unit || filteredUnitOptions[0]?.value || '';
 
             const query = new URLSearchParams({
                 effectiveMonth: monthStr,
@@ -378,10 +420,10 @@ export default function DashboardPage() {
     const memoizedChart = React.useMemo(() => {
         return (
             <div className="overflow-x-auto overflow-y-hidden">
-                <div style={{ width: Math.max(800, dashboardData.length * 40) }}>
+                <div style={{ width: Math.max(800, displayData.length * 40) }}>
                     <ResponsiveContainer width="100%" height={500}>
                         <BarChart
-                            data={dashboardData}
+                            data={displayData}
                             margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
                             barGap={5}
                             barCategoryGap="30%"
@@ -429,7 +471,7 @@ export default function DashboardPage() {
                 </div>
             </div>
         );
-    }, [dashboardData, isShowingContractOut]);
+    }, [displayData, isShowingContractOut]);
 
     return (
         <Main currentPath="/report">
@@ -473,31 +515,31 @@ export default function DashboardPage() {
                         </div>
 
                         <div className="flex items-center gap-2">
+                             <span className="text-gray-600 font-medium whitespace-nowrap hidden sm:inline">ประเภท Filter</span>
                              <Select
-                                value={showContractOut}
-                                onChange={setShowContractOut}
+                                value={filterType}
+                                onChange={(val) => { setFilterType(val); }}
                                 options={[
-                                    { value: '1', label: 'ไม่แสดง Contract out' },
-                                    { value: '2', label: 'แสดง Contract out' },
+                                    { value: 'ALL', label: 'ทั้งหมด' },
+                                    { value: 'BU', label: 'หน่วยธุรกิจ' },
+                                    { value: 'LINE', label: 'สายงาน' },
+                                    { value: 'UNIT', label: 'หน่วยงาน' },
                                 ]}
-                                className="w-48"
+                                className="w-32"
                             />
                         </div>
 
-                        <div className="flex items-center gap-2 border-l border-gray-200 pl-4 flex-1">
-                             <Select
-                                placeholder="เลือกสายงาน..."
-                                value={unit}
-                                onChange={setUnit}
-                                allowClear
-                                className="w-full max-w-sm"
-                                options={unitOptions}
-                                showSearch
-                                filterOption={(input, option) =>
-                                    (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
-                                }
-                            />
-                        </div>
+                        {filterType !== 'ALL' && (
+                            <div className="flex items-center gap-2 border-l border-gray-200 pl-4 flex-1">
+                                 <MultiSelectFilter
+                                    label={`เลือก${filterType === 'BU' ? 'หน่วยธุรกิจ' : filterType === 'LINE' ? 'สายงาน' : 'หน่วยงาน'}`}
+                                    options={filteredUnitOptions}
+                                    selectedValues={units}
+                                    onChange={setUnits}
+                                    width="w-full max-w-sm"
+                                />
+                            </div>
+                        )}
 
                         <Button 
                             type="primary" 
@@ -527,6 +569,8 @@ export default function DashboardPage() {
                     <div className="lg:col-span-9 bg-white p-4 rounded-lg shadow-sm border border-gray-200 min-h-[500px]">
                         {loading && dashboardData.length === 0 ? (
                             <div className="w-full h-full flex justify-center items-center h-[500px]">Loading...</div>
+                        ) : !hasSearched ? (
+                            <div className="w-full h-full flex justify-center items-center text-gray-500 h-[500px]">เลือกเงื่อนไขแล้วกด Search</div>
                         ) : dashboardData.length === 0 ? (
                             <div className="w-full h-full flex justify-center items-center text-gray-500 h-[500px]">ไม่พบข้อมูล</div>
                         ) : (

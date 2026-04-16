@@ -8,6 +8,9 @@ import {
     SearchOutlined,
     FileExcelOutlined,
     SettingOutlined,
+    SwapOutlined,
+    FullscreenOutlined,
+    FullscreenExitOutlined,
 } from '@ant-design/icons';
 import { ChevronDown, Search, Check, FileText } from 'lucide-react';
 import dayjs, { Dayjs } from 'dayjs';
@@ -23,7 +26,8 @@ type CellValue = string | number | undefined;
 interface DataType {
     key: string;
     unit: string;
-    [key: string]: CellValue;
+    children?: DataType[];
+    [key: string]: CellValue | DataType[] | undefined;
 }
 
 interface Report2RawRow {
@@ -68,6 +72,12 @@ interface Report2RawRow {
 
     q_contact?: number | string;
     q_subcontact?: number | string;
+
+    SpecFlag?: number | string;
+    specflag?: number | string;
+    spec_flag?: number | string;
+    SpecFlagName?: string;
+    specflagname?: string;
 
     remark?: string;
 }
@@ -350,26 +360,63 @@ const resolveUserContext = () => {
 
 const isTotalUnit = (unit: string): boolean => unit.trim() === 'รวม';
 
+const resolveSpecFlag = (row: Report2RawRow): 0 | 1 | null => {
+    const raw = row as unknown as Record<string, unknown>;
+    const candidates = [
+        raw.SpecFlag,
+        raw.specflag,
+        raw.spec_flag,
+    ];
+
+    for (const candidate of candidates) {
+        const num = Number(candidate);
+        if (num === 0 || num === 1) return num as 0 | 1;
+    }
+
+    const specFlagName = String(raw.SpecFlagName ?? raw.specflagname ?? '').trim();
+    if (specFlagName.includes('ไม่เป็น')) return 0;
+    if (specFlagName.includes('เป็น')) return 1;
+
+    return null;
+};
+
+const createEmptyMetricRow = (key: string, unit: string, unitGroup: string, rowKind: string): DataType => ({
+    key,
+    unit,
+    unit_group: unitGroup,
+    row_kind: rowKind,
+});
+
 const transformRows = (rawRows: Report2RawRow[], monthKeys: string[]) => {
     const monthKeySet = new Set(monthKeys);
-    const byUnit = new Map<string, DataType>();
-    const orderedUnits: string[] = [];
+    const byUnitAndSpec = new Map<string, DataType>();
+    const orderedKeys: string[] = [];
+    let hasSpecFlagDimension = false;
 
     rawRows.forEach((row) => {
         const monthKey = extractMonthKey(row);
         if (!monthKey || !monthKeySet.has(monthKey)) return;
 
-        const unit = String(row.BGName || row.BGNo || '').trim() || '-';
+        const unitGroup = String(row.BGName || row.BGNo || '').trim() || '-';
+        const specFlag = resolveSpecFlag(row);
+        if (specFlag !== null) hasSpecFlagDimension = true;
+        const compositeKey = `${unitGroup}__spec_${specFlag === null ? 'none' : specFlag}`;
 
-        if (!byUnit.has(unit)) {
-            byUnit.set(unit, {
-                key: `unit-${orderedUnits.length + 1}`,
-                unit,
-            });
-            orderedUnits.push(unit);
+        if (!byUnitAndSpec.has(compositeKey)) {
+            byUnitAndSpec.set(
+                compositeKey,
+                createEmptyMetricRow(
+                    `unit-${orderedKeys.length + 1}`,
+                    unitGroup,
+                    unitGroup,
+                    specFlag === null ? 'normal' : 'spec'
+                )
+            );
+            byUnitAndSpec.get(compositeKey)!.spec_flag = specFlag === null ? '' : String(specFlag);
+            orderedKeys.push(compositeKey);
         }
 
-        const target = byUnit.get(unit)!;
+        const target = byUnitAndSpec.get(compositeKey)!;
 
         metricMaps.forEach((metric) => {
             const value = toNumber(row[metric.valueField]);
@@ -386,8 +433,8 @@ const transformRows = (rawRows: Report2RawRow[], monthKeys: string[]) => {
         target[`remark_${monthKey}`] = row.remark || '';
     });
 
-    const rows = orderedUnits.map((unit) => {
-        const row = byUnit.get(unit)!;
+    const baseRows = orderedKeys.map((compositeKey) => {
+        const row = byUnitAndSpec.get(compositeKey)!;
 
         monthKeys.forEach((monthKey) => {
             metricMaps.forEach((metric) => {
@@ -402,6 +449,110 @@ const transformRows = (rawRows: Report2RawRow[], monthKeys: string[]) => {
         return row;
     });
 
+    const rows: DataType[] = [];
+
+    if (hasSpecFlagDimension) {
+        const grouped = new Map<string, DataType[]>();
+        const orderedGroups: string[] = [];
+
+        baseRows.forEach((row) => {
+            const unitGroup = String(row.unit_group || row.unit || '-');
+            if (!grouped.has(unitGroup)) {
+                grouped.set(unitGroup, []);
+                orderedGroups.push(unitGroup);
+            }
+            grouped.get(unitGroup)!.push(row);
+        });
+
+        orderedGroups.forEach((unitGroup, groupIndex) => {
+            const groupRows = grouped.get(unitGroup) || [];
+            const specRows = groupRows.filter((row) => String(row.row_kind) === 'spec');
+
+            if (specRows.length === 0) {
+                rows.push(...groupRows);
+                return;
+            }
+
+            const parentRow = createEmptyMetricRow(
+                `group-${groupIndex + 1}`,
+                unitGroup,
+                unitGroup,
+                'group'
+            );
+
+            monthKeys.forEach((monthKey) => {
+                metricMaps.forEach((metric) => {
+                    const currentKey = `${metric.key}_${monthKey}`;
+                    parentRow[currentKey] = specRows.reduce((sum, row) => sum + toNumber(row[currentKey]), 0);
+
+                    if (metric.diffField) {
+                        const diffKey = `${currentKey}_diff`;
+                        parentRow[diffKey] = specRows.reduce((sum, row) => sum + toNumber(row[diffKey]), 0);
+                    }
+                });
+                parentRow[`remark_${monthKey}`] = '';
+            });
+
+            rows.push(parentRow);
+
+            const orderedSpecRows = [...specRows].sort((a, b) => {
+                const aFlag = Number(a.spec_flag);
+                const bFlag = Number(b.spec_flag);
+                if (aFlag === bFlag) return 0;
+                if (aFlag === 1) return -1;
+                return 1;
+            });
+
+            orderedSpecRows.forEach((row) => {
+                const specFlag = Number(row.spec_flag);
+                row.unit = specFlag === 1 ? '  - อัตราเฉพาะตัว' : '  - ไม่เป็นอัตราเฉพาะตัว';
+                rows.push(row);
+            });
+        });
+    } else {
+        rows.push(...baseRows);
+    }
+
+    const hasTotalRow = rows.some((row) => isTotalUnit(row.unit));
+    if (!hasTotalRow && rows.length > 0) {
+        const totalRow: DataType = {
+            key: 'unit-total',
+            unit: 'รวม',
+            unit_group: 'รวม',
+            row_kind: 'total',
+        };
+
+        const sourceRowsForTotal = rows.filter((row) => {
+            if (String(row.row_kind) === 'group') return false;
+            return !isTotalUnit(row.unit);
+        });
+
+        monthKeys.forEach((monthKey) => {
+            const prevMonthKey = dayjs(monthKey, 'YYYYMM').subtract(1, 'month').format('YYYYMM');
+
+            metricMaps.forEach((metric) => {
+                const currentKey = `${metric.key}_${monthKey}`;
+                totalRow[currentKey] = sourceRowsForTotal.reduce((sum, row) => sum + toNumber(row[currentKey]), 0);
+
+                if (metric.diffField) {
+                    const diffKey = `${currentKey}_diff`;
+                    totalRow[diffKey] = sourceRowsForTotal.reduce((sum, row) => {
+                        const explicitDiff = toNumberOrNull(row[diffKey]);
+                        if (explicitDiff !== null) return sum + explicitDiff;
+
+                        const current = toNumber(row[currentKey]);
+                        const prev = toNumber(row[`${metric.key}_${prevMonthKey}`]);
+                        return sum + (current - prev);
+                    }, 0);
+                }
+            });
+
+            totalRow[`remark_${monthKey}`] = '';
+        });
+
+        rows.push(totalRow);
+    }
+
     rows.sort((a, b) => {
         if (isTotalUnit(a.unit) && !isTotalUnit(b.unit)) return 1;
         if (!isTotalUnit(a.unit) && isTotalUnit(b.unit)) return -1;
@@ -410,7 +561,17 @@ const transformRows = (rawRows: Report2RawRow[], monthKeys: string[]) => {
 
     return {
         rows,
-        unitOptions: rows.map((r) => r.unit),
+        unitOptions: Array.from(
+            new Set(
+                rows
+                    .filter((row) => {
+                        if (isTotalUnit(row.unit)) return false;
+                        const kind = String(row.row_kind || 'normal');
+                        return kind === 'group' || kind === 'normal';
+                    })
+                    .map((row) => String(row.unit_group || row.unit))
+            )
+        ),
     };
 };
 
@@ -436,12 +597,32 @@ const isColumnVisible = (
     return true;
 };
 
+const report2MetricRows = [
+    { key: 'frame_staff', label: 'กรอบ พนง.', showDiff: true, textClass: 'text-blue-700' },
+    { key: 'frame_normal', label: 'ปกติ', showDiff: true, textClass: 'text-blue-700' },
+    { key: 'people_normal', label: 'คน ปกติ', showDiff: true, textClass: 'text-orange-700' },
+    { key: 'pool_rs', label: 'Pool RS', showDiff: true, textClass: 'text-blue-700' },
+    { key: 'people_pool_rs', label: 'คน Pool RS', showDiff: true, textClass: 'text-orange-700' },
+    { key: 'frame_sec', label: 'กรอบ Sec', showDiff: true, textClass: 'text-blue-700' },
+    { key: 'traditional', label: 'Traditional', showDiff: true, textClass: 'text-blue-700' },
+    { key: 'new_biz', label: 'New Biz', showDiff: true, textClass: 'text-blue-700' },
+    { key: 'people_new_biz', label: 'คน New Biz', showDiff: true, textClass: 'text-orange-700' },
+    { key: 'total_actual', label: 'รวม Actual', showDiff: true, textClass: 'text-blue-700' },
+    { key: 'total_people', label: 'รวม คน', showDiff: true, textClass: 'text-orange-700' },
+    { key: 'contact_out', label: 'Contact Out', showDiff: false, textClass: 'text-purple-700' },
+    { key: 'contact_out_sub', label: 'Contact Out สัญญาย่อย', showDiff: false, textClass: 'text-purple-700' },
+    { key: 'remark', label: 'หมายเหตุ', showDiff: false, isRemark: true, textClass: 'text-gray-700' },
+] as const;
+
 export default function Report2Page() {
     const [loading, setLoading] = useState(false);
     const [checkedList, setCheckedList] = useState<CheckboxValueType[]>(defaultCheckedList);
     const [selectedDatasets, setSelectedDatasets] = useState<string[]>(datasetOptions);
     const [selectedUnits, setSelectedUnits] = useState<string[]>([]);
+    const [appliedUnits, setAppliedUnits] = useState<string[]>([]);
     const [businessUnitOptions, setBusinessUnitOptions] = useState<string[]>([]);
+    const [viewMode, setViewMode] = useState<'normal' | 'transposed'>('normal');
+    const [isFullscreen, setIsFullscreen] = useState(false);
 
     const [startMonth, setStartMonth] = useState<Dayjs>(dayjs());
     const [endMonth, setEndMonth] = useState<Dayjs>(dayjs());
@@ -452,11 +633,54 @@ export default function Report2Page() {
     const months = useMemo(() => getMonthRangeKeys(startMonth, endMonth), [startMonth, endMonth]);
 
     const data = useMemo(() => {
-        if (selectedUnits.length === 0) return allData;
-        return allData.filter((item) => selectedUnits.includes(item.unit));
-    }, [allData, selectedUnits]);
+        if (appliedUnits.length === 0) return allData;
+        return allData.filter((item) => {
+            if (isTotalUnit(item.unit)) return true;
+            const unitGroup = String(item.unit_group || item.unit);
+            return appliedUnits.includes(unitGroup);
+        });
+    }, [allData, appliedUnits]);
 
-    const fetchReportData = useCallback(async (start: Dayjs, end: Dayjs) => {
+    const businessTreeData = useMemo(() => {
+        const treeRows: DataType[] = [];
+        let idx = 0;
+
+        while (idx < data.length) {
+            const current = data[idx];
+            const rowKind = String(current.row_kind || 'normal');
+
+            if (rowKind === 'group') {
+                const parent: DataType = { ...current, children: [] };
+                idx += 1;
+
+                while (idx < data.length) {
+                    const next = data[idx];
+                    const nextKind = String(next.row_kind || 'normal');
+                    if (nextKind === 'spec' && String(next.unit_group || '') === String(current.unit_group || '')) {
+                        (parent.children as DataType[]).push(next);
+                        idx += 1;
+                        continue;
+                    }
+                    break;
+                }
+
+                treeRows.push(parent);
+                continue;
+            }
+
+            if (rowKind === 'spec') {
+                idx += 1;
+                continue;
+            }
+
+            treeRows.push(current);
+            idx += 1;
+        }
+
+        return treeRows;
+    }, [data]);
+
+    const fetchReportData = useCallback(async (start: Dayjs, end: Dayjs, requestedUnits: string[] = []) => {
         const { employeeId, userGroupNo } = resolveUserContext();
         if (!employeeId || employeeId === 'SYSTEM' || !userGroupNo) {
             alert('ไม่พบสิทธิ์ผู้ใช้งาน กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
@@ -484,16 +708,17 @@ export default function Report2Page() {
             const transformed = transformRows(payload.data, monthKeys);
             setAllData(transformed.rows);
             setBusinessUnitOptions(transformed.unitOptions);
-            setSelectedUnits((prev) => {
-                const existing = prev.filter((unit) => transformed.unitOptions.includes(unit));
-                return existing.length > 0 ? existing : transformed.unitOptions;
-            });
+            const validRequestedUnits = requestedUnits.filter((unit) => transformed.unitOptions.includes(unit));
+            const nextAppliedUnits = validRequestedUnits.length > 0 ? validRequestedUnits : transformed.unitOptions;
+            setSelectedUnits(nextAppliedUnits);
+            setAppliedUnits(nextAppliedUnits);
             setHasSearched(true);
         } catch (error) {
             console.error('Failed to fetch report2 data:', error);
             setAllData([]);
             setBusinessUnitOptions([]);
             setSelectedUnits([]);
+            setAppliedUnits([]);
             setHasSearched(true);
             alert('ไม่สามารถดึงข้อมูลรายงานได้');
         } finally {
@@ -512,12 +737,14 @@ export default function Report2Page() {
 
         setStartMonth(nextStart);
         setEndMonth(nextEnd);
-        await fetchReportData(nextStart, nextEnd);
+        await fetchReportData(nextStart, nextEnd, selectedUnits);
     };
 
     const onCheckboxChange = (list: CheckboxValueType[]) => {
         setCheckedList(list);
     };
+
+    const toggleFullscreen = () => setIsFullscreen((prev) => !prev);
 
     const getDiffValue = (record: DataType, currentKey: string, prevKey: string): number => {
         const explicitDiff = toNumberOrNull(record[`${currentKey}_diff`]);
@@ -529,12 +756,228 @@ export default function Report2Page() {
     };
 
     const handleExportExcel = async () => {
+        const workbook = new ExcelJS.Workbook();
+
+        if (viewMode === 'transposed') {
+            if (!transposedData.length) {
+                alert('ไม่พบข้อมูลสำหรับ Export');
+                return;
+            }
+
+            const worksheet = workbook.addWorksheet('Report 02');
+            const labelColorMap: Record<string, string> = {
+                'text-blue-700': 'FF1D4ED8',
+                'text-orange-700': 'FFC2410C',
+                'text-purple-700': 'FF6D28D9',
+                'text-gray-700': 'FF374151',
+            };
+
+            type LeafColumn = { parentTitle: string; title: string; dataIndex: string };
+            const leafColumns: LeafColumn[] = [];
+
+            const collectLeafColumns = (cols: ColumnsType<DataType>, parentTitle = '') => {
+                cols.forEach((col) => {
+                    const children = (col.children || []) as ColumnsType<DataType>;
+                    const title = String(col.title ?? '');
+
+                    if (children.length > 0) {
+                        collectLeafColumns(children, title);
+                        return;
+                    }
+
+                    const dataIndex = String((col as { dataIndex?: string; key?: string }).dataIndex ?? '');
+                    if (!dataIndex) return;
+
+                    leafColumns.push({
+                        parentTitle,
+                        title,
+                        dataIndex,
+                    });
+                });
+            };
+
+            collectLeafColumns(transposedColumns);
+
+            if (!leafColumns.length) {
+                alert('ไม่พบคอลัมน์สำหรับ Export');
+                return;
+            }
+
+            const header1: string[] = [];
+            const header2: string[] = [];
+            leafColumns.forEach((col, index) => {
+                if (index === 0) {
+                    header1.push(col.title || 'วันที่ / รายการ');
+                    header2.push('');
+                    return;
+                }
+
+                if (col.parentTitle) {
+                    header1.push(col.parentTitle);
+                    header2.push(col.title);
+                } else {
+                    header1.push(col.title);
+                    header2.push('');
+                }
+            });
+
+            worksheet.addRow(header1);
+            worksheet.addRow(header2);
+
+            for (let colNo = 1; colNo <= leafColumns.length; colNo++) {
+                if (header2[colNo - 1] === '') {
+                    worksheet.mergeCells(1, colNo, 2, colNo);
+                }
+            }
+
+            let colNo = 1;
+            while (colNo <= leafColumns.length) {
+                const hasChildHeader = header2[colNo - 1] !== '';
+                const parentTitle = header1[colNo - 1];
+
+                if (!hasChildHeader || !parentTitle) {
+                    colNo += 1;
+                    continue;
+                }
+
+                let endCol = colNo;
+                while (
+                    endCol + 1 <= leafColumns.length &&
+                    header1[endCol] === parentTitle &&
+                    header2[endCol] !== ''
+                ) {
+                    endCol += 1;
+                }
+
+                if (endCol > colNo) {
+                    worksheet.mergeCells(1, colNo, 1, endCol);
+                }
+                colNo = endCol + 1;
+            }
+
+            [1, 2].forEach((rowNo) => {
+                const row = worksheet.getRow(rowNo);
+                row.eachCell((cell) => {
+                    cell.font = { bold: true, name: 'Sarabun' };
+                    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                    cell.fill = {
+                        type: 'pattern',
+                        pattern: 'solid',
+                        fgColor: { argb: rowNo === 1 ? 'FFBFDBFE' : 'FFE8F1FE' },
+                    };
+                    cell.border = {
+                        top: { style: 'thin' },
+                        left: { style: 'thin' },
+                        right: { style: 'thin' },
+                        bottom: { style: 'thin' },
+                    };
+                });
+            });
+
+            const exportMeta = new Map<number, { rowType: string; labelClass: string }>();
+            transposedData.forEach((item) => {
+                const rowType = String(item.transpose_row_type || 'value');
+                const labelClass = String(item.transpose_label_class || 'text-gray-700');
+                const rowValues: (string | number)[] = [];
+
+                leafColumns.forEach((col, index) => {
+                    if (index === 0) {
+                        rowValues.push(String(item[col.dataIndex] ?? ''));
+                        return;
+                    }
+
+                    const raw = item[col.dataIndex];
+                    if (rowType === 'remark') {
+                        rowValues.push(String(raw ?? ''));
+                        return;
+                    }
+
+                    if (rowType === 'diff') {
+                        const diff = toNumber(raw);
+                        rowValues.push(diff > 0 ? `+${diff}` : `${diff}`);
+                        return;
+                    }
+
+                    rowValues.push(toNumber(raw));
+                });
+
+                const row = worksheet.addRow(rowValues);
+                exportMeta.set(row.number, { rowType, labelClass });
+            });
+
+            worksheet.columns = leafColumns.map((col, idx) => ({
+                width: idx === 0 ? 34 : col.title.includes('หมายเหตุ') ? 30 : 14,
+            }));
+
+            worksheet.eachRow((row, rowNumber) => {
+                if (rowNumber <= 2) return;
+                const meta = exportMeta.get(rowNumber);
+                const rowType = meta?.rowType || 'value';
+                const labelClass = meta?.labelClass || 'text-gray-700';
+
+                row.eachCell((cell, currentColNo) => {
+                    const isFirstCol = currentColNo === 1;
+                    const rawValue = String(cell.value ?? '');
+
+                    cell.font = {
+                        ...cell.font,
+                        name: 'Sarabun',
+                        bold: rowType === 'month',
+                    };
+                    cell.alignment = {
+                        vertical: 'middle',
+                        horizontal: isFirstCol || rowType === 'remark' ? 'left' : 'center',
+                        wrapText: rowType === 'remark' || isFirstCol,
+                    };
+                    cell.border = {
+                        top: { style: 'thin' },
+                        left: { style: 'thin' },
+                        right: { style: 'thin' },
+                        bottom: { style: 'thin' },
+                    };
+
+                    if (rowType === 'month') {
+                        cell.fill = {
+                            type: 'pattern',
+                            pattern: 'solid',
+                            fgColor: { argb: 'FFEFF6FF' },
+                        };
+                    }
+
+                    if (isFirstCol && rowType !== 'month') {
+                        const labelColor = labelColorMap[labelClass];
+                        if (labelColor) {
+                            cell.font = { ...cell.font, color: { argb: labelColor } };
+                        }
+                    }
+
+                    if (!isFirstCol && rowType === 'diff') {
+                        if (rawValue.startsWith('+')) {
+                            cell.font = { ...cell.font, color: { argb: 'FF2563EB' } };
+                        } else if (rawValue.startsWith('-')) {
+                            cell.font = { ...cell.font, color: { argb: 'FFDC2626' } };
+                        }
+                    }
+                });
+            });
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], {
+                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
+
+            await saveExcelFile(
+                blob,
+                `รายงานสรุปภาพรวมการเปลี่ยนแปลงกรอบอัตราเปรียบเทียบรายเดือน_${dayjs().format('YYYYMMDD')}.xlsx`
+            );
+            return;
+        }
+
         if (!data.length || !months.length) {
             alert('ไม่พบข้อมูลสำหรับ Export');
             return;
         }
 
-        const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('Report 02');
 
         const visible = (key: string) => isColumnVisible(key, checkedList, selectedDatasets);
@@ -737,7 +1180,7 @@ export default function Report2Page() {
         await saveExcelFile(blob, `รายงานสรุปภาพรวมการเปลี่ยนแปลงกรอบอัตราเปรียบเทียบรายเดือน_${dayjs().format('YYYYMMDD')}.xlsx`);
     };
 
-    const columns: ColumnsType<DataType> = useMemo(() => {
+    const normalColumns: ColumnsType<DataType> = useMemo(() => {
         const visible = (key: string) => isColumnVisible(key, checkedList, selectedDatasets);
 
         const baseColumns: ColumnsType<DataType> = [
@@ -749,10 +1192,32 @@ export default function Report2Page() {
                 width: 180,
                 className: 'bg-white z-20',
                 onHeaderCell: () => ({ className: 'bg-blue-100! text-blue-900! font-bold' }),
-                onCell: (record) => ({
-                    className: isTotalUnit(record.unit) ? 'bg-blue-100! font-semibold text-blue-900!' : 'bg-white',
-                }),
-                render: (text: unknown) => <span className="font-medium text-gray-700">{String(text ?? '')}</span>,
+                onCell: (record) => {
+                    if (isTotalUnit(record.unit)) {
+                        return { className: 'bg-blue-100! font-semibold text-blue-900!' };
+                    }
+
+                    const rowKind = String(record.row_kind || 'normal');
+                    if (rowKind === 'group') {
+                        return { className: 'bg-gray-50! font-semibold text-gray-900!' };
+                    }
+
+                    return { className: 'bg-white' };
+                },
+                render: (text: unknown, record) => {
+                    const label = String(text ?? '');
+                    const rowKind = String(record.row_kind || 'normal');
+
+                    if (rowKind === 'group') {
+                        return <span className="font-semibold text-gray-900">{label}</span>;
+                    }
+
+                    if (rowKind === 'spec') {
+                        return <span className="font-medium text-gray-700">{label}</span>;
+                    }
+
+                    return <span className="font-medium text-gray-700">{label}</span>;
+                },
             },
         ];
 
@@ -815,9 +1280,9 @@ export default function Report2Page() {
                 }
 
                 return {
-                    title,
+                    title: <div className="w-full text-center">{title}</div>,
                     className: 'bg-white',
-                    onHeaderCell: () => ({ className: `${bgHeader} ${textHeader}` }),
+                    onHeaderCell: () => ({ className: `${bgHeader} ${textHeader} !text-center` }),
                     children,
                 };
             };
@@ -825,15 +1290,15 @@ export default function Report2Page() {
             const cols = [
                 createCol('frame_staff', 'กรอบ พนง.', 80, 'bg-blue-50!', 'text-blue-800!'),
                 createCol('frame_normal', 'ปกติ', 80, 'bg-blue-50!', 'text-blue-800!'),
-                createCol('people_normal', 'คน ปกติ', 80, 'bg-blue-50!', 'text-blue-800!'),
-                createCol('pool_rs', 'Pool RS', 80, 'bg-orange-200!', 'text-orange-900!'),
-                createCol('people_pool_rs', 'คน Pool RS', 90, 'bg-blue-50!', 'text-blue-800!'),
-                createCol('frame_sec', 'กรอบ Sec', 80, 'bg-orange-200!', 'text-orange-900!'),
+                createCol('people_normal', 'คน ปกติ', 80, 'bg-orange-50!', 'text-orange-800!'),
+                createCol('pool_rs', 'Pool RS', 80, 'bg-blue-50!', 'text-blue-800!'),
+                createCol('people_pool_rs', 'คน Pool RS', 90, 'bg-orange-50!', 'text-orange-800!'),
+                createCol('frame_sec', 'กรอบ Sec', 80, 'bg-blue-50!', 'text-blue-800!'),
                 createCol('traditional', 'Traditional', 85, 'bg-blue-50!', 'text-blue-800!'),
-                createCol('new_biz', 'New Biz', 80, 'bg-orange-200!', 'text-orange-900!'),
-                createCol('people_new_biz', 'คน New Biz', 90, 'bg-blue-50!', 'text-blue-800!'),
-                createCol('total_actual', 'รวม Actual', 80, 'bg-orange-200!', 'text-orange-900!'),
-                createCol('total_people', 'รวม คน', 80, 'bg-red-50!', 'text-red-800!'),
+                createCol('new_biz', 'New Biz', 80, 'bg-blue-50!', 'text-blue-800!'),
+                createCol('people_new_biz', 'คน New Biz', 90, 'bg-orange-50!', 'text-orange-800!'),
+                createCol('total_actual', 'รวม Actual', 80, 'bg-blue-50!', 'text-blue-800!'),
+                createCol('total_people', 'รวม คน', 80, 'bg-orange-50!', 'text-orange-800!'),
                 createCol('contact_out', 'Contact Out', 110, 'bg-purple-200!', 'text-purple-900!', false),
                 createCol('contact_out_sub', 'Contact Out สัญญาย่อย', 130, 'bg-purple-200!', 'text-purple-900!', false),
             ];
@@ -868,23 +1333,253 @@ export default function Report2Page() {
         return baseColumns;
     }, [months, checkedList, selectedDatasets]);
 
+    const { transposedColumns, transposedData } = useMemo(() => {
+        const visible = (key: string) => isColumnVisible(key, checkedList, selectedDatasets);
+        const metricDefs = report2MetricRows.filter((item) => visible(item.key));
+        const getTransposeMonthCellClass = (record: DataType): string => {
+            const rowType = String(record.transpose_row_type || '');
+            if (rowType === 'month') {
+                return '!bg-blue-100 font-semibold border-t-2 border-t-blue-300';
+            }
+            return '';
+        };
+
+        const totalRow = data.find((row) => isTotalUnit(String(row.unit)));
+        const businessGroups = businessTreeData
+            .filter((row) => !isTotalUnit(String(row.unit)))
+            .map((row) => ({
+                title: String(row.unit_group || row.unit),
+                leaves: row.children && row.children.length > 0 ? row.children : [row],
+            }));
+
+        const columns: ColumnsType<DataType> = [
+            {
+                title: 'วันที่ / รายการ',
+                dataIndex: 'unit',
+                key: 'unit',
+                fixed: 'left',
+                width: 240,
+                className: 'bg-white z-20',
+                onHeaderCell: () => ({ className: 'bg-blue-100! text-blue-900! font-bold' }),
+                render: (text: unknown, record) => {
+                    const rowType = String(record.transpose_row_type || 'value');
+                    const label = String(text ?? '');
+                    const labelClass = String(record.transpose_label_class || 'text-gray-700');
+
+                    if (rowType === 'month') {
+                        return <span className="font-semibold text-gray-700">{label}</span>;
+                    }
+                    if (rowType === 'diff') {
+                        return <span className={labelClass}>{label}</span>;
+                    }
+                    if (rowType === 'remark') {
+                        return <span className={labelClass}>{label}</span>;
+                    }
+                    return <span className={`font-medium ${labelClass}`}>{label}</span>;
+                },
+                onCell: (record) => ({
+                    className: getTransposeMonthCellClass(record),
+                }),
+            },
+        ];
+
+        const makeLeafColumn = (title: string, dataIndex: string): ColumnsType<DataType>[number] => ({
+            title,
+            dataIndex,
+            key: dataIndex,
+            width: 130,
+            align: 'center',
+            className: 'bg-white',
+            onHeaderCell: () => ({ className: 'bg-blue-50! text-blue-800! font-semibold text-center' }),
+            onCell: (record: DataType) => ({
+                className: getTransposeMonthCellClass(record),
+            }),
+            render: (value: unknown, record: DataType) => {
+                const rowType = String(record.transpose_row_type || 'value');
+                if (rowType === 'month') {
+                    return <span className="font-semibold">{toNumber(value)}</span>;
+                }
+                if (rowType === 'remark') {
+                    return <span className="text-xs text-gray-500">{String(value ?? '')}</span>;
+                }
+                if (rowType === 'diff') {
+                    const diff = toNumber(value);
+                    const colorClass = diff > 0 ? 'text-blue-500' : diff < 0 ? 'text-red-500' : 'text-gray-900';
+                    const text = diff > 0 ? `+${diff}` : `${diff}`;
+                    return <span className={colorClass}>{text}</span>;
+                }
+                return <span>{toNumber(value)}</span>;
+            },
+        });
+
+        businessGroups.forEach((group, groupIndex) => {
+            if (group.leaves.length > 1) {
+                columns.push({
+                    title: group.title,
+                    key: `transpose-group-${groupIndex}`,
+                    onHeaderCell: () => ({ className: 'bg-blue-200! text-blue-900! font-bold text-center' }),
+                    children: group.leaves.map((leaf) =>
+                        makeLeafColumn(String(leaf.unit), `biz_${leaf.key}`)
+                    ),
+                });
+                return;
+            }
+
+            const leaf = group.leaves[0];
+            columns.push(
+                makeLeafColumn(group.title, `biz_${leaf.key}`)
+            );
+        });
+
+        if (totalRow) {
+            columns.push({
+                title: 'รวม',
+                dataIndex: 'biz_total',
+                key: 'biz_total',
+                width: 120,
+                align: 'center',
+                className: 'bg-blue-50!',
+                onHeaderCell: () => ({ className: 'bg-blue-200! text-blue-900! font-bold text-center' }),
+                render: (value: unknown, record: DataType) => {
+                    const rowType = String(record.transpose_row_type || 'value');
+                    if (rowType === 'month') return <span className="font-semibold">{toNumber(value)}</span>;
+                    if (rowType === 'remark') return null;
+                    if (rowType === 'diff') {
+                        const diff = toNumber(value);
+                        const colorClass = diff > 0 ? 'text-blue-500' : diff < 0 ? 'text-red-500' : 'text-gray-900';
+                        const text = diff > 0 ? `+${diff}` : `${diff}`;
+                        return <span className={colorClass}>{text}</span>;
+                    }
+                    return <span className="font-semibold">{toNumber(value)}</span>;
+                },
+            });
+        }
+
+        const rows: DataType[] = [];
+        let rowCounter = 1;
+
+        months.forEach((monthKey, monthIndex) => {
+            const monthLabel = dayjs(monthKey, 'YYYYMM').format('MMMM YYYY');
+            const prevMonthKey = dayjs(monthKey, 'YYYYMM').subtract(1, 'month').format('YYYYMM');
+
+            const monthSummaryRow: DataType = {
+                key: `transpose-month-${monthKey}`,
+                unit: `Actual ${monthLabel} | ยอดรวม`,
+                transpose_row_type: 'month',
+                transpose_month_index: monthIndex,
+            };
+
+            businessGroups.forEach((group) => {
+                group.leaves.forEach((leaf) => {
+                    monthSummaryRow[`biz_${leaf.key}`] = toNumber(leaf[`total_actual_${monthKey}`]);
+                });
+            });
+
+            if (totalRow) {
+                monthSummaryRow.biz_total = toNumber(totalRow[`total_actual_${monthKey}`]);
+            }
+
+            rows.push(monthSummaryRow);
+
+            metricDefs.forEach((metric) => {
+                if (metric.isRemark) {
+                    const remarkRow: DataType = {
+                        key: `transpose-${rowCounter++}`,
+                        unit: `- ${metric.label}`,
+                        transpose_row_type: 'remark',
+                        transpose_month_index: monthIndex,
+                        transpose_label_class: metric.textClass,
+                    };
+
+                    businessGroups.forEach((group) => {
+                        group.leaves.forEach((leaf) => {
+                            remarkRow[`biz_${leaf.key}`] = String(leaf[`remark_${monthKey}`] ?? '');
+                        });
+                    });
+
+                    if (totalRow) remarkRow.biz_total = '';
+                    rows.push(remarkRow);
+                    return;
+                }
+
+                const valueRow: DataType = {
+                    key: `transpose-${rowCounter++}`,
+                    unit: `- ${metric.label} | จำนวน`,
+                    transpose_row_type: 'value',
+                    transpose_month_index: monthIndex,
+                    transpose_label_class: metric.textClass,
+                };
+
+                businessGroups.forEach((group) => {
+                    group.leaves.forEach((leaf) => {
+                        valueRow[`biz_${leaf.key}`] = toNumber(leaf[`${metric.key}_${monthKey}`]);
+                    });
+                });
+
+                if (totalRow) {
+                    valueRow.biz_total = toNumber(totalRow[`${metric.key}_${monthKey}`]);
+                }
+                rows.push(valueRow);
+
+                if (metric.showDiff) {
+                    const diffRow: DataType = {
+                        key: `transpose-${rowCounter++}`,
+                        unit: `- ${metric.label} | +/-`,
+                        transpose_row_type: 'diff',
+                        transpose_month_index: monthIndex,
+                        transpose_label_class: metric.textClass,
+                    };
+
+                    businessGroups.forEach((group) => {
+                        group.leaves.forEach((leaf) => {
+                            const currentKey = `${metric.key}_${monthKey}`;
+                            const prevKey = `${metric.key}_${prevMonthKey}`;
+                            diffRow[`biz_${leaf.key}`] = getDiffValue(leaf, currentKey, prevKey);
+                        });
+                    });
+
+                    if (totalRow) {
+                        const currentKey = `${metric.key}_${monthKey}`;
+                        const prevKey = `${metric.key}_${prevMonthKey}`;
+                        diffRow.biz_total = getDiffValue(totalRow, currentKey, prevKey);
+                    }
+                    rows.push(diffRow);
+                }
+            });
+        });
+
+        return {
+            transposedColumns: columns,
+            transposedData: rows,
+        };
+    }, [businessTreeData, data, months, checkedList, selectedDatasets]);
+
+    const tableColumns = viewMode === 'transposed' ? transposedColumns : normalColumns;
+    const tableData = viewMode === 'transposed' ? transposedData : businessTreeData;
+
     return (
-        <Main currentPath="/report">
-            <div className="space-y-6 w-full min-w-0">
-                <div className="rounded-xl bg-linear-to-r from-blue-600 to-blue-400 p-3 shadow-md border border-blue-500 mb-6 text-white">
-                    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                        <div className="flex items-center gap-3">
-                            <FileText className="text-2xl text-blue-100" />
-                            <h1 className="text-2xl font-bold m-0 text-white">Report 02</h1>
-                            <span className="hidden md:inline-block text-blue-100">|</span>
-                            <span className="text-xl font-medium text-blue-50">
-                                รายงานสรุปภาพรวมการเปลี่ยนแปลงกรอบอัตราเปรียบเทียบรายเดือน
-                            </span>
+        <Main currentPath="/report" hideChrome={isFullscreen}>
+            <div className={`w-full min-w-0 ${isFullscreen ? 'h-screen overflow-hidden bg-white p-4 flex flex-col gap-4' : 'space-y-6'}`}>
+                {!isFullscreen && (
+                    <div className="rounded-xl bg-linear-to-r from-blue-600 to-blue-400 p-3 shadow-md border border-blue-500 mb-6 text-white">
+                        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-3">
+                                <FileText className="text-2xl text-blue-100" />
+                                <h1 className="text-2xl font-bold m-0 text-white">Report 02</h1>
+                                <span className="hidden md:inline-block text-blue-100">|</span>
+                                <span className="text-xl font-medium text-blue-50">
+                                    รายงานสรุปภาพรวมการเปลี่ยนแปลงกรอบอัตราเปรียบเทียบรายเดือน
+                                </span>
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
 
-                <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4 relative z-50">
+                <div
+                    className={`bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4 relative z-50 ${
+                        isFullscreen ? 'shrink-0' : ''
+                    }`}
+                >
                     <Form
                         layout="inline"
                         onFinish={onSearch}
@@ -930,6 +1625,24 @@ export default function Report2Page() {
                     {hasSearched && (
                         <div className="flex items-center gap-2">
                             <Button
+                                icon={<SwapOutlined />}
+                                onClick={() => setViewMode((prev) => (prev === 'normal' ? 'transposed' : 'normal'))}
+                                className="text-gray-700 border-gray-300 hover:text-blue-600 hover:border-blue-500"
+                            >
+                                {viewMode === 'normal' ? 'สลับมุมมอง' : 'มุมมองปกติ'}
+                            </Button>
+
+                            <Button
+                                icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                                onClick={toggleFullscreen}
+                                className={`border-none! shadow-sm! text-white! ${
+                                    isFullscreen ? 'bg-red-500! hover:bg-red-600!' : 'bg-blue-500! hover:bg-blue-600!'
+                                }`}
+                            >
+                                {isFullscreen ? 'ปิดเต็มจอ' : 'เต็มจอ'}
+                            </Button>
+
+                            <Button
                                 icon={<FileExcelOutlined />}
                                 onClick={handleExportExcel}
                                 className="bg-green-600! text-white! border-none! shadow-sm! hover:bg-green-700!"
@@ -966,19 +1679,32 @@ export default function Report2Page() {
                 </div>
 
                 {hasSearched && (
-                    <div className="bg-white rounded-lg shadow-sm border border-gray-100 mt-4 relative z-0">
-                        <div className="w-full max-w-[calc(100vw-2rem)] md:max-w-[calc(100vw-2rem)] overflow-hidden">
+                    <div className={`bg-white rounded-lg shadow-sm border border-gray-100 relative z-0 ${isFullscreen ? 'mt-0 flex-1 min-h-0' : 'mt-4'}`}>
+                        <div
+                            className={`${
+                                isFullscreen
+                                    ? 'h-[calc(100vh-210px)] min-h-0 overflow-auto'
+                                    : 'w-full max-w-[calc(100vw-2rem)] md:max-w-[calc(100vw-2rem)] overflow-auto'
+                            }`}
+                        >
                             <Table
-                                columns={columns}
-                                dataSource={data}
+                                columns={tableColumns}
+                                dataSource={tableData}
                                 loading={loading}
                                 bordered
                                 size="small"
                                 scroll={{
                                     x: 'max-content',
+                                    y: isFullscreen ? 'calc(100vh - 270px)' : 600,
                                 }}
                                 pagination={false}
                                 sticky
+                                expandable={viewMode === 'normal' ? { defaultExpandAllRows: true } : undefined}
+                                rowClassName={(record) => {
+                                    const rowType = String(record.transpose_row_type || '');
+                                    if (rowType === 'month') return 'bg-gray-100 font-semibold';
+                                    return '';
+                                }}
                                 className="[&_.ant-table-cell]:text-[12px]! [&_.ant-table-cell]:py-1!"
                             />
                         </div>

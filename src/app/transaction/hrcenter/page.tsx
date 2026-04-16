@@ -3,6 +3,8 @@
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import ExcelJS from 'exceljs';
+import { saveExcelFile } from '@/utils/fileDownload';
 import {
   ChevronDown,
   ClockAlert,
@@ -11,6 +13,7 @@ import {
   Send,
   Settings,
   Check,
+  Loader2,
 } from 'lucide-react';
 import { useState, useRef, useEffect, useMemo, useSyncExternalStore } from 'react';
 
@@ -52,6 +55,10 @@ interface HRCenterItem {
   UnitAbbr: string;
   UnitLevelName: string;
   BGName: string;
+  StrgFlag?: number | string;
+  BSType?: number | string;
+  SpecFlag?: number | string;
+  LineStaffFlag?: number | string;
 
   amount_1: number;
   amount_2: number;
@@ -87,12 +94,30 @@ interface HRCenterItem {
 
   c_amount_subcontact?: string;
   c_total_amount?: string;
+  hc_grand_total?: number | string;
+  man_amount?: number | string;
+  f_amount?: number | string;
+  FAmount?: number | string;
+  people_total?: number;
+  recruit_total?: number;
 
   chkamount: number;
   note: string;
   ConclusionNo: string;
   PoolRsFlag: number;
   SapStatus: string;
+}
+
+interface Report3MatchRow {
+  OrgUnitNo?: string;
+  PoolRsFlag?: number | string;
+  StrgFlag?: number | string;
+  BSType?: number | string;
+  SpecFlag?: number | string;
+  LineStaffFlag?: number | string;
+  hc_grand_total?: number | string;
+  f_amount?: number | string;
+  FAmount?: number | string;
 }
 
 
@@ -266,6 +291,65 @@ const truncateText = (text: string | null | undefined, max: number) => {
   return text.substring(0, max) + "...";
 };
 
+const toNumber = (value: unknown): number => {
+  if (value === null || value === undefined || value === '') return 0;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const getAnyFieldValue = (obj: unknown, fieldNames: string[]): unknown => {
+  if (!obj || typeof obj !== 'object') return undefined;
+  const record = obj as Record<string, unknown>;
+  for (const fieldName of fieldNames) {
+    if (record[fieldName] !== undefined) {
+      return record[fieldName];
+    }
+  }
+  return undefined;
+};
+
+const normalizeText = (value: unknown): string => String(value ?? '').trim();
+
+const buildRowKey = (row: {
+  OrgUnitNo?: string;
+  PoolRsFlag?: number | string;
+  StrgFlag?: number | string;
+  BSType?: number | string;
+  SpecFlag?: number | string;
+  LineStaffFlag?: number | string;
+}) => [
+  normalizeText(row.OrgUnitNo),
+  toNumber(row.PoolRsFlag),
+  toNumber(row.StrgFlag),
+  toNumber(row.BSType),
+  toNumber(row.SpecFlag),
+  toNumber(row.LineStaffFlag),
+].join('|');
+
+const getPeopleTotal = (item: HRCenterItem): number => {
+  if (item.people_total !== undefined) return toNumber(item.people_total);
+  const peopleByAlias = getAnyFieldValue(item, ['man_amount', 'Man_Amount', 'MAN_AMOUNT', 'manAmount', 'ManAmount']);
+  if (peopleByAlias !== undefined) return toNumber(peopleByAlias);
+  if (item.man_amount !== undefined) return toNumber(item.man_amount);
+  const hcByAlias = getAnyFieldValue(item, ['hc_grand_total', 'HC_Grand_Total', 'HC_GRAND_TOTAL', 'hcGrandTotal']);
+  return toNumber(hcByAlias);
+};
+
+const getRecruitTotal = (item: HRCenterItem): number => {
+  if (item.recruit_total !== undefined) return toNumber(item.recruit_total);
+  const recruitByAlias = getAnyFieldValue(item, ['f_amount', 'F_Amount', 'F_AMOUNT', 'FAmount', 'fAmount']);
+  return toNumber(recruitByAlias);
+};
+
+const getBlankTotal = (item: HRCenterItem): number => toNumber(item.total_amount) - getPeopleTotal(item);
+const isPoolNormal = (value: unknown): boolean => toNumber(value) === 0;
+
+const containsText = (source: unknown, query: string): boolean => {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return normalizeText(source).toLowerCase().includes(q);
+};
+
 export default function HRCenterPage() {
   const years = useSyncExternalStore(emptySubscribe, getClientYearsSnapshot, getServerYearsSnapshot);
 
@@ -283,6 +367,15 @@ export default function HRCenterPage() {
   const [selectedBusinessUnits, setSelectedBusinessUnits] = useState<string[]>([]);
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
   const [searchSapStatus, setSearchSapStatus] = useState('');
+  const [headerFilters, setHeaderFilters] = useState({
+    divisionCode: '',
+    divisionName: '',
+    divisionShortName: '',
+    managementType: '',
+    headcountType: '',
+    resolutionNumber: '',
+    notes: '',
+  });
 
   // Define distinct keys for visibility toggling
   const [visibleColumns, setVisibleColumns] = useState({
@@ -301,6 +394,7 @@ export default function HRCenterPage() {
     total: true,
     contract: true,
     contractSubcontract: true,
+    people: true,
     find: true,
     blank: true,
     resolutionNumber: true, // เลขที่มติ (mapped from remark)
@@ -333,7 +427,7 @@ export default function HRCenterPage() {
     const keys = [
       'level21', 'level18_20', 'level16_17', 'level14_15', 
       'level11_13', 'level9_10', 'level4_8', 
-      'total', 'contract', 'contractSubcontract', 'find', 'blank'
+      'total', 'contract', 'contractSubcontract', 'people', 'find', 'blank'
     ] as const;
     // Check strictly against the keys in visibleColumns
     return keys.filter(k => visibleColumns[k]).length;
@@ -356,6 +450,7 @@ export default function HRCenterPage() {
     total: 'รวม',
     contract: 'Contract',
     contractSubcontract: 'Contract สัญญาย่อย',
+    people: 'คน',
     find: 'สรรหา',
     blank: 'ว่าง',
     resolutionNumber: 'เลขที่มติ',
@@ -365,9 +460,13 @@ export default function HRCenterPage() {
 
   // Fetch dynamic data
   const [departmentData, setDepartmentData] = useState<HRCenterItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const report3CacheRef = useRef<Map<string, Report3MatchRow[]>>(new Map());
 
   useEffect(() => {
+    let isActive = true;
     const fetchData = async () => {
+      setIsLoading(true);
       try {
         let employeeId = 'SYSTEM';
         const userDataStr = localStorage.getItem('user_data');
@@ -382,19 +481,141 @@ export default function HRCenterPage() {
         
         const userGroupNo = localStorage.getItem('selected_usergroup') || '05';
 
-        const url = `/api/transactions/hrcenter?viewMode=${viewMode === 'all' ? 'all' : 'department'}&effectiveMonth=${encodeURIComponent(selectedMonth)}&effectiveYear=${encodeURIComponent(selectedYear)}&employeeId=${encodeURIComponent(employeeId)}&userGroupNo=${encodeURIComponent(userGroupNo)}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const json = await res.json();
-          setDepartmentData(json.data || []);
-        } else {
+        const monthIndex = months.indexOf(selectedMonth) + 1;
+        const yearAD = Number(selectedYear) - 543;
+        const effectiveDate = `${yearAD}-${String(monthIndex).padStart(2, '0')}-01`;
+
+        const hrcenterUrl = `/api/transactions/hrcenter?viewMode=${viewMode === 'all' ? 'all' : 'department'}&effectiveMonth=${encodeURIComponent(selectedMonth)}&effectiveYear=${encodeURIComponent(selectedYear)}&employeeId=${encodeURIComponent(employeeId)}&userGroupNo=${encodeURIComponent(userGroupNo)}`;
+        const report3Url = `/api/report/report3?effectiveDate=${encodeURIComponent(effectiveDate)}&employeeId=${encodeURIComponent(employeeId)}&userGroupNo=${encodeURIComponent(userGroupNo)}&reportType=0`;
+        const reportCacheKey = `${effectiveDate}|${employeeId}|${userGroupNo}`;
+        const cachedReportRows = report3CacheRef.current.get(reportCacheKey);
+
+        const hrcenterRes = await fetch(hrcenterUrl);
+
+        if (!hrcenterRes.ok) {
           console.error("Failed to fetch hrcenter data");
+          return;
+        }
+
+        const hrcenterJson = await hrcenterRes.json();
+        const hrcenterRows: HRCenterItem[] = Array.isArray(hrcenterJson.data) ? hrcenterJson.data : [];
+
+        // If backend already returns people/recruit fields from hrcenter SP, skip report3 merge entirely.
+        const hasPeopleRecruitFromHRCenter = hrcenterRows.length > 0 && hrcenterRows.every((row) => {
+          const hasPeople =
+            getAnyFieldValue(row, ['people_total', 'People_Total', 'man_amount', 'Man_Amount', 'MAN_AMOUNT', 'hc_grand_total', 'HC_Grand_Total']) !== undefined;
+          const hasRecruit =
+            getAnyFieldValue(row, ['recruit_total', 'Recruit_Total', 'f_amount', 'F_Amount', 'F_AMOUNT', 'FAmount']) !== undefined;
+          return hasPeople && hasRecruit;
+        });
+        if (hasPeopleRecruitFromHRCenter) {
+          if (isActive) {
+            setDepartmentData(hrcenterRows.map((row) => ({
+              ...row,
+              people_total: getPeopleTotal(row),
+              recruit_total: getRecruitTotal(row),
+            })));
+          }
+          return;
+        }
+
+        let report3Rows: Report3MatchRow[] | null = cachedReportRows ?? null;
+        if (!report3Rows) {
+          const reportRes = await fetch(report3Url);
+          if (reportRes.ok) {
+            const reportJson = await reportRes.json();
+            const parsedRows: Report3MatchRow[] = Array.isArray(reportJson.data) ? reportJson.data : [];
+            report3Rows = parsedRows;
+            report3CacheRef.current.set(reportCacheKey, parsedRows);
+          } else {
+            report3Rows = null;
+          }
+        }
+
+        if (!report3Rows) {
+          console.warn("Failed to fetch report3 data, use hrcenter data only");
+          if (isActive) {
+            setDepartmentData(hrcenterRows);
+          }
+          return;
+        }
+
+        const reportByFullKey = new Map<string, { people_total: number; recruit_total: number }>();
+        const reportByNormalOrg = new Map<string, { people_total: number; recruit_total: number }>();
+
+        const addToMap = (
+          map: Map<string, { people_total: number; recruit_total: number }>,
+          key: string,
+          people: number,
+          recruit: number
+        ) => {
+          if (!key) return;
+          const prev = map.get(key) || { people_total: 0, recruit_total: 0 };
+          map.set(key, {
+            people_total: prev.people_total + people,
+            recruit_total: prev.recruit_total + recruit,
+          });
+        };
+
+        report3Rows.forEach((row) => {
+          if (!isPoolNormal(row.PoolRsFlag)) return;
+          const people = toNumber(row.hc_grand_total);
+          const recruit = toNumber(row.f_amount ?? row.FAmount);
+          const fullKey = buildRowKey(row);
+          const orgKey = normalizeText(row.OrgUnitNo);
+
+          addToMap(reportByFullKey, fullKey, people, recruit);
+          addToMap(reportByNormalOrg, orgKey, people, recruit);
+        });
+
+        const normalRowCountByOrg = new Map<string, number>();
+        const normalRowCountByFullKey = new Map<string, number>();
+        hrcenterRows.forEach((row) => {
+          if (!isPoolNormal(row.PoolRsFlag)) return;
+          const orgKey = normalizeText(row.OrgUnitNo);
+          const fullKey = buildRowKey(row);
+          normalRowCountByOrg.set(orgKey, (normalRowCountByOrg.get(orgKey) || 0) + 1);
+          normalRowCountByFullKey.set(fullKey, (normalRowCountByFullKey.get(fullKey) || 0) + 1);
+        });
+
+        const mergedRows = hrcenterRows.map((row) => {
+          if (!isPoolNormal(row.PoolRsFlag)) {
+            return {
+              ...row,
+              people_total: toNumber(row.hc_grand_total),
+              recruit_total: toNumber(row.f_amount ?? row.FAmount),
+            };
+          }
+
+          const fullKey = buildRowKey(row);
+          const orgKey = normalizeText(row.OrgUnitNo);
+          const allowFullKeyMatch = (normalRowCountByFullKey.get(fullKey) || 0) === 1;
+          const matchedByFull = allowFullKeyMatch ? reportByFullKey.get(fullKey) : undefined;
+          const allowOrgFallback = (normalRowCountByOrg.get(orgKey) || 0) === 1;
+          const matched = matchedByFull || (allowOrgFallback ? reportByNormalOrg.get(orgKey) : undefined);
+
+          return {
+            ...row,
+            people_total: matched ? matched.people_total : toNumber(row.hc_grand_total),
+            recruit_total: matched ? matched.recruit_total : toNumber(row.f_amount ?? row.FAmount),
+          };
+        });
+
+        if (isActive) {
+          setDepartmentData(mergedRows);
         }
       } catch (error) {
         console.error("Error fetching hrcenter data:", error);
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+        }
       }
     };
     fetchData();
+    return () => {
+      isActive = false;
+    };
   }, [viewMode, selectedMonth, selectedYear]);
 
   // 1. Get Unique Options
@@ -423,9 +644,31 @@ export default function HRCenterPage() {
       if (searchSapStatus && item.SapStatus !== searchSapStatus) {
         return false;
       }
+      // Header text filters
+      if (!containsText(item.OrgUnitNo, headerFilters.divisionCode)) {
+        return false;
+      }
+      if (!containsText(item.UnitName, headerFilters.divisionName)) {
+        return false;
+      }
+      if (!containsText(item.UnitAbbr, headerFilters.divisionShortName)) {
+        return false;
+      }
+      if (!containsText(item.UnitLevelName, headerFilters.managementType)) {
+        return false;
+      }
+      if (!containsText(item.BGName, headerFilters.headcountType)) {
+        return false;
+      }
+      if (!containsText(item.ConclusionNo, headerFilters.resolutionNumber)) {
+        return false;
+      }
+      if (!containsText(item.note, headerFilters.notes)) {
+        return false;
+      }
       return true;
     });
-  }, [departmentData, selectedBusinessUnits, selectedDepartments, searchSapStatus]);
+  }, [departmentData, selectedBusinessUnits, selectedDepartments, searchSapStatus, headerFilters]);
 
 
   // Calculate totals
@@ -442,6 +685,7 @@ export default function HRCenterPage() {
         total: acc.total + (dept.total_amount || 0),
         contract: acc.contract + (dept.amount_8 || 0),
         contractSubcontract: acc.contractSubcontract + (dept.amount_subcontact || 0),
+        people: acc.people + getPeopleTotal(dept),
         t_level21: acc.t_level21 + Number(dept.t_amount_1 || 0),
         t_level18_20: acc.t_level18_20 + Number(dept.t_amount_2 || 0),
         t_level16_17: acc.t_level16_17 + Number(dept.t_amount_3 || 0),
@@ -462,8 +706,8 @@ export default function HRCenterPage() {
         c_total: acc.c_total + Number(dept.chkamount || 0),
         c_contract: acc.c_contract + Number(dept.c_amount_8 || 0),
         c_contractSubcontract: acc.c_contractSubcontract + Number(dept.c_amount_10 || 0),
-        find: 0,
-        blank: 0,
+        find: acc.find + getRecruitTotal(dept),
+        blank: acc.blank + getBlankTotal(dept),
       }),
       {
         level21: 0,
@@ -476,6 +720,7 @@ export default function HRCenterPage() {
         total: 0,
         contract: 0,
         contractSubcontract: 0,
+        people: 0,
         t_level21: 0,
         t_level18_20: 0,
         t_level16_17: 0,
@@ -505,6 +750,87 @@ export default function HRCenterPage() {
   const totals = calculateTotals();
 
   const levelColSpan = getLevelGroupColSpan();
+
+  const handleExportExcel = async () => {
+    try {
+      if (filteredData.length === 0) return;
+
+      const exportColumns: Array<{
+        key: keyof typeof visibleColumns;
+        label: string;
+        value: (item: HRCenterItem) => string | number;
+        summary?: () => string | number;
+      }> = [
+        { key: 'divisionCode', label: 'รหัสหน่วยงาน', value: (item) => item.OrgUnitNo, summary: () => 'รวม' },
+        { key: 'divisionName', label: 'ชื่อหน่วยงาน', value: (item) => item.UnitName },
+        { key: 'divisionShortName', label: 'ชื่อย่อ', value: (item) => item.UnitAbbr },
+        { key: 'managementType', label: 'ระดับหน่วยงาน', value: (item) => item.UnitLevelName },
+        { key: 'headcountType', label: 'หน่วยธุรกิจ', value: (item) => item.BGName },
+        { key: 'level21', label: '21', value: (item) => toNumber(item.amount_1), summary: () => totals.level21 },
+        { key: 'level18_20', label: '18-20', value: (item) => toNumber(item.amount_2), summary: () => totals.level18_20 },
+        { key: 'level16_17', label: '16-17', value: (item) => toNumber(item.amount_3), summary: () => totals.level16_17 },
+        { key: 'level14_15', label: '14-15', value: (item) => toNumber(item.amount_4), summary: () => totals.level14_15 },
+        { key: 'level11_13', label: '11-13', value: (item) => toNumber(item.amount_5), summary: () => totals.level11_13 },
+        { key: 'level9_10', label: '9-10', value: (item) => toNumber(item.amount_6), summary: () => totals.level9_10 },
+        { key: 'level4_8', label: '4-8', value: (item) => toNumber(item.amount_7), summary: () => totals.level4_8 },
+        { key: 'total', label: 'รวม', value: (item) => toNumber(item.total_amount), summary: () => totals.total },
+        { key: 'contract', label: 'Contract', value: (item) => toNumber(item.amount_8), summary: () => totals.contract },
+        { key: 'contractSubcontract', label: 'Contract สัญญาย่อย', value: (item) => toNumber(item.amount_subcontact), summary: () => totals.contractSubcontract },
+        { key: 'people', label: 'คน', value: (item) => getPeopleTotal(item), summary: () => totals.people },
+        { key: 'find', label: 'สรรหา', value: (item) => getRecruitTotal(item), summary: () => totals.find },
+        { key: 'blank', label: 'ว่าง', value: (item) => getBlankTotal(item), summary: () => totals.blank },
+        { key: 'resolutionNumber', label: 'เลขที่มติ', value: (item) => item.ConclusionNo || '' },
+        { key: 'notes', label: 'หมายเหตุ', value: (item) => item.note || '' },
+        { key: 'sapStatusColumn', label: 'SAP Status', value: (item) => item.SapStatus || '' },
+      ];
+
+      const activeColumns = exportColumns.filter((col) => visibleColumns[col.key]);
+      if (activeColumns.length === 0) return;
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('HRCenter');
+
+      worksheet.addRow(activeColumns.map((col) => col.label));
+
+      filteredData.forEach((item) => {
+        worksheet.addRow(activeColumns.map((col) => col.value(item)));
+      });
+
+      worksheet.addRow(activeColumns.map((col) => (col.summary ? col.summary() : '')));
+
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.eachCell((cell) => {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE5E7EB' },
+        };
+      });
+
+      const summaryRow = worksheet.getRow(worksheet.rowCount);
+      summaryRow.font = { bold: true };
+
+      worksheet.columns.forEach((column) => {
+        let maxLength = 12;
+        column.eachCell?.({ includeEmpty: true }, (cell) => {
+          const raw = cell.value;
+          const text = typeof raw === 'object' ? JSON.stringify(raw) : String(raw ?? '');
+          maxLength = Math.max(maxLength, Math.min(60, text.length + 2));
+        });
+        column.width = maxLength;
+      });
+
+      const monthIndex = months.indexOf(selectedMonth) + 1;
+      const yearAD = Number(selectedYear) - 543;
+      const filename = `transaction_hrcenter_${yearAD}${String(monthIndex).padStart(2, '0')}.xlsx`;
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      await saveExcelFile(buffer, filename);
+    } catch (error) {
+      console.error('Error exporting hrcenter excel:', error);
+    }
+  };
 
   return (
     <Main currentPath="/transaction/hrcenter">
@@ -659,6 +985,8 @@ export default function HRCenterPage() {
     <Button
       variant="outline"
       size="icon"
+      onClick={handleExportExcel}
+      disabled={isLoading || filteredData.length === 0}
       className="h-9 w-9 rounded-full text-green-600 border-gray-200 hover:bg-green-50 hover:border-green-200 hover:text-green-700"
     >
       <FileSpreadsheet className="h-5! w-5!" />
@@ -751,11 +1079,56 @@ export default function HRCenterPage() {
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="px-4 py-2"></th>
                       
-                      {visibleColumns.divisionCode && <th className="px-2 py-2"><input type="text" className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm" /></th>}
-                      {visibleColumns.divisionName && <th className="px-1 py-2"><input type="text" className="w-full min-w-[120px] px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm" /></th>}
-                      {visibleColumns.divisionShortName && <th className="px-1 py-2"><input type="text" className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm" /></th>}
-                      {visibleColumns.managementType && <th className="px-1 py-2"><input type="text" className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm" /></th>}
-                      {visibleColumns.headcountType && <th className="px-1 py-2"><input type="text" className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm" /></th>}
+                      {visibleColumns.divisionCode && (
+                        <th className="px-2 py-2">
+                          <input
+                            type="text"
+                            value={headerFilters.divisionCode}
+                            onChange={(e) => setHeaderFilters(prev => ({ ...prev, divisionCode: e.target.value }))}
+                            className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                          />
+                        </th>
+                      )}
+                      {visibleColumns.divisionName && (
+                        <th className="px-1 py-2">
+                          <input
+                            type="text"
+                            value={headerFilters.divisionName}
+                            onChange={(e) => setHeaderFilters(prev => ({ ...prev, divisionName: e.target.value }))}
+                            className="w-full min-w-[120px] px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                          />
+                        </th>
+                      )}
+                      {visibleColumns.divisionShortName && (
+                        <th className="px-1 py-2">
+                          <input
+                            type="text"
+                            value={headerFilters.divisionShortName}
+                            onChange={(e) => setHeaderFilters(prev => ({ ...prev, divisionShortName: e.target.value }))}
+                            className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                          />
+                        </th>
+                      )}
+                      {visibleColumns.managementType && (
+                        <th className="px-1 py-2">
+                          <input
+                            type="text"
+                            value={headerFilters.managementType}
+                            onChange={(e) => setHeaderFilters(prev => ({ ...prev, managementType: e.target.value }))}
+                            className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                          />
+                        </th>
+                      )}
+                      {visibleColumns.headcountType && (
+                        <th className="px-1 py-2">
+                          <input
+                            type="text"
+                            value={headerFilters.headcountType}
+                            onChange={(e) => setHeaderFilters(prev => ({ ...prev, headcountType: e.target.value }))}
+                            className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                          />
+                        </th>
+                      )}
 
                       {/* Level Inputs */}
                       {visibleColumns.level21 && <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-600 border-l border-gray-300 min-w-[50px]">21</th>}
@@ -768,18 +1141,29 @@ export default function HRCenterPage() {
                       {visibleColumns.total && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[50px]">รวม</th>}
                       {visibleColumns.contract && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[70px]">Contract</th>}
                       {visibleColumns.contractSubcontract && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[80px]">Contract<br />สัญญาย่อย</th>}
+                      {visibleColumns.people && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[50px]">คน</th>}
                       {visibleColumns.find && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[50px]">สรรหา</th>}
                       {visibleColumns.blank && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[50px]">ว่าง</th>}
 
                       {/* Split Columns Search Inputs */}
                       {visibleColumns.resolutionNumber && (
                         <th className="px-1 py-2 border-l border-gray-300 min-w-[120px]">
-                          <input type="text" className="w-20 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm" />
+                          <input
+                            type="text"
+                            value={headerFilters.resolutionNumber}
+                            onChange={(e) => setHeaderFilters(prev => ({ ...prev, resolutionNumber: e.target.value }))}
+                            className="w-20 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                          />
                         </th>
                       )}
                       {visibleColumns.notes && (
                         <th className="px-0 py-2">
-                          <input type="text" className="w-20 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm" />
+                          <input
+                            type="text"
+                            value={headerFilters.notes}
+                            onChange={(e) => setHeaderFilters(prev => ({ ...prev, notes: e.target.value }))}
+                            className="w-20 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                          />
                         </th>
                       )}
                       {/* SAP Status Search Select */}
@@ -828,8 +1212,9 @@ export default function HRCenterPage() {
                         {visibleColumns.total && <td className="px-1 py-3 text-xs text-center">{renderAmount(dept.total_amount, dept.t_total_amount, dept.chkamount)}</td>}
                         {visibleColumns.contract && <td className="px-1 py-3 text-xs text-center">{renderAmount(dept.amount_8, dept.t_amount_8, dept.c_amount_8)}</td>}
                         {visibleColumns.contractSubcontract && <td className="px-1 py-3 text-xs text-center">{renderAmount(dept.amount_subcontact, dept.t_amount_subcontact, dept.c_amount_10)}</td>}
-                        {visibleColumns.find && <td className="px-2 py-3 text-xs text-center text-gray-900">{0}</td>}
-                        {visibleColumns.blank && <td className="px-2 py-3 text-xs text-center text-gray-900">{0}</td>}
+                        {visibleColumns.people && <td className="px-2 py-3 text-xs text-center text-gray-900">{getPeopleTotal(dept)}</td>}
+                        {visibleColumns.find && <td className="px-2 py-3 text-xs text-center text-gray-900">{getRecruitTotal(dept)}</td>}
+                        {visibleColumns.blank && <td className="px-2 py-3 text-xs text-center text-gray-900">{getBlankTotal(dept)}</td>}
 
                         {/* Split Columns Data */}
                         {visibleColumns.resolutionNumber && (
@@ -887,6 +1272,7 @@ export default function HRCenterPage() {
                       {visibleColumns.total && <td className="px-0 py-3 text-xs text-center">{renderTotalAmount(totals.total, totals.t_total, totals.c_total)}</td>}
                       {visibleColumns.contract && <td className="px-0 py-3 text-xs text-center">{renderTotalAmount(totals.contract, totals.t_contract, totals.c_contract)}</td>}
                       {visibleColumns.contractSubcontract && <td className="px-0 py-3 text-xs text-center">{renderTotalAmount(totals.contractSubcontract, totals.t_contractSubcontract, totals.c_contractSubcontract)}</td>}
+                      {visibleColumns.people && <td className="px-0 py-3 text-xs text-center text-gray-900">{totals.people}</td>}
                       {visibleColumns.find && <td className="px-0 py-3 text-xs text-center text-gray-900">{totals.find}</td>}
                       {visibleColumns.blank && <td className="px-0 py-3 text-xs text-center text-gray-900">{totals.blank}</td>}
                       
@@ -903,6 +1289,14 @@ export default function HRCenterPage() {
                   </tfoot>
                 </table>
               </div>
+              {isLoading && (
+                <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/70 backdrop-blur-[1px]">
+                  <div className="flex items-center gap-2 rounded-md border border-blue-100 bg-white px-4 py-2 text-sm font-medium text-blue-700 shadow-sm">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    กำลังโหลดข้อมูล...
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 

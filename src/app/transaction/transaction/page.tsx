@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle, Trash2, X, Save, Menu, LogOut, ChevronDown, ChevronUp, Check, ChevronsUpDown, AlertCircle, ArrowRight, UserCircle, FileText, User, ShieldCheck, Users, LucideIcon, Info
 } from 'lucide-react';
-import { useState, useEffect, useSyncExternalStore } from 'react'; // Added useSyncExternalStore
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react'; // Added useSyncExternalStore
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
@@ -108,6 +108,8 @@ interface SavedTransaction {
   detailData: DetailFormData;
   createdAt: Date;
 }
+
+type ApproverFlowKey = 'TYPE2' | 'OTHERS';
 
 const uniqueSavedTransactions = (transactions: SavedTransaction[]): SavedTransaction[] => {
   const deduped = new Map<string, SavedTransaction>();
@@ -242,34 +244,62 @@ export default function TransactionPage() {
     startDate: null,
     endDate: null
   });
+  // Track whether the initial calendar check has completed to avoid flashing the "checking" indicator
+  const calendarCheckedOnce = useRef(false);
 
   // State for Request Modal
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // Store selected approver IDs per request group (Main Department)
+  // Store selected approver IDs per request group (Department + Flow)
   const [selectedApprovers, setSelectedApprovers] = useState<Record<string, string[]>>({});
-  // Dynamic approvers from CheckFlow API (Record keyed by deptId)
+  // Dynamic approvers from CheckFlow API (Record keyed by Department + Flow)
   const [dynamicApprovers, setDynamicApprovers] = useState<Record<string, ApproverUser[]>>({});
   // Track collapsed state for department cards
   const [collapsedDepts, setCollapsedDepts] = useState<Record<string, boolean>>({});
+
+  const getFlowKeyByType = (transactionType: TransactionTypeEnum | null): ApproverFlowKey =>
+    transactionType === 2 ? 'TYPE2' : 'OTHERS';
+  const getDeptFlowKey = (deptId: string, flowKey: ApproverFlowKey) => `${deptId}::${flowKey}`;
+  const getFlowDisplayName = (flowKey: ApproverFlowKey) =>
+    flowKey === 'TYPE2' ? 'Flow#2' : 'Flow#1';
 
   const toggleDeptCollapse = (deptId: string) => {
     setCollapsedDepts(prev => ({ ...prev, [deptId]: !prev[deptId] }));
   };
 
-  // Auto-collapse when all groups are selected for a department
+  // Auto-collapse when all flow groups are selected for a department
   useEffect(() => {
     if (!isRequestModalOpen) return;
+    const groupedDepts = savedTransactions.reduce((acc, tx) => {
+      const deptId = tx.transactionData.unitReceive;
+      if (!acc[deptId]) acc[deptId] = [];
+      acc[deptId].push(tx);
+      return acc;
+    }, {} as Record<string, SavedTransaction[]>);
 
     setCollapsedDepts(prevCollapsed => {
       const newCollapsedDepts = { ...prevCollapsed };
       let hasChanges = false;
 
-      Object.entries(dynamicApprovers).forEach(([deptId, dynamicList]) => {
-        const groups = Array.from(new Set(dynamicList.map(u => `${u.UnitSide}-${u.PermissionOrder}`)));
-        const isComplete = groups.length > 0 && groups.every(groupKey => {
-          const groupUsers = dynamicList.filter(u => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
-          return groupUsers.some(u => selectedApprovers[deptId]?.includes(u.EmployeeID));
+      Object.entries(groupedDepts).forEach(([deptId, txList]) => {
+        const flowKeys = Array.from(new Set(
+          txList
+            .filter((tx) => tx.transactionData.transactionType !== 5)
+            .map((tx) => getFlowKeyByType(tx.transactionData.transactionType))
+        ));
+        if (flowKeys.length === 0) return;
+
+        const isComplete = flowKeys.every((flowKey) => {
+          const scopeKey = getDeptFlowKey(deptId, flowKey);
+          const flowApprovers = (dynamicApprovers[scopeKey] || [])
+            .filter((u) => u.UserGroupNo !== '04' && !(u.UserGroupRole || '').toUpperCase().includes('HRPOLICY'));
+          const groups = Array.from(new Set(flowApprovers.map((u) => `${u.UnitSide}-${u.PermissionOrder}`)));
+          if (groups.length === 0) return false;
+
+          return groups.every((groupKey) => {
+            const groupUsers = flowApprovers.filter((u) => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
+            return groupUsers.some((u) => selectedApprovers[scopeKey]?.includes(u.EmployeeID));
+          });
         });
 
         // If it's freshly completed and not already collapsed, collapse it
@@ -281,7 +311,7 @@ export default function TransactionPage() {
 
       return hasChanges ? newCollapsedDepts : prevCollapsed;
     });
-  }, [selectedApprovers, dynamicApprovers, isRequestModalOpen]);
+  }, [selectedApprovers, dynamicApprovers, isRequestModalOpen, savedTransactions]);
 
   // Alert Modal State
   const [alertInfo, setAlertInfo] = useState<{ show: boolean, title: string, message: string, type: 'success' | 'error' | 'warning' | 'info' }>({ show: false, title: '', message: '', type: 'info' });
@@ -440,6 +470,7 @@ export default function TransactionPage() {
 
       if (selectedMonthIndex < 0 || !selectedYearAd) {
         if (!isMounted) return;
+        calendarCheckedOnce.current = true;
         setCalendarWindowState({
           isChecking: false,
           isAllowed: false,
@@ -491,6 +522,7 @@ export default function TransactionPage() {
 
         if (!startDates.length || !endDates.length) {
           if (!isMounted) return;
+          calendarCheckedOnce.current = true;
           setCalendarWindowState({
             isChecking: false,
             isAllowed: false,
@@ -506,6 +538,7 @@ export default function TransactionPage() {
 
         if (startDate.getTime() > endDate.getTime()) {
           if (!isMounted) return;
+          calendarCheckedOnce.current = true;
           setCalendarWindowState({
             isChecking: false,
             isAllowed: false,
@@ -520,6 +553,7 @@ export default function TransactionPage() {
         const isAllowed = now.getTime() >= startDate.getTime() && now.getTime() <= endDate.getTime();
 
         if (!isMounted) return;
+        calendarCheckedOnce.current = true;
         setCalendarWindowState({
           isChecking: false,
           isAllowed,
@@ -532,6 +566,7 @@ export default function TransactionPage() {
       } catch (error) {
         console.error('Error validating calendar window:', error);
         if (!isMounted) return;
+        calendarCheckedOnce.current = true;
         setCalendarWindowState({
           isChecking: false,
           isAllowed: false,
@@ -929,7 +964,6 @@ export default function TransactionPage() {
       if (!formData.unitReceive) return false;
       if (!detailFormData.amount || detailFormData.amount <= 0) return false;
       if (!detailFormData.conclusionNo || !detailFormData.conclusionDate) return false;
-      if (formData.lineStaffFlag === 0) return false;
       if (formData.poolRsFlag === 2 && (formData.strgFlag == null || formData.bsType == null || formData.bsType === 0)) return false;
 
       if (activeTab === 1 || activeTab === 2 || activeTab === 6) {
@@ -1170,11 +1204,16 @@ export default function TransactionPage() {
       const approversData: Record<string, ApproverUser[]> = {};
 
       for (const [deptId, txList] of Object.entries(groupedDepts)) {
-        approversData[deptId] = [];
-        
-        // We fetch for each transaction type in this dept
+        const touchedScopeKeys = new Set<string>();
+
+        // We fetch by flow in each dept (Type 2 flow vs other flow)
         for (const tx of txList) {
           if (tx.transactionData.transactionType === 5) continue; // skip remarks
+
+          const flowKey = getFlowKeyByType(tx.transactionData.transactionType);
+          const scopeKey = getDeptFlowKey(deptId, flowKey);
+          touchedScopeKeys.add(scopeKey);
+          if (!approversData[scopeKey]) approversData[scopeKey] = [];
 
           const jobType = tx.transactionData.transactionType === 2 ? 2 : 1;
           const userGroupReceive = defaultUserGroup;
@@ -1205,20 +1244,33 @@ export default function TransactionPage() {
           if (resp.ok) {
             const data = await resp.json();
             if (data.data?.length > 0) {
-              approversData[deptId] = [...approversData[deptId], ...data.data];
+              approversData[scopeKey] = [...approversData[scopeKey], ...data.data];
             }
           }
         }
-        
-        // Remove duplicates by EmployeeID
-        const uniqueSet = new Set();
-        approversData[deptId] = approversData[deptId].filter((item) => {
-          const isDuplicate = uniqueSet.has(item.EmployeeID);
-          uniqueSet.add(item.EmployeeID);
-          return !isDuplicate;
-        });
+
+        // Remove duplicates by EmployeeID within each Department+Flow
+        for (const scopeKey of touchedScopeKeys) {
+          const uniqueSet = new Set();
+          approversData[scopeKey] = (approversData[scopeKey] || []).filter((item) => {
+            const isDuplicate = uniqueSet.has(item.EmployeeID);
+            uniqueSet.add(item.EmployeeID);
+            return !isDuplicate;
+          });
+        }
       }
 
+      setSelectedApprovers((prev) => {
+        const keep: Record<string, string[]> = {};
+        Object.keys(approversData).forEach((key) => {
+          const currentSelections = prev[key] || [];
+          const validSelections = currentSelections.filter((id) =>
+            (approversData[key] || []).some((approver) => approver.EmployeeID === id)
+          );
+          if (validSelections.length > 0) keep[key] = validSelections;
+        });
+        return keep;
+      });
       setDynamicApprovers(approversData);
       setIsRequestModalOpen(true);
     } catch (e) {
@@ -1232,39 +1284,48 @@ export default function TransactionPage() {
       return;
     }
 
-    const activeDepts = Object.keys(getTransactionsByDept());
-    const missingDepts: string[] = [];
+    const groupedDepts = getTransactionsByDept();
+    const missingScopes: string[] = [];
 
-    for (const deptId of activeDepts) {
-      const dynamicList = dynamicApprovers[deptId] || [];
-      const filteredDynamicList = dynamicList.filter(u => u.UserGroupNo !== '04' && !(u.UserGroupRole || '').toUpperCase().includes('HRPOLICY'));
-      const approverGroupKeys = Array.from(new Set(filteredDynamicList.map(u => `${u.UnitSide}-${u.PermissionOrder}`)));
-      
-      if (approverGroupKeys.length === 0) {
-        missingDepts.push(deptId);
-        continue;
-      }
+    for (const [deptId, txList] of Object.entries(groupedDepts)) {
+      const flowKeys = Array.from(new Set(
+        txList
+          .filter((tx) => tx.transactionData.transactionType !== 5)
+          .map((tx) => getFlowKeyByType(tx.transactionData.transactionType))
+      ));
 
-      let isAllGroupsSelected = true;
-      for (const groupKey of approverGroupKeys) {
-        const groupUsers = filteredDynamicList.filter(u => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
-        const hasSelectionInGroup = groupUsers.some(u => selectedApprovers[deptId]?.includes(u.EmployeeID));
-        if (!hasSelectionInGroup) {
-          isAllGroupsSelected = false;
-          break;
+      for (const flowKey of flowKeys) {
+        const scopeKey = getDeptFlowKey(deptId, flowKey);
+        const dynamicList = dynamicApprovers[scopeKey] || [];
+        const filteredDynamicList = dynamicList.filter((u) => u.UserGroupNo !== '04' && !(u.UserGroupRole || '').toUpperCase().includes('HRPOLICY'));
+        const approverGroupKeys = Array.from(new Set(filteredDynamicList.map((u) => `${u.UnitSide}-${u.PermissionOrder}`)));
+
+        if (approverGroupKeys.length === 0) {
+          missingScopes.push(`- ${getDepartmentName(deptId)} (${getFlowDisplayName(flowKey)})`);
+          continue;
         }
-      }
 
-      if (!isAllGroupsSelected) {
-        missingDepts.push(deptId);
+        let isAllGroupsSelected = true;
+        for (const groupKey of approverGroupKeys) {
+          const groupUsers = filteredDynamicList.filter((u) => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
+          const hasSelectionInGroup = groupUsers.some((u) => selectedApprovers[scopeKey]?.includes(u.EmployeeID));
+          if (!hasSelectionInGroup) {
+            isAllGroupsSelected = false;
+            break;
+          }
+        }
+
+        if (!isAllGroupsSelected) {
+          missingScopes.push(`- ${getDepartmentName(deptId)} (${getFlowDisplayName(flowKey)})`);
+        }
       }
     }
 
-    if (missingDepts.length > 0) {
+    if (missingScopes.length > 0) {
       setAlertInfo({ 
         show: true, 
         title: 'แจ้งเตือน', 
-        message: `กรุณาเลือกผู้อนุมัติ/ผู้รับ ให้ครบทุกกลุ่ม สำหรับหน่วยงาน:\n${missingDepts.map(d => `- ${getDepartmentName(d)}`).join('\n')}`, 
+        message: `กรุณาเลือกผู้อนุมัติ/ผู้รับ ให้ครบทุกกลุ่ม สำหรับ:\n${missingScopes.join('\n')}`, 
         type: 'warning' 
       });
       return;
@@ -1293,8 +1354,10 @@ export default function TransactionPage() {
 
       const itemsPayload = savedTransactions.map(tx => {
         const deptId = tx.transactionData.unitReceive;
-        const selectedEmpIds = selectedApprovers[deptId] || [];
-        const deptApprovers = dynamicApprovers[deptId] || [];
+        const flowKey = getFlowKeyByType(tx.transactionData.transactionType);
+        const scopeKey = getDeptFlowKey(deptId, flowKey);
+        const selectedEmpIds = selectedApprovers[scopeKey] || [];
+        const deptApprovers = dynamicApprovers[scopeKey] || [];
 
         const itemApproversList = selectedEmpIds.map(empId => deptApprovers.find(a => a.EmployeeID === empId))
           .filter(a => !!a);
@@ -1320,36 +1383,62 @@ export default function TransactionPage() {
 
         return {
           itemId: tx.id,
-          approvers: itemApprovers
+          approvers: itemApprovers,
+          flowKey
         };
       });
 
-      const payload = {
-        documentType: 1, // งาน Transaction
-        userGroupNo: userGroupNo || undefined,
-        items: itemsPayload,
-        createBy: employeeId
-      };
-
-      const resp = await fetch('/api/documents/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!resp.ok) {
-        let errStr = 'Failed to submit document';
-        try {
-           const errData = await resp.json();
-           if (errData.error) errStr += '\\n' + errData.error;
-           else if (errData.message) errStr += '\\n' + errData.message;
-        } catch {}
-        throw new Error(errStr);
+      const groupedByFlow = new Map<ApproverFlowKey, { itemId: string; approvers: typeof itemsPayload[number]['approvers'] }[]>();
+      for (const item of itemsPayload) {
+        const key = item.flowKey;
+        const current = groupedByFlow.get(key) || [];
+        current.push({ itemId: item.itemId, approvers: item.approvers });
+        groupedByFlow.set(key, current);
       }
 
-      setAlertInfo({ show: true, title: 'สำเร็จ', message: 'ส่งขออนุมัติเรียบร้อย!', type: 'success' });
+      const submittedDocumentNos: string[] = [];
+      for (const [flowKey, flowItems] of groupedByFlow.entries()) {
+        if (flowItems.length === 0) continue;
+
+        const payload = {
+          documentType: 1, // งาน Transaction
+          userGroupNo: userGroupNo || undefined,
+          items: flowItems,
+          createBy: employeeId
+        };
+
+        const resp = await fetch('/api/documents/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!resp.ok) {
+          let errStr = `Failed to submit document (${getFlowDisplayName(flowKey)})`;
+          try {
+            const errData = await resp.json();
+            if (errData.error) errStr += `\\n${errData.error}`;
+            else if (errData.message) errStr += `\\n${errData.message}`;
+          } catch { }
+          throw new Error(errStr);
+        }
+
+        try {
+          const submitData = await resp.json();
+          const documentNo = String(submitData?.documentNo || '').trim();
+          if (documentNo) submittedDocumentNos.push(documentNo);
+        } catch { }
+      }
+
+      const successMessage = submittedDocumentNos.length > 1
+        ? `ส่งขออนุมัติเรียบร้อย! (แยก ${submittedDocumentNos.length} เอกสาร: ${submittedDocumentNos.join(', ')})`
+        : 'ส่งขออนุมัติเรียบร้อย!';
+      setAlertInfo({ show: true, title: 'สำเร็จ', message: successMessage, type: 'success' });
       setIsSubmitConfirmModalOpen(false);
       setIsRequestModalOpen(false);
+      setDynamicApprovers({});
+      setSelectedApprovers({});
+      setCollapsedDepts({});
       
       // Clear drafts and reload to simulate them moving to Next Step (or just refresh page)
       setSavedTransactions([]);
@@ -1373,13 +1462,15 @@ export default function TransactionPage() {
     return grouped;
   };
 
-  const toggleApprover = (deptId: string, approverId: string) => {
+  const toggleApprover = (selectionKey: string, approverId: string, groupUserIds: string[]) => {
     setSelectedApprovers((prev) => {
-      const currentList = prev[deptId] || [];
+      const currentList = prev[selectionKey] || [];
       if (currentList.includes(approverId)) {
-        return { ...prev, [deptId]: currentList.filter((id) => id !== approverId) };
+        return { ...prev, [selectionKey]: currentList.filter((id) => id !== approverId) };
       } else {
-        return { ...prev, [deptId]: [...currentList, approverId] };
+        // Keep previous selections from other groups, but enforce single selection within this group.
+        const filteredCurrent = currentList.filter((id) => !groupUserIds.includes(id));
+        return { ...prev, [selectionKey]: [...filteredCurrent, approverId] };
       }
     });
   };
@@ -1439,7 +1530,7 @@ export default function TransactionPage() {
                     <option value="">เลือกประเภทการเปลี่ยนแปลง...</option>
                     {transactionTypes.map((type) => <option key={type.id} value={type.id}>{type.label}</option>)}
                   </select>
-                  {calendarWindowState.isChecking && (
+                  {calendarCheckedOnce.current && calendarWindowState.isChecking && (
                     <p className="text-xs text-blue-600 mt-2">กำลังตรวจสอบช่วงเวลาตามปฏิทิน...</p>
                   )}
                   {!calendarWindowState.isChecking && !calendarWindowState.isAllowed && (
@@ -1530,8 +1621,13 @@ export default function TransactionPage() {
                   </div>
 
                   <div className="mt-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Line / Staff <span className="text-red-500">*</span></label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Line / Staff</label>
                     <div className="flex flex-wrap gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="lineStaffType" value={0} checked={formData.lineStaffFlag === 0}
+                          onChange={() => setFormData({ ...formData, lineStaffFlag: 0 })} className="w-4 h-4 text-blue-600" />
+                        <span className="text-sm text-gray-700">None</span>
+                      </label>
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input type="radio" name="lineStaffType" value={1} checked={formData.lineStaffFlag === 1}
                           onChange={() => setFormData({ ...formData, lineStaffFlag: 1 })} className="w-4 h-4 text-blue-600" />
@@ -1974,66 +2070,91 @@ export default function TransactionPage() {
 
               <div className="p-6 overflow-y-auto flex-1 space-y-6 bg-gray-50">
                 {Object.entries(getTransactionsByDept()).map(([deptId, transactions]) => {
-                  const groupedByType = transactions.reduce((acc, curr) => {
-                    const type = curr.transactionData.transactionType as TransactionTypeEnum;
-                    if (type === 5) return acc;
-                    if (!acc[type]) acc[type] = [];
-                    acc[type].push(curr);
-                    return acc;
-                  }, {} as Record<TransactionTypeEnum, SavedTransaction[]>);
+                  const flowKeysInDept = Array.from(new Set(
+                    transactions
+                      .filter((tx) => tx.transactionData.transactionType !== 5)
+                      .map((tx) => getFlowKeyByType(tx.transactionData.transactionType))
+                  ));
 
-                  // Group dynamic approvers
-                  const dynamicList = dynamicApprovers[deptId] || [];
-                  const filteredDynamicList = dynamicList.filter(u => u.UserGroupNo !== '04' && !(u.UserGroupRole || '').toUpperCase().includes('HRPOLICY'));
-                  const approverGroups = Array.from(new Set(filteredDynamicList.map(u => `${u.UnitSide}-${u.PermissionOrder}`))).map(groupKey => {
-                    const groupUsers = filteredDynamicList.filter(u => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
-                    const sample = groupUsers[0];
-                    let title = '';
-                    let icon = User;
-                    let color = 'text-gray-600 bg-gray-50 border-gray-200';
+                  const flowBlocks = flowKeysInDept.map((flowKey) => {
+                    const selectionKey = getDeptFlowKey(deptId, flowKey);
+                    const flowTransactions = transactions.filter((tx) => {
+                      if (tx.transactionData.transactionType === 5) return false;
+                      return getFlowKeyByType(tx.transactionData.transactionType) === flowKey;
+                    });
+                    const groupedByType = flowTransactions.reduce((acc, curr) => {
+                      const type = curr.transactionData.transactionType as TransactionTypeEnum;
+                      if (!acc[type]) acc[type] = [];
+                      acc[type].push(curr);
+                      return acc;
+                    }, {} as Record<TransactionTypeEnum, SavedTransaction[]>);
 
-                    // Parse role string from backend, usually "HRUSER" or "HRVERIFY"
-                    const rawRole = sample.UserGroupRole || '';
-                    const roleLabel = rawRole.toUpperCase().includes('HRUSER') ? 'HR USER' : rawRole.toUpperCase().includes('HRVERIFY') ? 'HR VERIFY' : rawRole;
-                    
-                    const sideLabel = sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom' ? 'ฝั่งรับ' : 'ฝั่งให้';
-                    const unitName = sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom' ? getDepartmentName(sample.OrgUnitNo) : getUnitName(sample.OrgUnitNo);
+                    const dynamicList = dynamicApprovers[selectionKey] || [];
+                    const filteredDynamicList = dynamicList.filter((u) => u.UserGroupNo !== '04' && !(u.UserGroupRole || '').toUpperCase().includes('HRPOLICY'));
+                    const approverGroups = Array.from(new Set(filteredDynamicList.map((u) => `${u.UnitSide}-${u.PermissionOrder}`))).map((groupKey) => {
+                      const groupUsers = filteredDynamicList.filter((u) => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
+                      const sample = groupUsers[0];
+                      let title = '';
+                      let icon = User;
+                      let color = 'text-gray-600 bg-gray-50 border-gray-200';
 
-                    title = `${roleLabel} (${sideLabel}: ${unitName})`;
+                      // Parse role string from backend, usually "HRUSER" or "HRVERIFY"
+                      const rawRole = sample.UserGroupRole || '';
+                      const roleLabel = rawRole.toUpperCase().includes('HRUSER') ? 'HR USER' : rawRole.toUpperCase().includes('HRVERIFY') ? 'HR VERIFY' : rawRole;
 
-                    if (sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom') {
-                      icon = ShieldCheck;
-                      color = 'text-green-600 bg-green-50 border-green-200';
-                    } else if ((sample.UnitSide === 'UnitTransfer' || sample.UnitSide === 'UnitTo') && roleLabel === 'HR USER') {
-                      icon = User;
-                      color = 'text-blue-600 bg-blue-50 border-blue-200';
-                    } else if ((sample.UnitSide === 'UnitTransfer' || sample.UnitSide === 'UnitTo') && roleLabel === 'HR VERIFY') {
-                      icon = ShieldCheck;
-                      color = 'text-indigo-600 bg-indigo-50 border-indigo-200';
-                    }
+                      const sideLabel = sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom' ? 'ฝั่งรับ' : 'ฝั่งให้';
+                      const unitName = sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom' ? getDepartmentName(sample.OrgUnitNo) : getUnitName(sample.OrgUnitNo);
+
+                      title = `${roleLabel} (${sideLabel}: ${unitName})`;
+
+                      if (sample.UnitSide === 'UnitReceive' || sample.UnitSide === 'UnitFrom') {
+                        icon = ShieldCheck;
+                        color = 'text-green-600 bg-green-50 border-green-200';
+                      } else if ((sample.UnitSide === 'UnitTransfer' || sample.UnitSide === 'UnitTo') && roleLabel === 'HR USER') {
+                        icon = User;
+                        color = 'text-blue-600 bg-blue-50 border-blue-200';
+                      } else if ((sample.UnitSide === 'UnitTransfer' || sample.UnitSide === 'UnitTo') && roleLabel === 'HR VERIFY') {
+                        icon = ShieldCheck;
+                        color = 'text-indigo-600 bg-indigo-50 border-indigo-200';
+                      }
+
+                      return {
+                        title,
+                        icon,
+                        color,
+                        users: groupUsers.map((u) => {
+                          const rec = u as unknown as Record<string, string | undefined>;
+                          const gName = rec.UserGroupName || rec.userGroupName || rec.UsergroupName || rec.GroupName || rec.usergroupname || rec.Groupname || rec.groupName;
+                          const finalRole = gName && String(gName).trim() !== '' ? String(gName).trim() : `Group: ${u.UserGroupNo}`;
+
+                          return {
+                            id: u.EmployeeID,
+                            name: u.FullName,
+                            role: finalRole
+                          };
+                        })
+                      };
+                    });
+
+                    const isFlowComplete = approverGroups.length > 0 && approverGroups.every((group) =>
+                      group.users.some((user) => selectedApprovers[selectionKey]?.includes(user.id))
+                    );
+
+                    const flowTransactionCount = flowTransactions.length;
 
                     return {
-                      title,
-                      icon,
-                      color,
-                      users: groupUsers.map(u => {
-                        const rec = u as unknown as Record<string, string | undefined>;
-                        const gName = rec.UserGroupName || rec.userGroupName || rec.UsergroupName || rec.GroupName || rec.usergroupname || rec.Groupname || rec.groupName;
-                        const finalRole = gName && String(gName).trim() !== '' ? String(gName).trim() : `Group: ${u.UserGroupNo}`;
-                        
-                        return {
-                          id: u.EmployeeID,
-                          name: u.FullName,
-                          role: finalRole
-                        };
-                      })
+                      flowKey,
+                      flowName: getFlowDisplayName(flowKey),
+                      selectionKey,
+                      groupedByType,
+                      approverGroups,
+                      isFlowComplete,
+                      flowTransactionCount
                     };
                   });
 
-                  // Check if at least one person is selected for each approver group
-                  const isAllGroupsSelected = approverGroups.length > 0 && approverGroups.every(g => 
-                    g.users.some(u => selectedApprovers[deptId]?.includes(u.id))
-                  );
+                  // Check if at least one person is selected for each approver group in each flow
+                  const isAllGroupsSelected = flowBlocks.length > 0 && flowBlocks.every((section) => section.isFlowComplete);
 
                   const transactionCount = transactions.filter(t => t.transactionData.transactionType !== 5).length;
                   const isCollapsed = collapsedDepts[deptId] === true;
@@ -2056,73 +2177,104 @@ export default function TransactionPage() {
                       </div>
 
                       {!isCollapsed && (
-                        <div className="p-3 grid grid-cols-1 md:grid-cols-[60%_40%] gap-4 animate-in slide-in-from-top-2 duration-200">
-                          {/* LEFT: Transaction List */}
-                          <div className="space-y-4 border-r border-gray-100 pr-3">
-                          {Object.entries(groupedByType).map(([type, typeList]) => (
-                            <div key={type} className="mb-4">
-                              <div className="flex items-center gap-2 mb-2 pl-1">
-                                <span className="text-lg">📁</span>
-                                <h4 className="text-sm font-bold text-gray-700">{getTransactionTypeName(parseInt(type) as TransactionTypeEnum)}</h4>
-                                <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full font-medium">
-                                  {typeList.length}
-                                </span>
-                              </div>
-                              <div className={`rounded-md border-2 overflow-hidden ${getTitleColorClass(parseInt(type) as TransactionTypeEnum)}`}>
-                                <div className="divide-y divide-black/10">
-                                  {typeList.map((t, idx) => (
-                                    <div key={`${t.id}-${idx}`} className="p-2 hover:bg-white/20">
-                                      <div className="flex items-center gap-2 text-xs">
-                                        <span className="font-bold bg-white/80 px-1.5 rounded">#{idx + 1}</span>
-                                        <span className="text-xs leading-relaxed opacity-90">{generateTransactionDesc(t.transactionData, t.detailData)}</span>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* RIGHT: Approver Selection (Dynamic) */}
-                        <div className="pl-2 space-y-4">
-                          <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                            <Users className="w-4 h-4" /> เลือกผู้อนุมัติ
-                          </h3>
-
-                          {approverGroups.length === 0 ? (
-                            <div className="text-red-500 text-sm p-4 bg-red-50 rounded text-center">ไม่พบรายชื่อผู้อนุมัติที่เกี่ยวข้อง</div>
+                        <div className="p-3 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                          {flowBlocks.length === 0 ? (
+                            <div className="text-red-500 text-sm p-4 bg-red-50 rounded text-center">ไม่พบ Flow ที่ต้องขออนุมัติ</div>
                           ) : (
-                            approverGroups.map((group, groupIdx) => (
-                              <div key={groupIdx} className={`rounded-lg border overflow-hidden ${group.color}`}>
-                                <div className="px-3 py-2 bg-white/50 border-b border-inherit flex items-center gap-2">
-                                  <group.icon className="w-4 h-4 opacity-70" />
-                                  <span className="text-xs font-bold uppercase tracking-wider">{group.title}</span>
+                            flowBlocks.map((section) => (
+                              <div key={section.flowKey} className="rounded-lg border border-gray-200 overflow-hidden bg-white">
+                                <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 flex items-center justify-between">
+                                  <span className="text-sm font-bold text-blue-900">
+                                    {section.flowName}
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] bg-white border border-gray-300 px-2 py-0.5 rounded-full text-gray-600 font-semibold">
+                                      {section.flowTransactionCount} รายการ
+                                    </span>
+                                    {section.isFlowComplete && (
+                                      <span className="text-[10px] bg-green-100 border border-green-300 px-2 py-0.5 rounded-full text-green-700 font-semibold">
+                                        เลือกครบ
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
-                                <div className="p-2 space-y-2 bg-white">
-                                  {group.users.map((user) => {
-                                    const isSelected = (selectedApprovers[deptId] || []).includes(user.id);
-                                    return (
-                                      <label key={user.id} className={`flex items-center gap-3 p-2 rounded-md border cursor-pointer transition-all hover:shadow-sm
-                                                                        ${isSelected ? 'border-green-500 bg-green-50' : 'border-gray-100 hover:bg-gray-50'}`}>
-                                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0
-                                                                            ${isSelected ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}>
-                                          {isSelected && <CheckCircle className="w-3 h-3 text-white" />}
+
+                                <div className="p-3 grid grid-cols-1 md:grid-cols-[60%_40%] gap-4">
+                                  {/* LEFT: Transaction List (per flow) */}
+                                  <div className="space-y-4 border-r border-gray-100 pr-3">
+                                    {Object.entries(section.groupedByType).map(([type, typeList]) => (
+                                      <div key={type} className="mb-4">
+                                        <div className="flex items-center gap-2 mb-2 pl-1">
+                                          <span className="text-lg">📁</span>
+                                          <h4 className="text-sm font-bold text-gray-700">{getTransactionTypeName(parseInt(type) as TransactionTypeEnum)}</h4>
+                                          <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full font-medium">
+                                            {typeList.length}
+                                          </span>
                                         </div>
-                                        <input type="checkbox" className="hidden" checked={isSelected} onChange={() => toggleApprover(deptId, user.id)} />
-                                        <div className="min-w-0">
-                                          <p className="text-sm font-medium text-gray-700 truncate">{user.name}</p>
-                                          <p className="text-[10px] text-gray-400">{user.role}</p>
+                                        <div className={`rounded-md border-2 overflow-hidden ${getTitleColorClass(parseInt(type) as TransactionTypeEnum)}`}>
+                                          <div className="divide-y divide-black/10">
+                                            {typeList.map((t, idx) => (
+                                              <div key={`${t.id}-${idx}`} className="p-2 hover:bg-white/20">
+                                                <div className="flex items-center gap-2 text-xs">
+                                                  <span className="font-bold bg-white/80 px-1.5 rounded">#{idx + 1}</span>
+                                                  <span className="text-xs leading-relaxed opacity-90">{generateTransactionDesc(t.transactionData, t.detailData)}</span>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
                                         </div>
-                                      </label>
-                                    );
-                                  })}
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  {/* RIGHT: Approver Selection (per flow) */}
+                                  <div className="pl-2 space-y-4">
+                                    <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                                      <Users className="w-4 h-4" /> เลือกผู้อนุมัติ (กลุ่มละ 1 คน)
+                                    </h3>
+
+                                    {section.approverGroups.length === 0 ? (
+                                      <div className="text-red-500 text-sm p-4 bg-red-50 rounded text-center">ไม่พบรายชื่อผู้อนุมัติสำหรับ {section.flowName}</div>
+                                    ) : (
+                                      section.approverGroups.map((group, groupIdx) => (
+                                        <div key={groupIdx} className={`rounded-lg border overflow-hidden ${group.color}`}>
+                                          <div className="px-3 py-2 bg-white/50 border-b border-inherit flex items-center gap-2">
+                                            <group.icon className="w-4 h-4 opacity-70" />
+                                            <span className="text-xs font-bold uppercase tracking-wider">{group.title}</span>
+                                          </div>
+                                          <div className="p-2 space-y-2 bg-white">
+                                            {group.users.map((user) => {
+                                              const isSelected = (selectedApprovers[section.selectionKey] || []).includes(user.id);
+                                              return (
+                                                <label key={user.id} className={`flex items-center gap-3 p-2 rounded-md border cursor-pointer transition-all hover:shadow-sm
+                                                                                  ${isSelected ? 'border-green-500 bg-green-50' : 'border-gray-100 hover:bg-gray-50'}`}>
+                                                  <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0
+                                                                                      ${isSelected ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}>
+                                                    {isSelected && <CheckCircle className="w-3 h-3 text-white" />}
+                                                  </div>
+                                                  <input
+                                                    type="checkbox"
+                                                    className="hidden"
+                                                    checked={isSelected}
+                                                    onChange={() => toggleApprover(section.selectionKey, user.id, group.users.map((u) => u.id))}
+                                                  />
+                                                  <div className="min-w-0">
+                                                    <p className="text-sm font-medium text-gray-700 truncate">{user.name}</p>
+                                                    <p className="text-[10px] text-gray-400">{user.role}</p>
+                                                  </div>
+                                                </label>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             ))
                           )}
                         </div>
-                      </div>
                       )}
                     </div>
                   );

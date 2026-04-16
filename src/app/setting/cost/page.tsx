@@ -63,8 +63,7 @@ interface LevelOption {
     label: string;
 }
 
-const DEFAULT_PERIOD_FROM = dayjs().startOf('month');
-const DEFAULT_PERIOD_TO = dayjs().endOf('month');
+const DEFAULT_EFFECTIVE_DATE = dayjs();
 const DEFAULT_TEMPLATE_HEADERS = ['OrgUnitNo', 'LevelGroupNo', 'EffectiveDate', 'Note', 'Cost'];
 
 function getToken(): string {
@@ -168,8 +167,7 @@ function CostContent() {
 
     const [activeTab, setActiveTab] = useState('cost');
 
-    const [periodFrom, setPeriodFrom] = useState<Dayjs>(DEFAULT_PERIOD_FROM);
-    const [periodTo, setPeriodTo] = useState<Dayjs>(DEFAULT_PERIOD_TO);
+    const [effectiveDate, setEffectiveDate] = useState<Dayjs>(DEFAULT_EFFECTIVE_DATE);
 
     const [rows, setRows] = useState<CostRow[]>([]);
     const [loadingRows, setLoadingRows] = useState(false);
@@ -187,8 +185,7 @@ function CostContent() {
     const [importing, setImporting] = useState(false);
     const [downloadingTemplate, setDownloadingTemplate] = useState(false);
 
-    const [exportFrom, setExportFrom] = useState<Dayjs>(DEFAULT_PERIOD_FROM);
-    const [exportTo, setExportTo] = useState<Dayjs>(DEFAULT_PERIOD_TO);
+    const [exportEffectiveDate, setExportEffectiveDate] = useState<Dayjs>(DEFAULT_EFFECTIVE_DATE);
     const [exportingExcel, setExportingExcel] = useState(false);
     const modalEffectiveDate = Form.useWatch('effectiveDate', form);
     const tableAreaRef = useRef<HTMLDivElement>(null);
@@ -197,10 +194,11 @@ function CostContent() {
         window.setTimeout(() => event.target.select(), 0);
     };
 
-    const fetchCostData = useCallback(async (from: Dayjs, to: Dayjs) => {
+    const fetchCostData = useCallback(async (date: Dayjs) => {
         setLoadingRows(true);
         try {
-            const res = await getCostRecords(from.format('YYYY-MM-DD'), to.format('YYYY-MM-DD'), token);
+            const queryDate = date.format('YYYY-MM-DD');
+            const res = await getCostRecords(queryDate, queryDate, token);
             if (res?.success) {
                 setRows(normalizeCostRows(res.data));
             } else {
@@ -286,12 +284,8 @@ function CostContent() {
     }, [rows.length, selectedOrgUnitNo, activeTab]);
 
     const handleSearchCost = async () => {
-        if (periodFrom.isAfter(periodTo, 'day')) {
-            messageApi.warning('วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด');
-            return;
-        }
         setHasSearched(true);
-        await fetchCostData(periodFrom, periodTo);
+        await fetchCostData(effectiveDate);
     };
 
     const openAddModal = () => {
@@ -299,7 +293,7 @@ function CostContent() {
         form.setFieldsValue({
             orgUnitNo: selectedOrgUnitNo || '',
             levelGroupNo: '',
-            effectiveDate: periodTo,
+            effectiveDate,
             note: '',
             cost: 0
         });
@@ -364,7 +358,7 @@ function CostContent() {
                 });
                 closeModal();
                 if (hasSearched) {
-                    await fetchCostData(periodFrom, periodTo);
+                    await fetchCostData(effectiveDate);
                 }
             } else {
                 notification.error({
@@ -386,7 +380,7 @@ function CostContent() {
             if (res?.success) {
                 notification.success({ title: 'ลบข้อมูลสำเร็จ', description: 'ลบรายการ Cost เรียบร้อยแล้ว' });
                 if (hasSearched) {
-                    await fetchCostData(periodFrom, periodTo);
+                    await fetchCostData(effectiveDate);
                 }
             } else {
                 notification.error({
@@ -535,7 +529,7 @@ function CostContent() {
                 });
                 setSelectedImportFile(null);
                 if (hasSearched) {
-                    await fetchCostData(periodFrom, periodTo);
+                    await fetchCostData(effectiveDate);
                 }
             } else {
                 notification.error({
@@ -552,16 +546,12 @@ function CostContent() {
     };
 
     const handleDownloadExportExcel = async () => {
-        if (exportFrom.isAfter(exportTo, 'day')) {
-            messageApi.warning('วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด');
-            return;
-        }
-
         setExportingExcel(true);
         try {
+            const queryDate = exportEffectiveDate.format('YYYY-MM-DD');
             const response = await exportCostRecords(
-                exportFrom.format('YYYY-MM-DD'),
-                exportTo.format('YYYY-MM-DD'),
+                queryDate,
+                queryDate,
                 token
             );
 
@@ -608,7 +598,7 @@ function CostContent() {
             costCol.numFmt = '#,##0.00';
 
             const buffer = await workbook.xlsx.writeBuffer();
-            await saveExcelFile(buffer, `cost_export_${exportFrom.format('YYYYMMDD')}_${exportTo.format('YYYYMMDD')}.xlsx`);
+            await saveExcelFile(buffer, `cost_export_${exportEffectiveDate.format('YYYYMMDD')}.xlsx`);
             notification.success({ title: 'Export สำเร็จ', description: 'ดาวน์โหลดไฟล์ Excel เรียบร้อยแล้ว' });
         } catch (error) {
             console.error('Failed to export excel:', error);
@@ -725,20 +715,10 @@ function CostContent() {
                                 <Card className="shadow-sm border-slate-200" styles={{ body: { padding: '16px 20px' } }}>
                                     <div className="flex flex-wrap items-end gap-4">
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">Period From</label>
+                                            <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">Effective Date</label>
                                             <DatePicker
-                                                value={periodFrom}
-                                                onChange={(date) => setPeriodFrom(date || DEFAULT_PERIOD_FROM)}
-                                                format="YYYY-MM-DD"
-                                                allowClear={false}
-                                                className="w-[180px]"
-                                            />
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                            <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">Period To</label>
-                                            <DatePicker
-                                                value={periodTo}
-                                                onChange={(date) => setPeriodTo(date || DEFAULT_PERIOD_TO)}
+                                                value={effectiveDate}
+                                                onChange={(date) => setEffectiveDate(date || DEFAULT_EFFECTIVE_DATE)}
                                                 format="YYYY-MM-DD"
                                                 allowClear={false}
                                                 className="w-[180px]"
@@ -843,20 +823,10 @@ function CostContent() {
                                 <Card className="shadow-sm border-slate-200" styles={{ body: { padding: '16px 20px' } }}>
                                     <div className="flex flex-wrap items-end gap-4">
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">Period From</label>
+                                            <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">Effective Date</label>
                                             <DatePicker
-                                                value={exportFrom}
-                                                onChange={(date) => setExportFrom(date || DEFAULT_PERIOD_FROM)}
-                                                format="YYYY-MM-DD"
-                                                allowClear={false}
-                                                className="w-[180px]"
-                                            />
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                            <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">Period To</label>
-                                            <DatePicker
-                                                value={exportTo}
-                                                onChange={(date) => setExportTo(date || DEFAULT_PERIOD_TO)}
+                                                value={exportEffectiveDate}
+                                                onChange={(date) => setExportEffectiveDate(date || DEFAULT_EFFECTIVE_DATE)}
                                                 format="YYYY-MM-DD"
                                                 allowClear={false}
                                                 className="w-[180px]"

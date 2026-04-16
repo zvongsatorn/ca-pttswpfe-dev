@@ -8,9 +8,13 @@ import { getUserFromToken } from '@/utils/auth';
 import { fetchRetirementRates } from '@/services/retirementService';
 
 const API_BASE_URL = '';
+const DISPLAY_YEAR_COUNT = 5;
+const BUSINESS_TYPE_RATE = 1;
+const SUPPORT_TYPE_RATE = 2;
 
 interface RetirementDataType {
     key: string;
+    typeLabel: string;
     [year: string]: string;
 }
 
@@ -19,6 +23,7 @@ interface RateRecord {
     EffectiveYear: number;
     Year: number;
     Rate: number;
+    TypeRate?: number;
 }
 
 interface BadgeProps {
@@ -35,6 +40,19 @@ function Badge({ count, style }: BadgeProps) {
     return <span style={{ ...style, padding: '2px 10px', borderRadius: '15px', fontSize: '12px' }}>{count}</span>;
 }
 
+const createDefaultRows = (startYear: number): RetirementDataType[] => {
+    const businessRow: RetirementDataType = { key: `${BUSINESS_TYPE_RATE}`, typeLabel: 'Business' };
+    const supportRow: RetirementDataType = { key: `${SUPPORT_TYPE_RATE}`, typeLabel: 'Support' };
+
+    for (let i = 0; i < DISPLAY_YEAR_COUNT; i++) {
+        const year = (startYear + i).toString();
+        businessRow[year] = '0';
+        supportRow[year] = '0';
+    }
+
+    return [businessRow, supportRow];
+};
+
 function RetirementContent() {
     const { notification, modal } = App.useApp();
     const token = getToken();
@@ -49,14 +67,22 @@ function RetirementContent() {
     const toBE = (year: string | number) => { const y = typeof year === 'string' ? parseInt(year) : year; return y < 2500 ? y + 543 : y; };
 
     const processRates = useCallback((rates: RateRecord[]) => {
-        const data: RetirementDataType = { key: '1' };
-        if (rates && rates.length > 0) {
-            rates.forEach((r: RateRecord) => { data[toBE(r.Year).toString()] = r.Rate.toString(); });
-        } else {
-            const startYear = parseInt(selectedYear);
-            for (let i = 0; i < 5; i++) { data[(startYear + i).toString()] = '0'; }
-        }
-        setTableData([data]);
+        const startYear = parseInt(selectedYear, 10);
+        const nextRows = createDefaultRows(startYear);
+        const rowByType: Record<number, RetirementDataType> = {
+            [BUSINESS_TYPE_RATE]: nextRows[0],
+            [SUPPORT_TYPE_RATE]: nextRows[1],
+        };
+
+        rates.forEach((row) => {
+            const parsedTypeRate = Number(row.TypeRate);
+            const typeRate = parsedTypeRate === SUPPORT_TYPE_RATE ? SUPPORT_TYPE_RATE : BUSINESS_TYPE_RATE;
+            const targetRow = rowByType[typeRate];
+            if (!targetRow) return;
+            targetRow[toBE(row.Year).toString()] = row.Rate.toString();
+        });
+
+        setTableData(nextRows);
     }, [selectedYear]);
 
     const fetchData = useCallback(async () => {
@@ -70,17 +96,30 @@ function RetirementContent() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
-    const handleTableChange = (value: string, year: string) => {
-        setTableData(prev => { const newData = [...prev]; newData[0][year] = value; return newData; });
+    const handleTableChange = (value: string, rowKey: string, year: string) => {
+        setTableData((prev) =>
+            prev.map((row) => (row.key === rowKey ? { ...row, [year]: value } : row))
+        );
     };
 
     const handleSave = async () => {
         setLoading(true);
         try {
-            const startYearBE = parseInt(selectedYear);
-            const ratesRecord = tableData[0];
-            const rates = [];
-            for (let i = 0; i < 5; i++) { rates.push({ year: toAD(startYearBE + i), rate: parseFloat(ratesRecord[(startYearBE + i).toString()] || '0') }); }
+            const startYearBE = parseInt(selectedYear, 10);
+            const rates = tableData.flatMap((row) => {
+                const typeRate = parseInt(row.key, 10);
+
+                return Array.from({ length: DISPLAY_YEAR_COUNT }, (_, index) => {
+                    const yearBE = startYearBE + index;
+                    const raw = row[yearBE.toString()] || '0';
+                    const parsedRate = Number.parseFloat(raw);
+                    return {
+                        year: toAD(yearBE),
+                        rate: Number.isFinite(parsedRate) ? parsedRate : 0,
+                        typeRate,
+                    };
+                });
+            });
 
             const res = await fetch(`${API_BASE_URL}/api/retirement`, {
                 method: 'POST',
@@ -96,7 +135,7 @@ function RetirementContent() {
     };
 
     const handleCopy = () => {
-        const currentYearBE = parseInt(selectedYear);
+        const currentYearBE = parseInt(selectedYear, 10);
         const lastYearBE = currentYearBE - 1;
         modal.confirm({
             title: 'ยืนยันการสำเนาข้อมูล',
@@ -117,18 +156,26 @@ function RetirementContent() {
     };
 
     const columns = useMemo(() => {
-        const startYear = parseInt(selectedYear);
-        const cols: ColumnsType<RetirementDataType> = [];
-        for (let i = 0; i < 5; i++) {
+        const startYear = parseInt(selectedYear, 10);
+        const cols: ColumnsType<RetirementDataType> = [{
+            title: 'Type',
+            dataIndex: 'typeLabel',
+            key: 'typeLabel',
+            align: 'center',
+            width: 140,
+            render: (text) => <span className="font-semibold text-slate-900">{text}</span>
+        }];
+
+        for (let i = 0; i < DISPLAY_YEAR_COUNT; i++) {
             const year = (startYear + i).toString();
             cols.push({
                 title: year, dataIndex: year, key: year, align: 'center',
-                render: (text) => isEditing ? (
+                render: (text, record) => isEditing ? (
                     <Input 
-                        value={text} 
+                        value={text || '0'} 
                         onChange={(e) => {
                             const val = e.target.value.replace(/[^0-9.]/g, ''); 
-                            handleTableChange(val, year);
+                            handleTableChange(val, record.key, year);
                         }} 
                         className="text-center" 
                     />
@@ -141,7 +188,7 @@ function RetirementContent() {
     return (
         <div className="w-full bg-white p-6 rounded-lg shadow-sm">
             <div className="rounded-xl bg-linear-to-r from-blue-600 to-blue-400 p-4 shadow-md mb-6 text-white flex items-center justify-between">
-                <h1 className="text-xl font-bold m-0 text-white">BU/Support Rate Configuration</h1>
+                <h1 className="text-xl font-bold m-0 text-white">Business/Support Rate Configuration</h1>
                 <Badge count={`Year ${selectedYear}`} style={{ backgroundColor: '#fff', color: '#2563eb', fontWeight: 'bold' }} />
             </div>
 
@@ -156,10 +203,9 @@ function RetirementContent() {
                 </div>
             </div>
 
-            <Card className="mb-8 border-slate-100 shadow-sm" title={<span className="font-bold text-slate-700">อัตราส่วน BU/Support</span>}>
+            <Card className="mb-8 border-slate-100 shadow-sm" title={<span className="font-bold text-slate-700">อัตราส่วนตัดเกษียณ</span>}>
                 <Spin spinning={loading}>
                     <Table columns={columns} dataSource={tableData} pagination={false} bordered className="rounded-lg overflow-hidden border-slate-100" />
-                    <p className="mt-4 text-xs text-slate-400 italic font-medium">* ข้อมูลใช้สำหรับคำนวณอัตราส่วน (เช่น 2:1, 3:1) ของพนักงานในสายงานต่างๆ</p>
                 </Spin>
             </Card>
 

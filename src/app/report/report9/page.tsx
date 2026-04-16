@@ -26,73 +26,27 @@ interface Report9DataType {
     [key: string]: unknown;
 }
 
+interface Report9ApiResponse {
+    status: number;
+    data?: Report9DataType[];
+    message?: string;
+}
+
 interface RateRecord {
     Year: number;
     Rate: number;
+    TypeRate?: number;
 }
 
 interface RetirementRateResponse {
     success?: boolean;
     data?: {
         rates?: RateRecord[];
-        remark?: string;
     };
-}
-
-interface GroupDefinition {
-    key: string;
-    unit: string;
-    children: string[];
 }
 
 const DISPLAY_YEAR_COUNT = 5;
 const yearOptions = Array.from({ length: 12 }, (_, i) => 2568 + i);
-
-const GROUPS: GroupDefinition[] = [
-    {
-        key: 'bg-1',
-        unit: '1. สำนักงานใหญ่',
-        children: ['bg1-1', 'bg1-2', 'bg1-3', 'bg1-4', 'bg1-5', 'bg1-6', 'bg1-7', 'bg1-8', 'bg1-9', 'bg1-10', 'bg1-11'],
-    },
-    {
-        key: 'bg-2',
-        unit: '2. กลุ่มธุรกิจปิโตรเลี่ยมขั้นต้นฯ',
-        children: ['bg2-1', 'bg2-2', 'bg2-3'],
-    },
-    {
-        key: 'bg-3',
-        unit: '3. กลุ่มธุรกิจขั้นปลาย',
-        children: ['bg3-1', 'bg3-2', 'bg3-3'],
-    },
-    {
-        key: 'bg-4',
-        unit: '4. กลุ่มธุรกิจใหม่และความยั่งยืน',
-        children: ['bg4-1', 'bg4-2', 'bg4-3'],
-    },
-];
-
-const UNIT_NAME_MAP: Record<string, string> = {
-    'bg1-1': 'ปธบ./กผญ.ขึ้นตรง',
-    'bg1-2': 'รพญ.1',
-    'bg1-3': 'รพญ.2',
-    'bg1-4': 'รพญ.3',
-    'bg1-5': 'รมญ.',
-    'bg1-6': 'รกญ.',
-    'bg1-7': 'รบญ.',
-    'bg1-8': 'ปธง.',
-    'bg1-9': 'ผตญ.',
-    'bg1-10': 'ผสญ.',
-    'bg1-11': 'ผลญ.',
-    'bg2-1': '› ปธต.ขึ้นตรง',
-    'bg2-2': '› รศล.',
-    'bg2-3': '› รธก.',
-    'bg3-1': '› ปธป.ขึ้นตรง',
-    'bg3-2': '› รธท.',
-    'bg3-3': '› รกป.',
-    'bg4-1': '› ปธม.ขึ้นตรง',
-    'bg4-2': '› รยย.',
-    'bg4-3': '› รธม.',
-};
 
 const toNumber = (value: unknown): number => {
     const n = Number(value);
@@ -100,155 +54,81 @@ const toNumber = (value: unknown): number => {
 };
 
 const formatNumber = (value: unknown): string => toNumber(value).toLocaleString();
+const toAD = (year: number): number => (year > 2500 ? year - 543 : year);
+const toBE = (year: number): number => (year < 2500 ? year + 543 : year);
 
 const getToken = () => {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem('auth_token') || '';
 };
 
-const toAD = (year: number): number => (year > 2500 ? year - 543 : year);
-const toBE = (year: number): number => (year < 2500 ? year + 543 : year);
-
 const getAllExpandableKeys = (rows: Report9DataType[]): string[] => {
     const keys: string[] = [];
-    rows.forEach((row) => {
-        if (row.children && row.children.length > 0) {
-            keys.push(row.key);
-        }
-    });
+    const walk = (items: Report9DataType[]) => {
+        items.forEach((row) => {
+            if (row.children && row.children.length > 0) {
+                keys.push(row.key);
+                walk(row.children);
+            }
+        });
+    };
+    walk(rows);
     return keys;
 };
 
-const buildFallbackRates = (displayYears: number[]) => {
-    const fallback: Record<number, number> = {};
-    displayYears.forEach((year, index) => {
-        fallback[year] = index <= 1 ? 2 : 3;
+const resolveUserContext = () => {
+    let employeeId = '99999999';
+    let userGroupNo = '04';
+
+    if (typeof window !== 'undefined') {
+        const userDataStr = localStorage.getItem('user_data');
+        if (userDataStr) {
+            try {
+                const userData = JSON.parse(userDataStr) as { employeeID?: string; roleId?: string };
+                employeeId = userData.employeeID || employeeId;
+                userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || userGroupNo;
+            } catch {
+                // ignore parse error and keep fallback
+            }
+        }
+    }
+
+    return { employeeId, userGroupNo };
+};
+
+const createDefaultRateLabelMap = (years: number[]) => {
+    const map: Record<number, { support: string; bu: string }> = {};
+    years.forEach((year) => {
+        map[year] = { support: '-', bu: '-' };
     });
-    return fallback;
+    return map;
 };
 
-const splitByRate = (total: number, rate?: number) => {
-    if (!rate || rate <= 0) {
-        return { support: 0, bu: 0 };
-    }
+const buildRateLabelMap = (years: number[], rates: RateRecord[]) => {
+    const map = createDefaultRateLabelMap(years);
+    rates.forEach((row) => {
+        const yearBE = toBE(toNumber(row.Year));
+        if (!years.includes(yearBE)) return;
 
-    const bu = Math.round((total * rate) / (rate + 1));
-    return {
-        support: Math.max(total - bu, 0),
-        bu: Math.max(bu, 0),
-    };
-};
+        const typeRate = toNumber(row.TypeRate) === 2 ? 2 : 1;
+        const rateValue = toNumber(row.Rate);
+        const label = `${rateValue}:1`;
 
-const mockRetirementByUnitYear = (unitKey: string, year: number) => {
-    const seed = unitKey.split('').reduce((sum, c) => sum + c.charCodeAt(0), 0);
-    const offset = year - 2568;
-    const isZero = (seed + offset) % 9 === 0;
-
-    if (isZero) {
-        return { support: 0, bu: 0 };
-    }
-
-    return {
-        support: (seed + (offset * 3)) % 4,
-        bu: (seed * 3 + (offset * 5)) % 8,
-    };
-};
-
-const buildLeafRow = (
-    key: string,
-    unit: string,
-    displayYears: number[],
-    rateByYear: Record<number, number>
-): Report9DataType => {
-    const row: Report9DataType = {
-        key,
-        unit,
-        cut_support: 0,
-        cut_bu: 0,
-        cut_total: 0,
-    };
-
-    let fallbackSupport = 0;
-    let fallbackBu = 0;
-    let calculatedSupport = 0;
-    let calculatedBu = 0;
-    let hasRate = false;
-
-    displayYears.forEach((year) => {
-        const mock = mockRetirementByUnitYear(key, year);
-        row[`y${year}_sup`] = mock.support;
-        row[`y${year}_bu`] = mock.bu;
-
-        fallbackSupport += mock.support;
-        fallbackBu += mock.bu;
-
-        const total = mock.support + mock.bu;
-        const rate = rateByYear[year];
-        if (rate > 0) {
-            hasRate = true;
-            const split = splitByRate(total, rate);
-            calculatedSupport += split.support;
-            calculatedBu += split.bu;
+        if (typeRate === 2) {
+            map[yearBE].support = label;
         } else {
-            calculatedSupport += mock.support;
-            calculatedBu += mock.bu;
+            map[yearBE].bu = label;
         }
     });
-
-    row.cut_support = hasRate ? calculatedSupport : fallbackSupport;
-    row.cut_bu = hasRate ? calculatedBu : fallbackBu;
-    row.cut_total = row.cut_support + row.cut_bu;
-
-    return row;
-};
-
-const aggregateRows = (
-    key: string,
-    unit: string,
-    rows: Report9DataType[],
-    displayYears: number[]
-): Report9DataType => {
-    const summary: Report9DataType = {
-        key,
-        unit,
-        cut_support: 0,
-        cut_bu: 0,
-        cut_total: 0,
-        children: rows,
-    };
-
-    displayYears.forEach((year) => {
-        summary[`y${year}_sup`] = rows.reduce((acc, row) => acc + toNumber(row[`y${year}_sup`]), 0);
-        summary[`y${year}_bu`] = rows.reduce((acc, row) => acc + toNumber(row[`y${year}_bu`]), 0);
-    });
-
-    summary.cut_support = rows.reduce((acc, row) => acc + toNumber(row.cut_support), 0);
-    summary.cut_bu = rows.reduce((acc, row) => acc + toNumber(row.cut_bu), 0);
-    summary.cut_total = summary.cut_support + summary.cut_bu;
-
-    return summary;
-};
-
-const buildReportData = (displayYears: number[], rateByYear: Record<number, number>): Report9DataType[] => {
-    const groupRows = GROUPS.map((group) => {
-        const children = group.children.map((unitKey) =>
-            buildLeafRow(unitKey, UNIT_NAME_MAP[unitKey] || unitKey, displayYears, rateByYear)
-        );
-        return aggregateRows(group.key, group.unit, children, displayYears);
-    });
-
-    const totalRow = aggregateRows('total', '5. รวมทุกธุรกิจ', groupRows, displayYears);
-    delete totalRow.children;
-
-    return [...groupRows, totalRow];
+    return map;
 };
 
 export default function Report9Page() {
     const [loading, setLoading] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [effectiveYear, setEffectiveYear] = useState<number>(2569);
-    const [rateByYear, setRateByYear] = useState<Record<number, number>>({});
-    const [rateRemark, setRateRemark] = useState<string>('');
+    const [tableData, setTableData] = useState<Report9DataType[]>([]);
+    const [rateLabelByYear, setRateLabelByYear] = useState<Record<number, { support: string; bu: string }>>({});
     const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
     const [hasSearched, setHasSearched] = useState(false);
 
@@ -257,36 +137,34 @@ export default function Report9Page() {
         [effectiveYear]
     );
 
-    const tableData = useMemo(
-        () => buildReportData(displayYears, rateByYear),
-        [displayYears, rateByYear]
-    );
-
     useEffect(() => {
         setExpandedKeys(getAllExpandableKeys(tableData));
     }, [tableData]);
 
-    const fetchRateConfig = useCallback(async () => {
+    const fetchReport9Data = useCallback(async () => {
         setLoading(true);
         try {
-            const token = getToken();
-            const result = await fetchRetirementRates(toAD(effectiveYear), token) as RetirementRateResponse | null;
-
-            const nextRates = buildFallbackRates(displayYears);
-            const apiRates = result?.data?.rates || [];
-
-            apiRates.forEach((row) => {
-                const yearBE = toBE(toNumber(row.Year));
-                if (displayYears.includes(yearBE)) {
-                    nextRates[yearBE] = toNumber(row.Rate);
-                }
+            const { employeeId, userGroupNo } = resolveUserContext();
+            const params = new URLSearchParams({
+                effectiveYear: String(effectiveYear),
+                employeeId,
+                userGroupNo
             });
 
-            setRateByYear(nextRates);
-            setRateRemark(result?.data?.remark || '');
+            const [res, retirementRes] = await Promise.all([
+                fetch(`/api/report/report9?${params.toString()}`),
+                fetchRetirementRates(toAD(effectiveYear), getToken()) as Promise<RetirementRateResponse | null>
+            ]);
+            const result = await res.json() as Report9ApiResponse;
+            if (!res.ok || result.status !== 200) {
+                throw new Error(result.message || 'Failed to load report9 data');
+            }
+
+            setTableData(Array.isArray(result.data) ? result.data : []);
+            setRateLabelByYear(buildRateLabelMap(displayYears, retirementRes?.data?.rates || []));
         } catch {
-            setRateByYear(buildFallbackRates(displayYears));
-            setRateRemark('');
+            setTableData([]);
+            setRateLabelByYear(createDefaultRateLabelMap(displayYears));
         } finally {
             setLoading(false);
         }
@@ -294,13 +172,15 @@ export default function Report9Page() {
 
     const toggleFullscreen = () => setIsFullscreen((prev) => !prev);
     const handleSearch = async () => {
-        await fetchRateConfig();
+        await fetchReport9Data();
         setHasSearched(true);
     };
 
     useEffect(() => {
         setHasSearched(false);
-    }, [effectiveYear]);
+        setTableData([]);
+        setRateLabelByYear(createDefaultRateLabelMap(displayYears));
+    }, [displayYears, effectiveYear]);
 
     const handleExportExcel = async () => {
         const workbook = new ExcelJS.Workbook();
@@ -487,7 +367,12 @@ export default function Report9Page() {
             onHeaderCell: () => ({ className: 'bg-blue-200! text-blue-900! font-bold text-center' }),
             children: [
                 {
-                    title: 'เกษียณ Support',
+                    title: (
+                        <div className="leading-tight">
+                            <div>เกษียณ Support</div>
+                            <div className="text-[11px] text-blue-700">{rateLabelByYear[year]?.support || '-'}</div>
+                        </div>
+                    ),
                     dataIndex: `y${year}_sup`,
                     key: `y${year}_sup`,
                     width: 104,
@@ -497,7 +382,12 @@ export default function Report9Page() {
                     onCell: valueCell,
                 },
                 {
-                    title: 'เกษียณ BU',
+                    title: (
+                        <div className="leading-tight">
+                            <div>เกษียณ BU</div>
+                            <div className="text-[11px] text-blue-700">{rateLabelByYear[year]?.bu || '-'}</div>
+                        </div>
+                    ),
                     dataIndex: `y${year}_bu`,
                     key: `y${year}_bu`,
                     width: 104,
@@ -570,11 +460,7 @@ export default function Report9Page() {
                         : { className: 'report9-col-cut-total bg-yellow-50 font-bold' },
             },
         ];
-    }, [displayYears]);
-
-    const ratioText = displayYears
-        .map((year) => `${year}: ${toNumber(rateByYear[year] || 0)}:1`)
-        .join(' | ');
+    }, [displayYears, rateLabelByYear]);
 
     return (
         <Main currentPath="/report" hideChrome={isFullscreen}>
@@ -608,9 +494,6 @@ export default function Report9Page() {
                         <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>
                             ค้นหา
                         </Button>
-                        <div className="text-xs text-slate-500">
-                            อัตราส่วน BU/Support ที่ใช้คำนวณ: {hasSearched ? ratioText : '-'}
-                        </div>
                     </Form>
 
                     {hasSearched ? (
@@ -658,11 +541,6 @@ export default function Report9Page() {
                                 }}
                             />
                         </div>
-                        {rateRemark ? (
-                            <div className="relative z-10 border-t border-slate-200 bg-white px-4 pb-3 pt-2 text-xs text-slate-400">
-                                หมายเหตุ: {rateRemark}
-                            </div>
-                        ) : null}
                     </div>
                 ) : null}
 

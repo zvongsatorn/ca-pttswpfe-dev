@@ -50,8 +50,7 @@ interface Report8DataType {
 }
 
 interface SearchFormValues {
-    fromDate?: Dayjs;
-    toDate?: Dayjs;
+    effectiveDate?: Dayjs;
 }
 
 interface Report8ApiResponse {
@@ -94,8 +93,7 @@ interface MultiSelectFilterProps {
 
 const levels = ['21', '18-20', '16-17', '14-15', '11-13', '9-10', '4-8', 'รวม'];
 const levelKeys = ['21', '18_20', '16_17', '14_15', '11_13', '9_10', '4_8', 'total'];
-const defaultPeriodFrom = dayjs().startOf('month');
-const defaultPeriodTo = dayjs().endOf('month');
+const defaultEffectiveDate = dayjs();
 
 const columnOptions = [
     { label: 'จำนวนพนักงานและผู้บริหาร', value: 'people' },
@@ -321,11 +319,8 @@ export default function Report8Page() {
     const [tableData, setTableData] = useState<Report8DataType[]>([]);
     const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
     const [hasSearched, setHasSearched] = useState(false);
-    const [periodFrom, setPeriodFrom] = useState<Dayjs>(defaultPeriodFrom);
-    const [periodTo, setPeriodTo] = useState<Dayjs>(defaultPeriodTo);
-    const [currentSearchFrom, setCurrentSearchFrom] = useState<Dayjs>(defaultPeriodFrom);
-    const [currentSearchTo, setCurrentSearchTo] = useState<Dayjs>(defaultPeriodTo);
-    const [filterDate, setFilterDate] = useState<Dayjs>(defaultPeriodTo);
+    const [filterDate, setFilterDate] = useState<Dayjs>(defaultEffectiveDate);
+    const [currentSearchDate, setCurrentSearchDate] = useState<Dayjs>(defaultEffectiveDate);
 
     const [businessUnitOptions, setBusinessUnitOptions] = useState<FilterOption[]>([]);
     const [lineOfWorkOptions, setLineOfWorkOptions] = useState<FilterOption[]>([]);
@@ -390,15 +385,15 @@ export default function Report8Page() {
         }
     }, []);
 
-    const fetchData = useCallback(async (fromDate: Dayjs, toDate: Dayjs, bgNo = '', division = '') => {
+    const fetchData = useCallback(async (effectiveDate: Dayjs, bgNo = '', division = '') => {
         const { employeeId, userGroupNo } = resolveUserContext();
 
         setLoading(true);
         try {
             const params = new URLSearchParams({
-                fromDate: fromDate.format('YYYY-MM-DD'),
-                toDate: toDate.format('YYYY-MM-DD'),
-                effectiveDate: toDate.format('YYYY-MM-DD'),
+                fromDate: effectiveDate.format('YYYY-MM-DD'),
+                toDate: effectiveDate.format('YYYY-MM-DD'),
+                effectiveDate: effectiveDate.format('YYYY-MM-DD'),
                 employeeId,
                 userGroupNo,
             });
@@ -425,23 +420,14 @@ export default function Report8Page() {
     }, []);
 
     const onSearch = async (values: SearchFormValues) => {
-        const nextFrom = values.fromDate || periodFrom;
-        const nextTo = values.toDate || periodTo;
-
-        if (nextFrom.isAfter(nextTo, 'day')) {
-            alert('วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด');
-            return;
-        }
-
-        setPeriodFrom(nextFrom);
-        setPeriodTo(nextTo);
-        setCurrentSearchFrom(nextFrom);
-        setCurrentSearchTo(nextTo);
+        const nextDate = values.effectiveDate || filterDate;
+        setFilterDate(nextDate);
+        setCurrentSearchDate(nextDate);
         setHasSearched(true);
 
         const bgNo = selectedBusinessUnits[0] || '';
         const division = selectedLinesOfWork[0] || '';
-        await fetchData(nextFrom, nextTo, bgNo, division);
+        await fetchData(nextDate, bgNo, division);
     };
 
     const toggleFullscreen = async () => {
@@ -680,7 +666,7 @@ export default function Report8Page() {
 
         worksheet.columns = colWidths.map((width) => ({ width }));
         const buffer = await workbook.xlsx.writeBuffer();
-        await saveExcelFile(buffer, `รายงานสรุปค่าใช้จ่ายพนักงานและสัญญาจ้างเหมาบริการ_${currentSearchFrom.format('YYYYMMDD')}_${currentSearchTo.format('YYYYMMDD')}.xlsx`);
+        await saveExcelFile(buffer, `รายงานสรุปค่าใช้จ่ายพนักงานและสัญญาจ้างเหมาบริการ_${currentSearchDate.format('YYYYMMDD')}.xlsx`);
     };
 
     const columns: ColumnsType<Report8DataType> = useMemo(() => {
@@ -851,28 +837,15 @@ export default function Report8Page() {
                         form={form}
                         layout="inline"
                         onFinish={onSearch}
-                        initialValues={{ fromDate: periodFrom, toDate: periodTo }}
+                        initialValues={{ effectiveDate: filterDate }}
                         className="flex items-center gap-2"
                     >
-                        <Form.Item name="fromDate" label="Period From" className="m-0">
+                        <Form.Item name="effectiveDate" label="Effective Date" className="m-0">
                             <DatePicker
                                 format="DD/MM/YYYY"
                                 className="w-36"
                                 getPopupContainer={() => fullscreenRef.current || document.body}
-                                onChange={(value) => setPeriodFrom(value || defaultPeriodFrom)}
-                            />
-                        </Form.Item>
-
-                        <Form.Item name="toDate" label="To" className="m-0">
-                            <DatePicker
-                                format="DD/MM/YYYY"
-                                className="w-36"
-                                getPopupContainer={() => fullscreenRef.current || document.body}
-                                onChange={(value) => {
-                                    const next = value || defaultPeriodTo;
-                                    setPeriodTo(next);
-                                    setFilterDate(next);
-                                }}
+                                onChange={(value) => setFilterDate(value || defaultEffectiveDate)}
                             />
                         </Form.Item>
 

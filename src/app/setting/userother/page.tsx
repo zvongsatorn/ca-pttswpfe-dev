@@ -2,11 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button, Table, Space, Typography, App, Modal, Input, Form } from 'antd';
-import { PlusOutlined, DeleteOutlined, UserOutlined, IdcardOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, EditOutlined, UserOutlined, IdcardOutlined, MailOutlined } from '@ant-design/icons';
 import { UserPlus } from 'lucide-react';
 import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
-import { getUserOther, insertUserOther, deleteUserOther } from '@/services/userService';
+import { getUserOther, insertUserOther, updateUserOther, deleteUserOther } from '@/services/userService';
 
 const { Title } = Typography;
 
@@ -14,6 +14,7 @@ interface UserOther {
     key: string;
     EmployeeID: string;
     FullName: string;
+    Email: string;
 }
 
 function getToken(): string {
@@ -27,6 +28,7 @@ function UserOtherContent() {
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<UserOther[]>([]);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isEditMode, setIsEditMode] = useState(false);
     const [form] = Form.useForm();
 
     const fetchData = async () => {
@@ -34,8 +36,9 @@ function UserOtherContent() {
         try {
             const res = await getUserOther(token);
             if (res.success && Array.isArray(res.data)) {
-                setData(res.data.map((item: { EmployeeID?: string; FullName?: string }, index: number) => ({
+                setData(res.data.map((item: { EmployeeID?: string; FullName?: string; Email?: string; email?: string }, index: number) => ({
                     ...item,
+                    Email: item.Email || item.email || '',
                     key: item.EmployeeID || `row-${index}`
                 })));
             }
@@ -48,26 +51,60 @@ function UserOtherContent() {
 
     useEffect(() => { fetchData(); }, [token]);
 
-    const handleAddUser = async (values: { employeeId: string; fullName: string }) => {
+    const openAddModal = () => {
+        setIsEditMode(false);
+        setIsAddModalOpen(true);
+        setTimeout(() => form.resetFields(), 0);
+    };
+
+    const openEditModal = (record: UserOther) => {
+        setIsEditMode(true);
+        setIsAddModalOpen(true);
+        setTimeout(() => {
+            form.setFieldsValue({
+                employeeId: record.EmployeeID,
+                fullName: record.FullName,
+                email: record.Email
+            });
+        }, 0);
+    };
+
+    const handleSubmit = async (values: { employeeId: string; fullName: string; email: string }) => {
         const user = getUserFromToken();
         if (!user) {
             message.error('ไม่พบข้อมูลผู้ใช้งานปัจจุบัน');
             return;
         }
 
+        const employeeId = values.employeeId.trim();
+        const fullName = values.fullName.trim();
+        const email = values.email.trim().toLowerCase();
+
         setLoading(true);
         try {
-            const res = await insertUserOther(values.employeeId, values.fullName, user.employeeID, token);
-            if (res.success) {
-                message.success(res.message || 'ทำการเพิ่มข้อมูลเรียบร้อย');
-                setIsAddModalOpen(false);
-                form.resetFields();
-                fetchData();
-            } else {
-                if (res.code === 'DUP') {
-                    message.warning(res.message);
+            if (isEditMode) {
+                const res = await updateUserOther(employeeId, fullName, email, user.employeeID, token);
+                if (res.success) {
+                    message.success(res.message || 'อัปเดตข้อมูลเรียบร้อย');
+                    form.resetFields();
+                    setIsAddModalOpen(false);
+                    fetchData();
                 } else {
-                    message.error(res.message || 'เกิดข้อผิดพลาดในการเพิ่มข้อมูล');
+                    message.error(res.message || 'เกิดข้อผิดพลาดในการอัปเดตข้อมูล');
+                }
+            } else {
+                const res = await insertUserOther(employeeId, fullName, email, user.employeeID, token);
+                if (res.success) {
+                    message.success(res.message || 'ทำการเพิ่มข้อมูลเรียบร้อย');
+                    form.resetFields();
+                    setIsAddModalOpen(false);
+                    fetchData();
+                } else {
+                    if (res.code === 'DUP') {
+                        message.warning(res.message);
+                    } else {
+                        message.error(res.message || 'เกิดข้อผิดพลาดในการเพิ่มข้อมูล');
+                    }
                 }
             }
         } catch {
@@ -128,18 +165,35 @@ function UserOtherContent() {
             filterSearch: true,
         },
         {
+            title: 'Email',
+            dataIndex: 'Email',
+            key: 'Email',
+            width: 260,
+            filters: Array.from(new Set(data.map(i => i.Email))).map(v => ({ text: v, value: v })),
+            onFilter: (value: boolean | React.Key, record: UserOther) => record.Email.includes(value as string),
+            filterSearch: true,
+        },
+        {
             title: 'Action',
             key: 'action',
             width: 120,
             align: 'center' as const,
             render: (_: unknown, record: UserOther) => (
-                <Button 
-                    type="text" 
-                    danger 
-                    icon={<DeleteOutlined />} 
-                    onClick={() => handleDelete(record)}
-                    className="hover:bg-red-50"
-                />
+                <Space>
+                    <Button 
+                        type="text" 
+                        icon={<EditOutlined className="text-blue-500" />} 
+                        onClick={() => openEditModal(record)}
+                        className="hover:bg-blue-50"
+                    />
+                    <Button 
+                        type="text" 
+                        danger 
+                        icon={<DeleteOutlined />} 
+                        onClick={() => handleDelete(record)}
+                        className="hover:bg-red-50"
+                    />
+                </Space>
             ),
         },
     ];
@@ -154,7 +208,7 @@ function UserOtherContent() {
                 <Button 
                     type="primary" 
                     icon={<PlusOutlined />} 
-                    onClick={() => setIsAddModalOpen(true)}
+                    onClick={openAddModal}
                     className="bg-blue-600 hover:bg-blue-700"
                 >
                     เพิ่มรายการ
@@ -175,22 +229,24 @@ function UserOtherContent() {
                     }}
                     bordered
                     size="small"
-                    className="custom-table w-[900px]"
+                    className="custom-table w-[1100px]"
                 />
             </div>
 
             <Modal
-                title={<Title level={4} className="m-0">เพิ่มผู้ใช้งาน (Other)</Title>}
+                title={<Title level={4} className="m-0">{isEditMode ? 'แก้ไขผู้ใช้งาน (Other)' : 'เพิ่มผู้ใช้งาน (Other)'}</Title>}
                 open={isAddModalOpen}
-                onCancel={() => setIsAddModalOpen(false)}
+                onCancel={() => {
+                    form.resetFields();
+                    setIsAddModalOpen(false);
+                }}
                 footer={null}
                 centered
-                destroyOnHidden
             >
                 <Form
                     form={form}
                     layout="vertical"
-                    onFinish={handleAddUser}
+                    onFinish={handleSubmit}
                     className="mt-4"
                 >
                     <Form.Item
@@ -201,6 +257,7 @@ function UserOtherContent() {
                         <Input 
                             prefix={<IdcardOutlined className="text-gray-400" />} 
                             placeholder="เช่น 99999999" 
+                            disabled={isEditMode}
                             onChange={(e) => {
                                 const val = e.target.value.replace(/[^0-9]/g, '');
                                 form.setFieldsValue({ employeeId: val });
@@ -213,6 +270,19 @@ function UserOtherContent() {
                         rules={[{ required: true, message: 'กรุณากรอก Name' }]}
                     >
                         <Input prefix={<UserOutlined className="text-gray-400" />} placeholder="Name" />
+                    </Form.Item>
+                    <Form.Item
+                        name="email"
+                        label="Email"
+                        rules={[
+                            { required: true, message: 'กรุณากรอก Email' },
+                            { type: 'email', message: 'รูปแบบอีเมล์ไม่ถูกต้อง' }
+                        ]}
+                    >
+                        <Input
+                            prefix={<MailOutlined className="text-gray-400" />}
+                            placeholder="example@company.com"
+                        />
                     </Form.Item>
                     <Form.Item className="mb-0 flex justify-end gap-2 mt-6">
                         <Space>
