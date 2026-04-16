@@ -320,12 +320,25 @@ const resolveUserContext = () => {
     let userGroupNo = '';
 
     if (typeof window !== 'undefined') {
+        const selectedGroup = localStorage.getItem('selected_usergroup')?.trim() || '';
         const userDataStr = localStorage.getItem('user_data');
         if (userDataStr) {
             try {
-                const userData = JSON.parse(userDataStr) as { employeeID?: string; roleId?: string };
-                employeeId = userData.employeeID || employeeId;
-                userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
+                const userData = JSON.parse(userDataStr) as {
+                    employeeID?: string;
+                    employeeId?: string;
+                    roleId?: string;
+                    userGroupNo?: string;
+                    userGroups?: Array<{ userGroupNo?: string }>;
+                };
+                const fallbackGroup = userData.userGroups?.[0]?.userGroupNo?.trim() || '';
+
+                employeeId = (userData.employeeID || userData.employeeId || employeeId).trim();
+                userGroupNo = selectedGroup
+                    || userData.userGroupNo?.trim()
+                    || userData.roleId?.trim()
+                    || fallbackGroup
+                    || '';
             } catch {
                 // ignore parse failure and use default values
             }
@@ -445,6 +458,11 @@ export default function Report2Page() {
 
     const fetchReportData = useCallback(async (start: Dayjs, end: Dayjs) => {
         const { employeeId, userGroupNo } = resolveUserContext();
+        if (!employeeId || employeeId === 'SYSTEM' || !userGroupNo) {
+            alert('ไม่พบสิทธิ์ผู้ใช้งาน กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
+            return;
+        }
+
         const monthKeys = getMonthRangeKeys(start, end);
 
         setLoading(true);
@@ -457,10 +475,10 @@ export default function Report2Page() {
             });
 
             const res = await fetch(`/api/report/report2?${query.toString()}`);
-            const payload: Report2ApiResponse = await res.json();
+            const payload = (await res.json()) as Report2ApiResponse & { error?: string };
 
             if (!res.ok || payload.status !== 200 || !payload.data) {
-                throw new Error(payload.message || 'ไม่สามารถดึงข้อมูลรายงานได้');
+                throw new Error(payload.error || payload.message || 'ไม่สามารถดึงข้อมูลรายงานได้');
             }
 
             const transformed = transformRows(payload.data, monthKeys);

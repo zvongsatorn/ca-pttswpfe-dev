@@ -60,6 +60,8 @@ interface RawUnitData {
     id: string;
     name?: string;
     unitText?: string;
+    OrgUnitNo?: string;
+    UnitName?: string;
 }
 
 interface RawDashboardRow {
@@ -94,6 +96,20 @@ interface RawDashboardRow {
     t_5?: string | number;
     t_6?: string | number;
     t_7?: string | number;
+}
+
+interface UserGroupOption {
+    userGroupNo?: string;
+}
+
+interface UserContext {
+    employeeID?: string;
+    employeeId?: string;
+    EmployeeID?: string;
+    roleId?: string;
+    role?: string;
+    userGroupNo?: string;
+    userGroups?: UserGroupOption[];
 }
 
 // --- Custom Tooltip ---
@@ -137,6 +153,43 @@ export default function DashboardPage() {
         showContractOut: '1'
     });
 
+    const resolveUserContext = () => {
+        let employeeId = 'SYSTEM';
+        let userGroupNo = '';
+
+        if (typeof window !== 'undefined') {
+            const selectedGroup = localStorage.getItem('selected_usergroup')?.trim() || '';
+            const userDataStr = localStorage.getItem('user_data');
+
+            if (userDataStr) {
+                try {
+                    const userData = JSON.parse(userDataStr) as UserContext;
+                    const fallbackGroup = userData.userGroups?.[0]?.userGroupNo?.trim() || '';
+
+                    employeeId = (
+                        userData.employeeID ||
+                        userData.employeeId ||
+                        userData.EmployeeID ||
+                        employeeId
+                    ).trim();
+
+                    userGroupNo = (
+                        selectedGroup ||
+                        userData.userGroupNo ||
+                        userData.roleId ||
+                        userData.role ||
+                        fallbackGroup ||
+                        ''
+                    ).trim();
+                } catch {
+                    // Ignore parsing errors and keep defaults.
+                }
+            }
+        }
+
+        return { employeeId, userGroupNo };
+    };
+
     // Helper for safe numeric conversion to avoid TS errors
     const safeNum = (v: string | number | boolean | undefined | null): number => {
         if (v === undefined || v === null || typeof v === 'boolean') return 0;
@@ -146,38 +199,54 @@ export default function DashboardPage() {
     // Initial Unit Load
     useEffect(() => {
         const fetchUnits = async () => {
+            const { employeeId, userGroupNo } = resolveUserContext();
             const dateStr = filterDate.format('YYYY-MM-01');
-            const res = await fetch(`/api/units/all?effectiveDate=${dateStr}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.success && data.data) {
-                    setUnitOptions(data.data.map((u: RawUnitData) => ({
-                        value: u.id,
-                        label: `${u.id} - ${u.name || u.unitText || u.id}`
-                    })));
+
+            let units: RawUnitData[] = [];
+            if (employeeId && employeeId !== 'SYSTEM' && userGroupNo) {
+                const scopedRes = await fetch(`/api/units/by-role?empId=${employeeId}&roleId=${userGroupNo}`);
+                if (scopedRes.ok) {
+                    const scopedData = await scopedRes.json();
+                    if (scopedData.success && scopedData.data) {
+                        units = scopedData.data;
+                    }
                 }
+            }
+
+            if (units.length === 0) {
+                const fallbackRes = await fetch(`/api/units/all?effectiveDate=${dateStr}`);
+                if (fallbackRes.ok) {
+                    const fallbackData = await fallbackRes.json();
+                    if (fallbackData.success && fallbackData.data) {
+                        units = fallbackData.data;
+                    }
+                }
+            }
+
+            const mappedOptions = units.map((u: RawUnitData) => {
+                const id = String(u.id || u.OrgUnitNo || '').trim();
+                const name = (u.name || u.UnitName || u.unitText || id).trim();
+                return {
+                    value: id,
+                    label: `${id} - ${name}`
+                };
+            }).filter((u: UnitOption) => u.value);
+
+            setUnitOptions(mappedOptions);
+            if (mappedOptions.length > 0) {
+                setUnit((prev) => prev || mappedOptions[0].value);
             }
         };
         fetchUnits();
+        // resolveUserContext is stable enough for client-side localStorage reads
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filterDate]);
 
     // Data Load function
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
-            let employeeId = 'SYSTEM';
-            let userGroupNo = '';
-            
-            if (typeof window !== 'undefined') {
-                const userDataStr = localStorage.getItem('user_data');
-                if (userDataStr) {
-                    try {
-                        const userData = JSON.parse(userDataStr);
-                        employeeId = userData.employeeID || 'SYSTEM';
-                        userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
-                    } catch (e) {}
-                }
-            }
+            const { employeeId, userGroupNo } = resolveUserContext();
 
             // employeeType correlates to isSecondment setting 
             const isSecondmentId = parseInt(employeeType); 
@@ -187,6 +256,8 @@ export default function DashboardPage() {
             // Assuming the picker keeps Buddhist Era correctly
             const yearStr = (filterDate.year() > 2500 ? filterDate.year() - 543 : filterDate.year()).toString();
 
+            const divisionForQuery = unit || unitOptions[0]?.value || '';
+
             const query = new URLSearchParams({
                 effectiveMonth: monthStr,
                 effectiveYear: yearStr,
@@ -194,7 +265,7 @@ export default function DashboardPage() {
                 userGroupNo,
                 isSecondment: isSecondmentId.toString(),
                 levelType: levelType.toString(),
-                division: unit || ''
+                division: divisionForQuery
             });
 
             const res = await fetch(`/api/report/dashboard?${query}`);
@@ -229,12 +300,13 @@ export default function DashboardPage() {
         } finally {
             setLoading(false);
         }
-    }, [filterDate, employeeType, showContractOut, unit]);
+    }, [filterDate, employeeType, showContractOut, unit, unitOptions]);
 
     useEffect(() => {
-        loadData();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+        if (unitOptions.length > 0) {
+            loadData();
+        }
+    }, [loadData, unitOptions]);
 
 
     // Determine which bars to show based on filters logic in applied (last searched) state
@@ -270,24 +342,14 @@ export default function DashboardPage() {
     const handleExportExcel = async () => {
         setLoading(true);
         try {
-            let employeeId = 'SYSTEM';
-            let userGroupNo = '';
-            
-            if (typeof window !== 'undefined') {
-                const userDataStr = localStorage.getItem('user_data');
-                if (userDataStr) {
-                    try {
-                        const userData = JSON.parse(userDataStr);
-                        employeeId = userData.employeeID || 'SYSTEM';
-                        userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
-                    } catch (e) {}
-                }
-            }
+            const { employeeId, userGroupNo } = resolveUserContext();
 
             const isSecondmentId = parseInt(employeeType); 
             const levelType = parseInt(showContractOut);
             const monthStr = (filterDate.month() + 1).toString().padStart(2, '0');
             const yearStr = (filterDate.year() > 2500 ? filterDate.year() - 543 : filterDate.year()).toString();
+
+            const divisionForQuery = unit || unitOptions[0]?.value || '';
 
             const query = new URLSearchParams({
                 effectiveMonth: monthStr,
@@ -296,7 +358,7 @@ export default function DashboardPage() {
                 userGroupNo,
                 isSecondment: isSecondmentId.toString(),
                 levelType: levelType.toString(),
-                division: unit || ''
+                division: divisionForQuery
             });
 
             const res = await fetch(`/api/report/dashboard/excel?${query}`);
