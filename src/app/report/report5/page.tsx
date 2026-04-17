@@ -69,14 +69,7 @@ interface Report5DataType {
     frame_9_10: number;
     frame_under_8: number;
     frame_total: number;
-    frame_21_change?: number;
-    frame_18_20_change?: number;
-    frame_16_17_change?: number;
-    frame_14_15_change?: number;
-    frame_11_13_change?: number;
-    frame_9_10_change?: number;
-    frame_under_8_change?: number;
-    frame_total_change?: number;
+    transaction_change?: number;
     operator: string;
     remark: string;
     log: string;
@@ -88,19 +81,15 @@ interface Report5DataType {
 
 const levelKeys = ['21', '18_20', '16_17', '14_15', '11_13', '9_10', 'under_8', 'total'];
 const levelLabels = ['21', '18-20', '16-17', '14-15', '11-13', '9-10', '8 ลงมา', 'รวม'];
-const frameMetricKeys = [
-    'frame_21',
-    'frame_18_20',
-    'frame_16_17',
-    'frame_14_15',
-    'frame_11_13',
-    'frame_9_10',
-    'frame_under_8',
-    'frame_total'
-] as const;
-type FrameMetricKey = typeof frameMetricKeys[number];
-type FrameChangeKey = `${FrameMetricKey}_change`;
-const toFrameChangeKey = (key: FrameMetricKey): FrameChangeKey => `${key}_change` as FrameChangeKey;
+type FrameMetricKey =
+    | 'frame_21'
+    | 'frame_18_20'
+    | 'frame_16_17'
+    | 'frame_14_15'
+    | 'frame_11_13'
+    | 'frame_9_10'
+    | 'frame_under_8'
+    | 'frame_total';
 const datasetValues = ['ปกติ', 'PoolRS', 'Sec Pool'];
 const datasetOptions: FilterOption[] = datasetValues.map((item) => ({ value: item, label: item }));
 
@@ -111,6 +100,7 @@ const columnOptions = [
     { label: 'วันที่', value: 'date' },
     { label: 'ชุดข้อมูล', value: 'dataset' },
     { label: 'กรอบอัตรากำลัง', value: 'frame' },
+    { label: 'ยอดเปลี่ยนแปลงรายการ', value: 'transaction_change' },
     { label: 'ผู้ดำเนินการ', value: 'operator' },
     { label: 'หมายเหตุ', value: 'remark' },
     { label: 'Log', value: 'log' },
@@ -161,7 +151,7 @@ const renderNumber = (value: unknown) => {
     return value;
 };
 
-const renderChange = (value: unknown) => {
+const renderSignedChange = (value: unknown) => {
     const num = toNumber(value);
     if (num === 0) return 0;
     if (num > 0) return <span className="text-blue-600 font-semibold">+{num}</span>;
@@ -228,23 +218,33 @@ const toUnitOption = (row: Report5FilterItem): FilterOption | null => {
     return { value, label };
 };
 
-const toMonthKeyFromDisplayDate = (value: string): string => {
+const toDateSortKeyFromDisplayDate = (value: string): number => {
     const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (!match) return '';
+    if (!match) return Number.MAX_SAFE_INTEGER;
     const month = Number(match[2]);
+    const day = Number(match[1]);
     const year = Number(match[3]);
-    if (!Number.isFinite(month) || !Number.isFinite(year) || month < 1 || month > 12) return '';
-    return `${year}-${String(month).padStart(2, '0')}`;
+    if (
+        !Number.isFinite(month) ||
+        !Number.isFinite(day) ||
+        !Number.isFinite(year) ||
+        month < 1 ||
+        month > 12 ||
+        day < 1 ||
+        day > 31
+    ) {
+        return Number.MAX_SAFE_INTEGER;
+    }
+    return (year * 10000) + (month * 100) + day;
 };
 
-const getPreviousMonthKey = (monthKey: string): string => {
-    const [yearText, monthText] = monthKey.split('-');
-    const year = Number(yearText);
-    const month = Number(monthText);
-    if (!Number.isFinite(year) || !Number.isFinite(month)) return '';
-    const prevYear = month === 1 ? year - 1 : year;
-    const prevMonth = month === 1 ? 12 : month - 1;
-    return `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
+const pickFirstFiniteNumber = (...values: unknown[]): number | null => {
+    for (const value of values) {
+        if (value === undefined || value === null || value === '') continue;
+        const num = Number(value);
+        if (Number.isFinite(num)) return num;
+    }
+    return null;
 };
 
 const toGroupKey = (row: Report5DataType): string => {
@@ -252,12 +252,13 @@ const toGroupKey = (row: Report5DataType): string => {
     return `${unitKey}|${row.dataset}`;
 };
 
-const withFrameChanges = (rows: Report5DataType[]): Report5DataType[] => {
+const withTransactionChanges = (
+    rows: Report5DataType[],
+    explicitChanges: Array<number | null>
+): Report5DataType[] => {
     const output = rows.map((row) => {
         const clone: Report5DataType = { ...row };
-        frameMetricKeys.forEach((key) => {
-            clone[toFrameChangeKey(key)] = 0;
-        });
+        clone.transaction_change = 0;
         return clone;
     });
 
@@ -270,29 +271,27 @@ const withFrameChanges = (rows: Report5DataType[]): Report5DataType[] => {
 
     grouped.forEach((indices) => {
         const sortedIndices = [...indices].sort((a, b) => {
-            const aMonth = toMonthKeyFromDisplayDate(output[a].date);
-            const bMonth = toMonthKeyFromDisplayDate(output[b].date);
-            if (aMonth && bMonth && aMonth !== bMonth) return aMonth.localeCompare(bMonth);
+            const aDateKey = toDateSortKeyFromDisplayDate(output[a].date);
+            const bDateKey = toDateSortKeyFromDisplayDate(output[b].date);
+            if (aDateKey !== bDateKey) return aDateKey - bDateKey;
             return a - b;
-        });
-
-        const monthToIndex = new Map<string, number>();
-        sortedIndices.forEach((index) => {
-            const monthKey = toMonthKeyFromDisplayDate(output[index].date);
-            if (monthKey) monthToIndex.set(monthKey, index);
         });
 
         sortedIndices.forEach((currentIndex, sortedPos) => {
             const currentRow = output[currentIndex];
-            const currentMonth = toMonthKeyFromDisplayDate(currentRow.date);
-            const prevByMonth = currentMonth ? monthToIndex.get(getPreviousMonthKey(currentMonth)) : undefined;
-            const previousIndex = prevByMonth ?? (sortedPos > 0 ? sortedIndices[sortedPos - 1] : undefined);
-            if (previousIndex === undefined) return;
+            const explicitChange = explicitChanges[currentIndex];
+            if (explicitChange !== null) {
+                currentRow.transaction_change = explicitChange;
+                return;
+            }
 
+            const previousIndex = sortedPos > 0 ? sortedIndices[sortedPos - 1] : undefined;
+            if (previousIndex === undefined) {
+                currentRow.transaction_change = 0;
+                return;
+            }
             const previousRow = output[previousIndex];
-            frameMetricKeys.forEach((key) => {
-                currentRow[toFrameChangeKey(key)] = toNumber(currentRow[key]) - toNumber(previousRow[key]);
-            });
+            currentRow.transaction_change = toNumber(currentRow.frame_total) - toNumber(previousRow.frame_total);
         });
     });
 
@@ -308,6 +307,7 @@ const transformRows = (rows: Report5RawRow[]): Report5DataType[] => {
     let lastDataset = 'ปกติ';
 
     const mapped: Report5DataType[] = [];
+    const explicitChanges: Array<number | null> = [];
 
     rows.forEach((row, index) => {
         const frame21 = toNumber(row.frame_21 ?? row.amount1 ?? row.Amount1);
@@ -352,6 +352,18 @@ const transformRows = (rows: Report5RawRow[]): Report5DataType[] => {
         if (businessRaw) lastBusinessUnit = businessRaw;
         if (hasDatasetSource) lastDataset = dataset;
 
+        const explicitTransactionChange = pickFirstFiniteNumber(
+            row.transaction_change,
+            row.TransactionChange,
+            row.diff_amount,
+            row.DiffAmount,
+            row.change_amount,
+            row.ChangeAmount,
+            row.tamount_diff,
+            row.TAmountDiff
+        );
+        explicitChanges.push(explicitTransactionChange);
+
         mapped.push({
             key: toText(row.key) || `r5-${index + 1}`,
             unit_short,
@@ -366,6 +378,7 @@ const transformRows = (rows: Report5RawRow[]): Report5DataType[] => {
             frame_9_10: frame910,
             frame_under_8: frameUnder8,
             frame_total: total,
+            transaction_change: explicitTransactionChange ?? 0,
             operator,
             remark: toText(row.remark ?? row.Remark),
             log: toText(row.log ?? row.new_note ?? row.TransactionDesc),
@@ -375,7 +388,7 @@ const transformRows = (rows: Report5RawRow[]): Report5DataType[] => {
         });
     });
 
-    return withFrameChanges(mapped);
+    return withTransactionChanges(mapped, explicitChanges);
 };
 
 interface MultiSelectFilterProps {
@@ -813,7 +826,6 @@ export default function Report5Page() {
             blue50: 'FFEFF6FF',
             blue100: 'FFDBEAFE',
             blue200: 'FFBFDBFE',
-            yellow200: 'FFFEF08A',
             green100: 'FFDCFCE7',
             gray100: 'FFF3F4F6',
         };
@@ -854,19 +866,15 @@ export default function Report5Page() {
             headersRow1.push('กรอบอัตรากำลังในระบบ SAP');
             headersRow2.push(frameItems[0].label);
             dataKeys.push(frameItems[0].key);
-            headersRow1.push('');
-            headersRow2.push('+/-');
-            dataKeys.push(toFrameChangeKey(frameItems[0].key));
 
             frameItems.slice(1).forEach((item) => {
                 headersRow1.push('');
                 headersRow2.push(item.label);
                 dataKeys.push(item.key);
-                headersRow1.push('');
-                headersRow2.push('+/-');
-                dataKeys.push(toFrameChangeKey(item.key));
             });
         }
+
+        addBasicHeader('ยอดเปลี่ยนแปลงรายการ', 'transaction_change');
 
         addBasicHeader('ผู้ดำเนินการ', 'operator');
         addBasicHeader('หมายเหตุ', 'remark');
@@ -880,18 +888,18 @@ export default function Report5Page() {
             const key = dataKeys[col - 1];
 
             if (hasFrame && key === 'frame_21') {
-                const frameEnd = frameStart + (frameItems.length * 2) - 1;
+                const frameEnd = frameStart + frameItems.length - 1;
                 worksheet.mergeCells(1, frameStart, 1, frameEnd);
                 worksheet.getCell(1, frameStart).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.blue200 } };
                 worksheet.getCell(1, frameStart).alignment = { horizontal: 'center', vertical: 'middle' };
 
                 for (let i = frameStart; i <= frameEnd; i++) {
                     const subCell = worksheet.getCell(2, i);
-                    const isTotal = i >= frameEnd - 1;
+                    const isTotal = i === frameEnd;
                     subCell.fill = {
                         type: 'pattern',
                         pattern: 'solid',
-                        fgColor: { argb: isTotal ? colors.yellow200 : colors.blue50 }
+                        fgColor: { argb: isTotal ? colors.blue100 : colors.blue50 }
                     };
                     subCell.alignment = { horizontal: 'center' };
                 }
@@ -921,7 +929,7 @@ export default function Report5Page() {
         tableDataWithSummary.forEach((item) => {
             const rowValues = dataKeys.map((key) => {
                 const val = item[key];
-                if (key.endsWith('_change')) {
+                if (key === 'transaction_change') {
                     const diff = toNumber(val);
                     if (diff > 0) return `+${diff}`;
                     return `${diff}`;
@@ -962,7 +970,7 @@ export default function Report5Page() {
                         right: { style: 'thin' }
                     };
                     cell.font = { name: 'Sarabun', size: 10 };
-                    if (key?.endsWith('_change')) {
+                    if (key === 'transaction_change') {
                         if (cellText.startsWith('+')) {
                             cell.font = { name: 'Sarabun', size: 10, color: { argb: 'FF2563EB' } };
                         } else if (cellText.startsWith('-')) {
@@ -986,46 +994,24 @@ export default function Report5Page() {
             : { className: 'bg-white' };
 
         const generateFrameColumns = () => {
-            return levelKeys.flatMap((key, index) => {
-                const valueKey = `frame_${key}` as FrameMetricKey;
-                const changeKey = toFrameChangeKey(valueKey);
-                const isTotal = key === 'total';
-                const headerClass = isTotal ? 'bg-yellow-200! text-yellow-900! font-bold' : 'bg-blue-50! text-blue-700';
-                const valueCellClass = isTotal ? 'bg-yellow-50! font-bold text-gray-900' : '';
-                const changeCellClass = isTotal ? 'bg-yellow-50! font-bold text-gray-900' : 'bg-blue-50!';
-
-                const getFrameCellProps = (record: Report5DataType, defaultClass: string) => {
+            return levelKeys.map((key, index) => ({
+                title: levelLabels[index],
+                dataIndex: `frame_${key}`,
+                key: `frame_${key}`,
+                width: key === 'total' ? 70 : 60,
+                align: 'center' as const,
+                className: key === 'total' ? 'bg-blue-50! font-bold text-blue-900' : '',
+                onHeaderCell: () => ({
+                    className: key === 'total' ? 'bg-blue-100! text-blue-900! font-bold' : 'bg-blue-50! text-blue-700'
+                }),
+                render: renderNumber,
+                onCell: (record: Report5DataType) => {
                     if (record.key === 'TOTAL_SUMMARY') {
                         return { className: 'bg-blue-200! font-bold text-gray-900 border-t-2! border-t-gray-300!' };
                     }
-                    return { className: defaultClass || 'bg-white' };
-                };
-
-                return [
-                    {
-                        title: levelLabels[index],
-                        dataIndex: valueKey,
-                        key: valueKey,
-                        width: isTotal ? 72 : 62,
-                        align: 'center' as const,
-                        className: valueCellClass,
-                        onHeaderCell: () => ({ className: headerClass }),
-                        render: renderNumber,
-                        onCell: (record: Report5DataType) => getFrameCellProps(record, valueCellClass)
-                    },
-                    {
-                        title: '+/-',
-                        dataIndex: changeKey,
-                        key: changeKey,
-                        width: 58,
-                        align: 'center' as const,
-                        className: changeCellClass,
-                        onHeaderCell: () => ({ className: headerClass }),
-                        render: renderChange,
-                        onCell: (record: Report5DataType) => getFrameCellProps(record, changeCellClass)
-                    }
-                ];
-            });
+                    return { className: 'bg-white' };
+                }
+            }));
         };
 
         return [
@@ -1042,6 +1028,18 @@ export default function Report5Page() {
                 title: 'กรอบอัตรากำลังในระบบ SAP',
                 className: 'bg-blue-200! text-black! font-bold text-center',
                 children: generateFrameColumns()
+            }] : []),
+            ...(isShow('transaction_change') ? [{
+                title: 'ยอดเปลี่ยนแปลงรายการ',
+                dataIndex: 'transaction_change',
+                key: 'transaction_change',
+                width: 130,
+                align: 'center' as const,
+                render: renderSignedChange,
+                onHeaderCell: () => ({ className: 'bg-amber-100! text-amber-900 font-bold' }),
+                onCell: (record: Report5DataType) => record.key === 'TOTAL_SUMMARY'
+                    ? { className: 'bg-amber-100! font-bold text-gray-900 border-t-2! border-t-gray-300!' }
+                    : { className: 'bg-amber-50!' }
             }] : []),
             ...(isShow('operator') ? [{ title: 'ผู้ดำเนินการ', dataIndex: 'operator', key: 'operator', width: 150, onHeaderCell: () => ({ className: 'bg-green-100! text-green-900 font-bold' }), onCell: getBasicCellProps }] : []),
             ...(isShow('remark') ? [{ title: 'หมายเหตุ', dataIndex: 'remark', key: 'remark', width: 200, ellipsis: true, onHeaderCell: () => ({ className: 'bg-green-100! text-green-900 font-bold' }), onCell: getBasicCellProps }] : []),

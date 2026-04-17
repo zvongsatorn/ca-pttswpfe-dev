@@ -351,6 +351,29 @@ const createBodyStyle = (cell: ExcelJS.Cell, horizontal: 'left' | 'center' = 'le
     };
 };
 
+const createSummaryHeaderStyle = (cell: ExcelJS.Cell, fillColor: string, textColor: string = 'FF000000') => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
+    cell.font = { name: 'Sarabun', bold: true, color: { argb: textColor }, size: 11 };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' },
+    };
+};
+
+const createSummaryBodyStyle = (cell: ExcelJS.Cell, horizontal: 'left' | 'center' = 'center') => {
+    cell.font = { name: 'Sarabun', color: { argb: 'FF000000' }, size: 11 };
+    cell.alignment = { horizontal, vertical: 'middle' };
+    cell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' },
+    };
+};
+
 type SheetFilter = (row: Report10DetailDataType) => boolean;
 
 const REPORT10_EXPORT_SHEETS: Array<{ name: string; label: string; filter: SheetFilter }> = [
@@ -365,8 +388,105 @@ const REPORT10_EXPORT_SHEETS: Array<{ name: string; label: string; filter: Sheet
     { name: 'ฝ่าย(sec)', label: 'ฝ่าย (sec)', filter: (row) => row.levelGroup === '050' && row.isSecondment },
 ];
 
-const buildDetailWorkbook = async (rows: Report10DetailDataType[], effectiveDate: Dayjs) => {
+const buildSummaryWorksheet = (workbook: ExcelJS.Workbook, summaryRows: Report10SummaryDataType[], effectiveDate: Dayjs) => {
+    const worksheet = workbook.addWorksheet('summary');
+
+    worksheet.mergeCells('A1:M1');
+    const titleCell = worksheet.getCell('A1');
+    titleCell.value = `รายงานกรอบอัตรากำลังและจำนวนผู้บริหาร (ภาพรวม) ณ วันที่ ${effectiveDate.format('DD/MM/YYYY')}`;
+    titleCell.font = { name: 'Sarabun', bold: true, size: 12, color: { argb: 'FF000000' } };
+    titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
+
+    worksheet.mergeCells('A3:A4');
+    worksheet.mergeCells('B3:D3');
+    worksheet.mergeCells('E3:G3');
+    worksheet.mergeCells('H3:J3');
+    worksheet.mergeCells('K3:M3');
+
+    worksheet.getCell('A3').value = 'ตำแหน่ง';
+    worksheet.getCell('B3').value = 'ตามโครงสร้าง';
+    worksheet.getCell('E3').value = 'กรอบเฉพาะตัว';
+    worksheet.getCell('H3').value = 'Secondment';
+    worksheet.getCell('K3').value = 'รวมทั้งหมด';
+
+    createSummaryHeaderStyle(worksheet.getCell('A3'), 'FFE3E8EF', 'FF1E3A8A');
+    createSummaryHeaderStyle(worksheet.getCell('B3'), 'FFA9C0DE', 'FF1E3A8A');
+    createSummaryHeaderStyle(worksheet.getCell('E3'), 'FFF1CC9E', 'FF92400E');
+    createSummaryHeaderStyle(worksheet.getCell('H3'), 'FFA7DDB8', 'FF14532D');
+    createSummaryHeaderStyle(worksheet.getCell('K3'), 'FFF2E58A', 'FF713F12');
+
+    const subHeaders = [
+        { col: 2, title: 'กรอบอัตรากำลัง', fill: 'FFBFD0E5', color: 'FF1E3A8A' },
+        { col: 3, title: 'จำนวนพนักงาน', fill: 'FFBFD0E5', color: 'FF1E3A8A' },
+        { col: 4, title: 'ว่าง', fill: 'FFBFD0E5', color: 'FF1E3A8A' },
+        { col: 5, title: 'กรอบอัตรากำลัง', fill: 'FFF5E3CC', color: 'FF92400E' },
+        { col: 6, title: 'จำนวนพนักงาน', fill: 'FFF5E3CC', color: 'FF92400E' },
+        { col: 7, title: 'ว่าง', fill: 'FFF5E3CC', color: 'FF92400E' },
+        { col: 8, title: 'กรอบอัตรากำลัง', fill: 'FFCDEBD6', color: 'FF14532D' },
+        { col: 9, title: 'จำนวนพนักงาน', fill: 'FFCDEBD6', color: 'FF14532D' },
+        { col: 10, title: 'ว่าง', fill: 'FFCDEBD6', color: 'FF14532D' },
+        { col: 11, title: 'กรอบอัตรากำลัง', fill: 'FFF7F0BF', color: 'FF713F12' },
+        { col: 12, title: 'จำนวนพนักงาน', fill: 'FFF7F0BF', color: 'FF713F12' },
+        { col: 13, title: 'ตำแหน่งว่าง', fill: 'FFF7F0BF', color: 'FF713F12' },
+    ];
+
+    subHeaders.forEach((item) => {
+        const cell = worksheet.getCell(4, item.col);
+        cell.value = item.title;
+        createSummaryHeaderStyle(cell, item.fill, item.color);
+    });
+
+    if (!summaryRows.length) {
+        worksheet.mergeCells('A5:M5');
+        const noDataCell = worksheet.getCell('A5');
+        noDataCell.value = 'ไม่พบข้อมูล';
+        noDataCell.font = { name: 'Sarabun', italic: true, color: { argb: 'FF666666' }, size: 11 };
+        noDataCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    } else {
+        summaryRows.forEach((row, index) => {
+            const rowIndex = 5 + index;
+            const values = [
+                row.position,
+                row.struct_frame,
+                row.struct_emp,
+                row.struct_vac,
+                row.spec_frame,
+                row.spec_emp,
+                row.spec_vac,
+                row.sec_frame,
+                row.sec_emp,
+                row.sec_vac,
+                row.total_frame,
+                row.total_emp,
+                row.total_vac,
+            ];
+
+            values.forEach((value, idx) => {
+                const col = idx + 1;
+                const cell = worksheet.getCell(rowIndex, col);
+                cell.value = value;
+                createSummaryBodyStyle(cell, col === 1 ? 'left' : 'center');
+            });
+        });
+    }
+
+    const widths = [42, 16, 16, 12, 16, 16, 12, 16, 16, 12, 16, 16, 15];
+    widths.forEach((width, idx) => {
+        worksheet.getColumn(idx + 1).width = width;
+    });
+
+    worksheet.getRow(1).height = 22;
+    worksheet.getRow(3).height = 24;
+    worksheet.getRow(4).height = 24;
+};
+
+const buildDetailWorkbook = async (
+    rows: Report10DetailDataType[],
+    summaryRows: Report10SummaryDataType[],
+    effectiveDate: Dayjs
+) => {
     const workbook = new ExcelJS.Workbook();
+    buildSummaryWorksheet(workbook, summaryRows, effectiveDate);
     const headers = [
         'ลำดับที่',
         'ชื่อ',
@@ -526,7 +646,8 @@ export default function Report10Page() {
             }
 
             const detailRows = transformDetailRows(payload.data);
-            await buildDetailWorkbook(detailRows, currentSearchDate);
+            const summaryRows = tableData.length ? tableData : await fetchSummaryData(currentSearchDate);
+            await buildDetailWorkbook(detailRows, summaryRows, currentSearchDate);
         } catch (error) {
             console.error('Failed to export report10 excel:', error);
             alert(error instanceof Error ? error.message : 'ไม่สามารถ export Excel ได้');

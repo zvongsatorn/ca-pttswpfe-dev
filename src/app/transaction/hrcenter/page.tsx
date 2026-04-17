@@ -248,8 +248,8 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = "
 }
 
 const renderAmount = (amount?: number, tAmount?: number | string, cAmount?: number | string) => {
-  const diff = Number(tAmount) || 0;
-  const hasTrans = Number(cAmount) > 0 || diff !== 0;
+  const diff = toNumber(tAmount);
+  const hasTrans = Math.abs(toNumber(cAmount)) > 0 || diff !== 0;
   
   if (!hasTrans) {
     return <span className="text-gray-900">{amount || 0}</span>;
@@ -267,8 +267,8 @@ const renderAmount = (amount?: number, tAmount?: number | string, cAmount?: numb
 };
 
 const renderTotalAmount = (amount?: number, tAmount?: number | string, cAmount?: number | string) => {
-  const diff = Number(tAmount) || 0;
-  const hasTrans = Number(cAmount) > 0 || diff !== 0;
+  const diff = toNumber(tAmount);
+  const hasTrans = Math.abs(toNumber(cAmount)) > 0 || diff !== 0;
   
   if (!hasTrans) {
     return <span className="text-gray-900">{amount || 0}</span>;
@@ -293,6 +293,12 @@ const truncateText = (text: string | null | undefined, max: number) => {
 
 const toNumber = (value: unknown): number => {
   if (value === null || value === undefined || value === '') return 0;
+  if (typeof value === 'string') {
+    const cleaned = value.replace(/,/g, '').trim();
+    if (!cleaned) return 0;
+    const num = Number(cleaned);
+    return Number.isFinite(num) ? num : 0;
+  }
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
 };
@@ -686,26 +692,26 @@ export default function HRCenterPage() {
         contract: acc.contract + (dept.amount_8 || 0),
         contractSubcontract: acc.contractSubcontract + (dept.amount_subcontact || 0),
         people: acc.people + getPeopleTotal(dept),
-        t_level21: acc.t_level21 + Number(dept.t_amount_1 || 0),
-        t_level18_20: acc.t_level18_20 + Number(dept.t_amount_2 || 0),
-        t_level16_17: acc.t_level16_17 + Number(dept.t_amount_3 || 0),
-        t_level14_15: acc.t_level14_15 + Number(dept.t_amount_4 || 0),
-        t_level11_13: acc.t_level11_13 + Number(dept.t_amount_5 || 0),
-        t_level9_10: acc.t_level9_10 + Number(dept.t_amount_6 || 0),
-        t_level4_8: acc.t_level4_8 + Number(dept.t_amount_7 || 0),
-        t_total: acc.t_total + Number(dept.t_total_amount || 0),
-        t_contract: acc.t_contract + Number(dept.t_amount_8 || 0),
-        t_contractSubcontract: acc.t_contractSubcontract + Number(dept.t_amount_subcontact || 0),
-        c_level21: acc.c_level21 + Number(dept.c_amount_1 || 0),
-        c_level18_20: acc.c_level18_20 + Number(dept.c_amount_2 || 0),
-        c_level16_17: acc.c_level16_17 + Number(dept.c_amount_3 || 0),
-        c_level14_15: acc.c_level14_15 + Number(dept.c_amount_4 || 0),
-        c_level11_13: acc.c_level11_13 + Number(dept.c_amount_5 || 0),
-        c_level9_10: acc.c_level9_10 + Number(dept.c_amount_6 || 0),
-        c_level4_8: acc.c_level4_8 + Number(dept.c_amount_7 || 0),
-        c_total: acc.c_total + Number(dept.chkamount || 0),
-        c_contract: acc.c_contract + Number(dept.c_amount_8 || 0),
-        c_contractSubcontract: acc.c_contractSubcontract + Number(dept.c_amount_10 || 0),
+        t_level21: acc.t_level21 + toNumber(dept.t_amount_1),
+        t_level18_20: acc.t_level18_20 + toNumber(dept.t_amount_2),
+        t_level16_17: acc.t_level16_17 + toNumber(dept.t_amount_3),
+        t_level14_15: acc.t_level14_15 + toNumber(dept.t_amount_4),
+        t_level11_13: acc.t_level11_13 + toNumber(dept.t_amount_5),
+        t_level9_10: acc.t_level9_10 + toNumber(dept.t_amount_6),
+        t_level4_8: acc.t_level4_8 + toNumber(dept.t_amount_7),
+        t_total: acc.t_total + toNumber(dept.t_total_amount),
+        t_contract: acc.t_contract + toNumber(dept.t_amount_8),
+        t_contractSubcontract: acc.t_contractSubcontract + toNumber(dept.t_amount_subcontact),
+        c_level21: acc.c_level21 + toNumber(dept.c_amount_1),
+        c_level18_20: acc.c_level18_20 + toNumber(dept.c_amount_2),
+        c_level16_17: acc.c_level16_17 + toNumber(dept.c_amount_3),
+        c_level14_15: acc.c_level14_15 + toNumber(dept.c_amount_4),
+        c_level11_13: acc.c_level11_13 + toNumber(dept.c_amount_5),
+        c_level9_10: acc.c_level9_10 + toNumber(dept.c_amount_6),
+        c_level4_8: acc.c_level4_8 + toNumber(dept.c_amount_7),
+        c_total: acc.c_total + toNumber(dept.chkamount ?? dept.c_total_amount),
+        c_contract: acc.c_contract + toNumber(dept.c_amount_8),
+        c_contractSubcontract: acc.c_contractSubcontract + toNumber(dept.c_amount_10),
         find: acc.find + getRecruitTotal(dept),
         blank: acc.blank + getBlankTotal(dept),
       }),
@@ -1209,7 +1215,7 @@ export default function HRCenterPage() {
                         {visibleColumns.level11_13 && <td className="px-1 py-3 text-xs text-center">{renderAmount(dept.amount_5, dept.t_amount_5, dept.c_amount_5)}</td>}
                         {visibleColumns.level9_10 && <td className="px-1 py-3 text-xs text-center">{renderAmount(dept.amount_6, dept.t_amount_6, dept.c_amount_6)}</td>}
                         {visibleColumns.level4_8 && <td className="px-1 py-3 text-xs text-center">{renderAmount(dept.amount_7, dept.t_amount_7, dept.c_amount_7)}</td>}
-                        {visibleColumns.total && <td className="px-1 py-3 text-xs text-center">{renderAmount(dept.total_amount, dept.t_total_amount, dept.chkamount)}</td>}
+                        {visibleColumns.total && <td className="px-1 py-3 text-xs text-center">{renderAmount(dept.total_amount, dept.t_total_amount, dept.chkamount ?? dept.c_total_amount)}</td>}
                         {visibleColumns.contract && <td className="px-1 py-3 text-xs text-center">{renderAmount(dept.amount_8, dept.t_amount_8, dept.c_amount_8)}</td>}
                         {visibleColumns.contractSubcontract && <td className="px-1 py-3 text-xs text-center">{renderAmount(dept.amount_subcontact, dept.t_amount_subcontact, dept.c_amount_10)}</td>}
                         {visibleColumns.people && <td className="px-2 py-3 text-xs text-center text-gray-900">{getPeopleTotal(dept)}</td>}
