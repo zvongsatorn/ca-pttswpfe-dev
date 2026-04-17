@@ -1,23 +1,15 @@
 import { AntdRegistry } from '@ant-design/nextjs-registry';
 import { ConfigProvider } from 'antd';
 import type { Metadata } from "next";
-import { Bai_Jamjuree, Exo_2} from 'next/font/google';
+import type { CSSProperties } from 'react';
 import "./globals.css";
 import { MsalProvider } from "@/lib/msal-provider";
 import { Toaster } from "@/components/ui/sonner";
-const fonethai = Bai_Jamjuree({
-  subsets: ['thai'],
-  weight: ['300', '400', '500', '600', '700'],
-  variable: '--font-thai',
-  display: 'swap',
-});
 
-const fonteng = Exo_2({
-  subsets: ['latin'],
-  weight: ['300', '400', '700'],
-  variable: '--font-eng',
-  display: 'swap',
-});
+const fontVars: CSSProperties = {
+  ['--font-eng' as string]: '"Exo 2", "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif',
+  ['--font-thai' as string]: '"Bai Jamjuree", "Noto Sans Thai", "Leelawadee UI", "TH Sarabun New", sans-serif',
+};
 
 export const metadata: Metadata = {
   title: "PTTSWP",
@@ -33,7 +25,7 @@ export default function RootLayout({
     <html
       lang="th"
       suppressHydrationWarning
-      className={`${fonteng.variable} ${fonethai.variable}`}
+      style={fontVars}
     >
       <body className="font-sans antialiased min-h-screen">
          <AntdRegistry>

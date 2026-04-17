@@ -391,7 +391,7 @@ export default function DashboardPage() {
             const monthStr = (filterDate.month() + 1).toString().padStart(2, '0');
             const yearStr = (filterDate.year() > 2500 ? filterDate.year() - 543 : filterDate.year()).toString();
 
-            const divisionForQuery = unit || filteredUnitOptions[0]?.value || '';
+            const divisionForQuery = units[0] || filteredUnitOptions[0]?.value || '';
 
             const query = new URLSearchParams({
                 effectiveMonth: monthStr,

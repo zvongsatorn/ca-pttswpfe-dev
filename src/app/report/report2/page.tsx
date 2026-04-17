@@ -777,7 +777,7 @@ export default function Report2Page() {
 
             const collectLeafColumns = (cols: ColumnsType<DataType>, parentTitle = '') => {
                 cols.forEach((col) => {
-                    const children = (col.children || []) as ColumnsType<DataType>;
+                    const children = (col as { children?: ColumnsType<DataType> }).children || [];
                     const title = String(col.title ?? '');
 
                     if (children.length > 0) {
@@ -1482,7 +1482,7 @@ export default function Report2Page() {
             rows.push(monthSummaryRow);
 
             metricDefs.forEach((metric) => {
-                if (metric.isRemark) {
+                if ('isRemark' in metric && metric.isRemark) {
                     const remarkRow: DataType = {
                         key: `transpose-${rowCounter++}`,
                         unit: `- ${metric.label}`,

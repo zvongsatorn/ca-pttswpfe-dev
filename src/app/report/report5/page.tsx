@@ -69,7 +69,7 @@ interface Report5DataType {
     frame_9_10: number;
     frame_under_8: number;
     frame_total: number;
-    transaction_change?: number;
+    transaction_change: number;
     operator: string;
     remark: string;
     log: string;
@@ -765,6 +765,7 @@ export default function Report5Page() {
             frame_9_10: 0,
             frame_under_8: 0,
             frame_total: 0,
+            transaction_change: 0,
             operator: '',
             remark: '',
             log: '',
