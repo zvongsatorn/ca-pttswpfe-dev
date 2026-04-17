@@ -37,6 +37,9 @@ interface TransactionDetail {
   hasFile: boolean;
   fileUrl?: string;
   rejectionReason?: string;
+  rejectedBy?: string;
+  rejectedRole?: string;
+  rejectedAt?: string;
 }
 
 interface ApprovalLogItem {
@@ -50,6 +53,8 @@ interface ApprovalLogItem {
 interface TransactionProgressItem {
   id: string;            // DocumentNo
   inboxNumber: string;   
+  hasRejectedItem: boolean;
+  effectiveDate: string;
   category: string;      
   resolution: string;    
   statusLabel: string;   
@@ -90,20 +95,72 @@ interface FilterOption {
   label: string;
 }
 
-function ScrollableSelectFilter({
-  value,
+interface APIDocAuditLogDetail {
+  ItemID?: string;
+  Seqno: number;
+  AuditStatus: number;
+  AuditDate?: string;
+  EmployeeID: string;
+  Fullname: string;
+  UserGroupName?: string;
+  UserGroupNo?: string;
+  UnitSide?: string;
+}
+
+interface APIDocumentItem {
+  ItemID: string;
+  TransactionType: number;
+  TransactionDesc: string;
+  ReqRemark: string;
+  RejectionReason: string;
+  FileCount: number;
+  FileUrl: string;
+}
+
+interface APIDocumentLog {
+  Seqno: number;
+  AuditStatus: number;
+  AuditDate?: string;
+  EmployeeID: string;
+  Fullname: string;
+  UserGroupName?: string;
+  UserGroupNo?: string;
+  UnitSide?: string;
+}
+
+interface APIDocumentSummary {
+  documentNo: string;
+  effectiveDate?: string;
+  createDate: string;
+  statusLabel: string;
+  processStage: number;
+  category: string;
+  typeCategory: string;
+  resolution: string;
+  businessUnitId?: string;
+  businessUnitName?: string;
+  divisionId?: string;
+  divisionName?: string;
+  agencyId?: string;
+  agencyName?: string;
+  items: APIDocumentItem[];
+  logs: APIDocumentLog[];
+}
+
+function MultiSelectFilter({
+  values,
   options,
   placeholder,
   allLabel = 'ทั้งหมด',
   widthClass = 'w-56',
   onChange,
 }: {
-  value: string;
+  values: string[];
   options: FilterOption[];
   placeholder: string;
   allLabel?: string;
   widthClass?: string;
-  onChange: (value: string) => void;
+  onChange: (values: string[]) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -119,18 +176,25 @@ function ScrollableSelectFilter({
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
-  const selectedLabel = value
-    ? options.find((item) => item.value === value)?.label || value
-    : allLabel;
+  const selectedLabel = (() => {
+    if (values.length === 0) return allLabel;
+    if (values.length === 1) {
+      const selectedValue = values[0];
+      return options.find((item) => item.value === selectedValue)?.label || selectedValue;
+    }
+    return `เลือกแล้ว ${values.length} รายการ`;
+  })();
 
   const filteredOptions = options.filter((item) =>
     item.label.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const selectValue = (nextValue: string) => {
-    onChange(nextValue);
-    setIsOpen(false);
-    setSearchTerm('');
+  const toggleValue = (nextValue: string) => {
+    if (values.includes(nextValue)) {
+      onChange(values.filter((value) => value !== nextValue));
+      return;
+    }
+    onChange([...values, nextValue]);
   };
 
   return (
@@ -162,9 +226,9 @@ function ScrollableSelectFilter({
           <div className="max-h-56 overflow-y-auto p-1">
             <button
               type="button"
-              onClick={() => selectValue('')}
+              onClick={() => onChange([])}
               className={`w-full text-left px-2 py-1.5 rounded text-sm hover:bg-blue-50 ${
-                !value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+                values.length === 0 ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
               }`}
             >
               {allLabel}
@@ -174,13 +238,19 @@ function ScrollableSelectFilter({
               <button
                 key={option.value}
                 type="button"
-                onClick={() => selectValue(option.value)}
-                className={`w-full text-left px-2 py-1.5 rounded text-sm hover:bg-gray-50 ${
-                  value === option.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+                onClick={() => toggleValue(option.value)}
+                className={`w-full px-2 py-1.5 rounded text-sm hover:bg-gray-50 flex items-start justify-start gap-2 text-left ${
+                  values.includes(option.value) ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
                 }`}
                 title={option.label}
               >
-                {option.label}
+                <input
+                  type="checkbox"
+                  checked={values.includes(option.value)}
+                  readOnly
+                  className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 pointer-events-none"
+                />
+                <span className="text-left leading-snug">{option.label}</span>
               </button>
             ))}
 
@@ -201,11 +271,13 @@ export default function TransactionProgressPage() {
   const currentYear = (new Date().getFullYear() + 543).toString();
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [appliedMonth, setAppliedMonth] = useState(currentMonth);
+  const [appliedYear, setAppliedYear] = useState(currentYear);
   
   // Filter States
-  const [selectedBusinessUnit, setSelectedBusinessUnit] = useState('');
-  const [selectedDivision, setSelectedDivision] = useState('');
-  const [selectedAgency, setSelectedAgency] = useState('');
+  const [selectedBusinessUnits, setSelectedBusinessUnits] = useState<string[]>([]);
+  const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
+  const [selectedAgencies, setSelectedAgencies] = useState<string[]>([]);
   const [businessUnitOptions, setBusinessUnitOptions] = useState<FilterOption[]>([]);
   const [lineOfWorkOptions, setLineOfWorkOptions] = useState<FilterOption[]>([]);
   const [orgUnitOptions, setOrgUnitOptions] = useState<FilterOption[]>([]);
@@ -223,6 +295,8 @@ export default function TransactionProgressPage() {
   // -- Data State --
   const [transactions, setTransactions] = useState<TransactionProgressItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedHeaderGroupNo, setSelectedHeaderGroupNo] = useState('');
+  const [selectedHeaderGroupRole, setSelectedHeaderGroupRole] = useState('');
 
   // -- State for View Modal (read-only) --
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -244,6 +318,18 @@ export default function TransactionProgressPage() {
   };
 
   const toText = (value: unknown) => String(value ?? '').trim();
+  const normalizeGroupRole = (value: unknown) => String(value ?? '').trim().toUpperCase();
+  const normalizeItemId = (value?: string) => String(value || '').trim().toUpperCase();
+  const toDateTimeMs = (value?: string) => {
+    const ms = value ? new Date(value).getTime() : NaN;
+    return Number.isFinite(ms) ? ms : 0;
+  };
+  const toRoleLabel = (log: Pick<APIDocAuditLogDetail, 'Seqno' | 'UserGroupName' | 'UserGroupNo' | 'UnitSide'>) => {
+    if (log.Seqno === 0) return log.UserGroupName || 'ผู้สร้างรายการ';
+    const baseName = log.UserGroupName || log.UserGroupNo || '';
+    const suffix = log.UnitSide === 'UnitReceive' ? ' (ฝั่งรับ)' : log.UnitSide === 'UnitTransfer' ? ' (ฝั่งให้)' : '';
+    return baseName + suffix;
+  };
   const cleanUnitText = (text: string) => text.replace(/^[A-Za-z0-9_-]+\s+/, '').trim();
   const uniqueOptions = (options: FilterOption[]) => {
     const map = new Map<string, FilterOption>();
@@ -253,8 +339,20 @@ export default function TransactionProgressPage() {
     });
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'th'));
   };
-  const syncSelected = (selected: string, options: FilterOption[]) =>
-    options.some((opt) => opt.value === selected) ? selected : '';
+  const isSameStringArray = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((value, index) => value === b[index]);
+  const syncSelectedMany = (selected: string[], options: FilterOption[]) => {
+    const optionValues = new Set(options.map((opt) => opt.value));
+    return selected.filter((value) => optionValues.has(value));
+  };
+  const matchesSelected = (selectedValues: string[], ...candidateValues: unknown[]) => {
+    if (selectedValues.length === 0) return true;
+    const selected = new Set(selectedValues.map((value) => String(value || '').trim()).filter(Boolean));
+    return candidateValues.some((candidate) => {
+      const normalized = String(candidate || '').trim();
+      return normalized ? selected.has(normalized) : false;
+    });
+  };
   const toBgOption = (row: Report3FilterItem): FilterOption | null => {
     const value = toText(row.BGNo);
     const label = toText(row.BGName);
@@ -273,6 +371,41 @@ export default function TransactionProgressPage() {
     if (!value || !label) return null;
     return { value, label };
   };
+  const isRejectedStatus = (statusLabel: unknown) => /reject|ไม่อนุมัติ/i.test(String(statusLabel || ''));
+  const dedupeDocumentItems = (items: APIDocumentItem[]) => {
+    const map = new Map<string, APIDocumentItem>();
+
+    items.forEach((rawItem, index) => {
+      const item: APIDocumentItem = {
+        ...rawItem,
+        ItemID: toText(rawItem.ItemID),
+        TransactionDesc: toText(rawItem.TransactionDesc),
+        ReqRemark: toText(rawItem.ReqRemark),
+        RejectionReason: toText(rawItem.RejectionReason),
+        FileCount: Number(rawItem.FileCount || 0),
+        FileUrl: toText(rawItem.FileUrl),
+      };
+
+      const key = normalizeItemId(item.ItemID) || `ITEM-${index}`;
+      const prev = map.get(key);
+      if (!prev) {
+        map.set(key, item);
+        return;
+      }
+
+      map.set(key, {
+        ...prev,
+        TransactionType: prev.TransactionType || item.TransactionType,
+        TransactionDesc: prev.TransactionDesc || item.TransactionDesc,
+        ReqRemark: prev.ReqRemark || item.ReqRemark,
+        RejectionReason: item.RejectionReason || prev.RejectionReason,
+        FileCount: Math.max(Number(prev.FileCount || 0), Number(item.FileCount || 0)),
+        FileUrl: prev.FileUrl || item.FileUrl,
+      });
+    });
+
+    return Array.from(map.values());
+  };
 
   // ============================================================================
   // 2. DATA FETCHING
@@ -281,23 +414,25 @@ export default function TransactionProgressPage() {
   const getUserContext = () => {
     let employeeId = 'SYSTEM';
     let userGroupNo = '';
+    let employeeName = '';
     const userDataStr = localStorage.getItem('user_data');
     if (userDataStr) {
       try {
         const userData = JSON.parse(userDataStr);
         employeeId = userData.employeeID || 'SYSTEM';
         userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
+        employeeName = String(userData.name || userData.fullName || userData.Fullname || '').trim();
       } catch { /* ignore */ }
     }
-    return { employeeId, userGroupNo };
+    return { employeeId, userGroupNo, employeeName };
   };
-
   const getEmployeeId = () => getUserContext().employeeId;
+  const canRejectBySelectedGroup = selectedHeaderGroupNo === '04' || selectedHeaderGroupRole.includes('HRPOLICY');
 
   const toEffectiveDateParam = () => {
-    const monthIndex = months.indexOf(selectedMonth);
+    const monthIndex = months.indexOf(appliedMonth);
     const month = monthIndex >= 0 ? monthIndex + 1 : new Date().getMonth() + 1;
-    const yearRaw = Number.parseInt(String(selectedYear || '').trim(), 10);
+    const yearRaw = Number.parseInt(String(appliedYear || '').trim(), 10);
     const currentAdYear = new Date().getFullYear();
     const adYear = Number.isInteger(yearRaw) ? (yearRaw > 2400 ? yearRaw - 543 : yearRaw) : currentAdYear;
     return `${adYear}-${String(month).padStart(2, '0')}-01`;
@@ -307,90 +442,175 @@ export default function TransactionProgressPage() {
     setIsLoading(true);
     try {
       const { employeeId } = getUserContext();
-      const res = await fetch(`/api/documents/progress?employeeId=${employeeId}`);
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data) {
-          const mapped: TransactionProgressItem[] = json.data.map((doc: {
-            documentNo: string;
-            createDate: string;
-            statusLabel: string;
-            processStage: number;
-            category: string;
-            typeCategory: string;
-            resolution: string;
-            businessUnitId?: string;
-            businessUnitName?: string;
-            divisionId?: string;
-            divisionName?: string;
-            agencyId?: string;
-            agencyName?: string;
-            items: { ItemID: string; TransactionType: number; TransactionDesc: string; ReqRemark: string; RejectionReason: string; FileCount: number; FileUrl: string }[];
-            logs: { Seqno: number; AuditStatus: number; AuditDate?: string; EmployeeID: string; Fullname: string; UserGroupName?: string; UserGroupNo?: string; UnitSide?: string }[];
-          }) => ({
-            id: doc.documentNo,
-            inboxNumber: `[${doc.documentNo}]`,
-            category: doc.category,
-            resolution: doc.resolution,
-            statusLabel: doc.statusLabel,
-            processStage: doc.processStage as 1 | 2 | 3,
-            createdDate: dayjs(doc.createDate).format('DD/MM/BBBB'),
-            typeCategory: doc.typeCategory,
-            businessUnitId: normalizeOptionValue(doc.businessUnitId, doc.businessUnitName),
-            businessUnitName: normalizeOptionValue(doc.businessUnitName, doc.businessUnitId),
-            divisionId: normalizeOptionValue(doc.divisionId, doc.divisionName),
-            divisionName: normalizeOptionValue(doc.divisionName, doc.divisionId),
-            agencyId: normalizeOptionValue(doc.agencyId, doc.agencyName),
-            agencyName: normalizeOptionValue(doc.agencyName, doc.agencyId),
-            items: doc.items.map((i) => ({
-              id: i.ItemID,
-              typeLabel: i.TransactionType === 1 ? 'โอนกรอบอัตรากำลัง' : i.TransactionType === 3 ? 'ปรับระดับ' : i.TransactionType === 4 ? 'เพิ่ม/ลดกรอบ' : i.TransactionType === 6 ? 'ยืม' : 'อื่นๆ',
-              typeCategory: (i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer') as 'transfer' | 'other' | 'add' | 'adjust',
-              description: i.TransactionDesc || '',
-              remark: i.ReqRemark || '-',
-              hasFile: i.FileCount > 0,
-              fileUrl: i.FileUrl,
-              rejectionReason: i.RejectionReason,
-            })),
-            logs: [
-              ...doc.logs.map((l) => ({
-                action: l.Seqno === 0 ? 'สร้าง' : l.AuditStatus === 2 ? 'อนุมัติ' : l.AuditStatus === 1 ? 'รออนุมัติ' : l.AuditStatus === -1 ? 'ไม่อนุมัติ' : 'รอดำเนินการ',
-                timestamp: l.AuditDate ? dayjs(l.AuditDate).format('DD/MM/BBBB HH:mm') : '',
-                user: `${l.EmployeeID} ${l.Fullname}`,
-                role: (() => {
-                  if (l.Seqno === 0) return l.UserGroupName || 'ผู้สร้างรายการ';
-                  const baseName = l.UserGroupName || l.UserGroupNo || '';
-                  const suffix = l.UnitSide === 'UnitReceive' ? ' (ฝั่งรับ)' : l.UnitSide === 'UnitTransfer' ? ' (ฝั่งให้)' : '';
-                  return baseName + suffix;
-                })(),
-                status: (l.AuditStatus === 2 ? 'completed' : l.AuditStatus === 1 ? 'current' : 'pending') as 'completed' | 'current' | 'pending',
+      const mapDocuments = (docs: APIDocumentSummary[]) => {
+        return docs.map((doc) => ({
+          ...(() => {
+            const dedupedItems = dedupeDocumentItems(Array.isArray(doc.items) ? doc.items : []);
+            const hasRejected =
+              dedupedItems.some((i) => String(i.RejectionReason || '').trim().length > 0) ||
+              (Array.isArray(doc.logs) ? doc.logs.some((l) => Number(l.AuditStatus) === -1) : false) ||
+              isRejectedStatus(doc.statusLabel);
+            return {
+              hasRejectedItem: hasRejected,
+              items: dedupedItems.map((i) => ({
+                id: i.ItemID,
+                typeLabel: i.TransactionType === 1
+                      ? 'ภายใต้ผู้ช่วย'
+                      : i.TransactionType === 2
+                        ? 'โอนกรอบอื่นๆ'
+                        : i.TransactionType === 3
+                        ? 'ปรับระดับ'
+                        : i.TransactionType === 4
+                          ? 'เพิ่ม/ลด'
+                          : i.TransactionType === 6
+                            ? 'ยืม'
+                            : i.TransactionType === 7
+                              ? 'คืนยืม'
+                              : '',
+                typeCategory: (i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer') as 'transfer' | 'other' | 'add' | 'adjust',
+                description: i.TransactionDesc || '',
+                remark: i.ReqRemark || '-',
+                hasFile: Number(i.FileCount || 0) > 0,
+                fileUrl: i.FileUrl,
+                rejectionReason: i.RejectionReason,
               })),
-              {
-                action: 'เอกสารสมบูรณ์',
-                timestamp: '',
-                user: '-',
-                role: 'System',
-                status: (doc.processStage === 3 ? 'success' : 'pending') as 'success' | 'pending',
-              }
-            ],
-          }));
-          setTransactions(mapped);
-        }
+            };
+          })(),
+          id: doc.documentNo,
+          inboxNumber: `[${doc.documentNo}]`,
+          effectiveDate: String(doc.effectiveDate || doc.createDate || ''),
+          category: doc.category,
+          resolution: doc.resolution,
+          statusLabel: doc.statusLabel,
+          processStage: doc.processStage as 1 | 2 | 3,
+          createdDate: dayjs(doc.createDate).format('DD/MM/BBBB'),
+          typeCategory: doc.typeCategory,
+          businessUnitId: normalizeOptionValue(doc.businessUnitId, doc.businessUnitName),
+          businessUnitName: normalizeOptionValue(doc.businessUnitName, doc.businessUnitId),
+          divisionId: normalizeOptionValue(doc.divisionId, doc.divisionName),
+          divisionName: normalizeOptionValue(doc.divisionName, doc.divisionId),
+          agencyId: normalizeOptionValue(doc.agencyId, doc.agencyName),
+          agencyName: normalizeOptionValue(doc.agencyName, doc.agencyId),
+          logs: [
+            ...doc.logs.map((l) => ({
+              action: l.Seqno === 0 ? 'สร้าง' : l.AuditStatus === 2 ? 'อนุมัติ' : l.AuditStatus === 1 ? 'รออนุมัติ' : l.AuditStatus === -1 ? 'ไม่อนุมัติ' : 'รอดำเนินการ',
+              timestamp: l.AuditDate ? dayjs(l.AuditDate).format('DD/MM/BBBB HH:mm') : '',
+              user: `${l.EmployeeID} ${l.Fullname}`,
+              role: (() => {
+                if (l.Seqno === 0) return l.UserGroupName || 'ผู้สร้างรายการ';
+                const baseName = l.UserGroupName || l.UserGroupNo || '';
+                const suffix = l.UnitSide === 'UnitReceive' ? ' (ฝั่งรับ)' : l.UnitSide === 'UnitTransfer' ? ' (ฝั่งให้)' : '';
+                return baseName + suffix;
+              })(),
+              status: (l.AuditStatus === 2 ? 'completed' : l.AuditStatus === 1 ? 'current' : 'pending') as 'completed' | 'current' | 'pending',
+            })),
+            {
+              action: 'เอกสารสมบูรณ์',
+              timestamp: '',
+              user: '-',
+              role: 'System',
+              status: (doc.processStage === 3 ? 'success' : 'pending') as 'success' | 'pending',
+            }
+          ],
+        }));
+      };
+
+      const fetchDocs = async (path: string): Promise<APIDocumentSummary[] | null> => {
+        const res = await fetch(`${path}?employeeId=${employeeId}`);
+        if (!res.ok) return null;
+        const json = await res.json();
+        return Array.isArray(json?.data) ? (json.data as APIDocumentSummary[]) : [];
+      };
+
+      const [progressDocs, allDocs] = await Promise.all([
+        fetchDocs('/api/documents/progress'),
+        fetchDocs('/api/documents/all')
+      ]);
+
+      const merged = new Map<string, APIDocumentSummary>();
+
+      // Base: all documents (includes fully accepted/completed rows)
+      if (allDocs) {
+        allDocs.forEach((doc) => {
+          const key = normalizeOptionValue(doc?.documentNo);
+          if (!key) return;
+          merged.set(key, { ...doc, documentNo: key });
+        });
       }
+
+      // Overlay: progress rows (if same document exists, keep latest from progress source)
+      if (progressDocs) {
+        progressDocs.forEach((doc) => {
+          const key = normalizeOptionValue(doc?.documentNo);
+          if (!key) return;
+          merged.set(key, { ...doc, documentNo: key });
+        });
+      }
+
+      const mergedDocs = Array.from(merged.values()).sort((a, b) => {
+        const aTime = new Date(a.createDate).getTime();
+        const bTime = new Date(b.createDate).getTime();
+        return bTime - aTime;
+      });
+
+      setTransactions(mapDocuments(mergedDocs));
     } catch (err) {
       console.error('Error fetching progress:', err);
+      setTransactions([]);
     } finally {
       setIsLoading(false);
     }
   };
 
   const fetchFilterOptions = async () => {
+    const fallbackBusiness = uniqueOptions(
+      transactions
+        .map((row) => {
+          const value = normalizeOptionValue(row.businessUnitId, row.businessUnitName);
+          const label = normalizeOptionValue(row.businessUnitName, row.businessUnitId);
+          return value && label ? { value, label } : null;
+        })
+        .filter((item): item is FilterOption => item !== null)
+    );
+    const fallbackLines = uniqueOptions(
+      transactions
+        .filter((row) => matchesSelected(selectedBusinessUnits, row.businessUnitId, row.businessUnitName))
+        .map((row) => {
+          const value = normalizeOptionValue(row.divisionId, row.divisionName);
+          const label = normalizeOptionValue(row.divisionName, row.divisionId);
+          return value && label ? { value, label } : null;
+        })
+        .filter((item): item is FilterOption => item !== null)
+    );
+    const fallbackUnits = uniqueOptions(
+      transactions
+        .filter((row) => matchesSelected(selectedBusinessUnits, row.businessUnitId, row.businessUnitName))
+        .filter((row) => matchesSelected(selectedDivisions, row.divisionId, row.divisionName))
+        .map((row) => {
+          const value = normalizeOptionValue(row.agencyId, row.agencyName);
+          const label = normalizeOptionValue(row.agencyName, row.agencyId);
+          return value && label ? { value, label } : null;
+        })
+        .filter((item): item is FilterOption => item !== null)
+    );
+    const applyOptions = (nextBusiness: FilterOption[], nextLines: FilterOption[], nextUnits: FilterOption[]) => {
+      setBusinessUnitOptions(nextBusiness);
+      setLineOfWorkOptions(nextLines);
+      setOrgUnitOptions(nextUnits);
+
+      const nextBu = syncSelectedMany(selectedBusinessUnits, nextBusiness);
+      const nextLine = syncSelectedMany(selectedDivisions, nextLines);
+      const nextUnit = syncSelectedMany(selectedAgencies, nextUnits);
+
+      if (!isSameStringArray(nextBu, selectedBusinessUnits)) setSelectedBusinessUnits(nextBu);
+      if (!isSameStringArray(nextLine, selectedDivisions)) setSelectedDivisions(nextLine);
+      if (!isSameStringArray(nextUnit, selectedAgencies)) setSelectedAgencies(nextUnit);
+    };
+
     try {
       const { employeeId, userGroupNo } = getUserContext();
       if (!employeeId || !userGroupNo) {
-        setBusinessUnitOptions([]);
-        setLineOfWorkOptions([]);
-        setOrgUnitOptions([]);
+        applyOptions(fallbackBusiness, fallbackLines, fallbackUnits);
         return;
       }
 
@@ -399,44 +619,34 @@ export default function TransactionProgressPage() {
         employeeId,
         userGroupNo,
       });
-      if (selectedBusinessUnit) query.set('bgNo', selectedBusinessUnit);
-      if (selectedDivision) query.set('division', selectedDivision);
+      if (selectedBusinessUnits.length === 1) query.set('bgNo', selectedBusinessUnits[0]);
+      if (selectedDivisions.length === 1) query.set('division', selectedDivisions[0]);
 
       const res = await fetch(`/api/report/report3/filters?${query.toString()}`);
       const payload: Report3FilterResponse | null = await res.json().catch(() => null);
       if (!res.ok || !payload || payload.status !== 200 || !payload.data) {
-        setBusinessUnitOptions([]);
-        setLineOfWorkOptions([]);
-        setOrgUnitOptions([]);
+        applyOptions(fallbackBusiness, fallbackLines, fallbackUnits);
         return;
       }
 
+      const apiBusiness = payload.data.businessUnits.map(toBgOption).filter((item): item is FilterOption => item !== null);
+      const apiLines = payload.data.lines.map(toLineOption).filter((item): item is FilterOption => item !== null);
+      const apiUnits = payload.data.units.map(toUnitOption).filter((item): item is FilterOption => item !== null);
+
       const nextBusiness = uniqueOptions(
-        payload.data.businessUnits.map(toBgOption).filter((item): item is FilterOption => item !== null)
+        [...apiBusiness, ...fallbackBusiness]
       );
       const nextLines = uniqueOptions(
-        payload.data.lines.map(toLineOption).filter((item): item is FilterOption => item !== null)
+        [...apiLines, ...fallbackLines]
       );
       const nextUnits = uniqueOptions(
-        payload.data.units.map(toUnitOption).filter((item): item is FilterOption => item !== null)
+        [...apiUnits, ...fallbackUnits]
       );
 
-      setBusinessUnitOptions(nextBusiness);
-      setLineOfWorkOptions(nextLines);
-      setOrgUnitOptions(nextUnits);
-
-      const nextBu = syncSelected(selectedBusinessUnit, nextBusiness);
-      const nextLine = syncSelected(selectedDivision, nextLines);
-      const nextUnit = syncSelected(selectedAgency, nextUnits);
-
-      if (nextBu !== selectedBusinessUnit) setSelectedBusinessUnit(nextBu);
-      if (nextLine !== selectedDivision) setSelectedDivision(nextLine);
-      if (nextUnit !== selectedAgency) setSelectedAgency(nextUnit);
+      applyOptions(nextBusiness, nextLines, nextUnits);
     } catch (error) {
       console.error('Error fetching progress filter options:', error);
-      setBusinessUnitOptions([]);
-      setLineOfWorkOptions([]);
-      setOrgUnitOptions([]);
+      applyOptions(fallbackBusiness, fallbackLines, fallbackUnits);
     }
   };
 
@@ -445,8 +655,51 @@ export default function TransactionProgressPage() {
   }, []);
 
   useEffect(() => {
+    const readSelectedHeaderGroup = () => {
+      setSelectedHeaderGroupNo((localStorage.getItem('selected_usergroup') || '').trim());
+      setSelectedHeaderGroupRole(normalizeGroupRole(localStorage.getItem('selected_usergroup_role')));
+    };
+
+    readSelectedHeaderGroup();
+
+    const onGroupChanged = (event: Event) => {
+      const customEvent = event as CustomEvent<{ id?: string; role?: string }>;
+      const nextGroupNo = String(customEvent.detail?.id || '').trim();
+      const nextGroupRole = normalizeGroupRole(customEvent.detail?.role);
+
+      if (nextGroupNo || nextGroupRole) {
+        setSelectedHeaderGroupNo(nextGroupNo);
+        setSelectedHeaderGroupRole(nextGroupRole);
+        return;
+      }
+
+      readSelectedHeaderGroup();
+    };
+
+    const onFocus = () => {
+      readSelectedHeaderGroup();
+    };
+
+    window.addEventListener('user-group-changed', onGroupChanged as EventListener);
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      window.removeEventListener('user-group-changed', onGroupChanged as EventListener);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!canRejectBySelectedGroup && isRejectModalOpen) {
+      setIsRejectModalOpen(false);
+      setRejectTarget(null);
+      setRejectRemark('');
+    }
+  }, [canRejectBySelectedGroup, isRejectModalOpen]);
+
+  useEffect(() => {
     void fetchFilterOptions();
-  }, [selectedMonth, selectedYear, selectedBusinessUnit, selectedDivision]);
+  }, [appliedMonth, appliedYear, selectedBusinessUnits, selectedDivisions, transactions]);
 
   // ============================================================================
   // 3. HELPERS & HANDLERS
@@ -460,6 +713,17 @@ export default function TransactionProgressPage() {
       default: return 'bg-gray-100 text-gray-700';
     }
   };
+  const getStatusBadgeColor = (item: Pick<TransactionProgressItem, 'statusLabel' | 'processStage' | 'hasRejectedItem'>) => {
+    if (item.hasRejectedItem || isRejectedStatus(item.statusLabel)) {
+      return 'bg-red-100 text-red-700 border border-red-200';
+    }
+    if (item.processStage === 3 || /complete|สมบูรณ์/i.test(String(item.statusLabel || ''))) {
+      return 'bg-green-100 text-green-800 border border-green-200';
+    }
+    return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+  };
+  const canRejectItem = (item: Pick<TransactionProgressItem, 'statusLabel' | 'hasRejectedItem'>) =>
+    canRejectBySelectedGroup && !item.hasRejectedItem && !isRejectedStatus(item.statusLabel);
 
   // View modal: fetch detail from API
   const handleOpenView = async (item: TransactionProgressItem) => {
@@ -473,27 +737,63 @@ export default function TransactionProgressPage() {
       if (res.ok) {
         const detailJson = await res.json();
         if (detailJson.data) {
-          const items: TransactionDetail[] = detailJson.data.items.map((i: { ItemID: string; TransactionType: number; TransactionDesc: string; ReqRemark: string; FileCount: number; FileUrl: string; RejectionReason: string }) => ({
+          const rawLogs: APIDocAuditLogDetail[] = Array.isArray(detailJson.data.logs) ? detailJson.data.logs : [];
+          const latestRejectByItem = new Map<string, APIDocAuditLogDetail>();
+          let latestRejectGlobal: APIDocAuditLogDetail | undefined;
+          rawLogs.forEach((log) => {
+            if (Number(log.AuditStatus) !== -1) return;
+
+            if (!latestRejectGlobal || toDateTimeMs(log.AuditDate) >= toDateTimeMs(latestRejectGlobal.AuditDate)) {
+              latestRejectGlobal = log;
+            }
+
+            const itemKey = normalizeItemId(log.ItemID);
+            if (!itemKey) return;
+            const prev = latestRejectByItem.get(itemKey);
+            if (!prev || toDateTimeMs(log.AuditDate) >= toDateTimeMs(prev.AuditDate)) {
+              latestRejectByItem.set(itemKey, log);
+            }
+          });
+
+          const rawItems: APIDocumentItem[] = Array.isArray(detailJson.data.items) ? detailJson.data.items : [];
+          const dedupedItems = dedupeDocumentItems(rawItems);
+
+          const items: TransactionDetail[] = dedupedItems.map((i) => ({
+            ...((): { rejectedBy?: string; rejectedRole?: string; rejectedAt?: string } => {
+              const rejectLog = latestRejectByItem.get(normalizeItemId(i.ItemID)) || latestRejectGlobal;
+              return {
+                rejectedBy: rejectLog ? `${rejectLog.EmployeeID} ${rejectLog.Fullname}`.trim() : undefined,
+                rejectedRole: rejectLog ? toRoleLabel(rejectLog) : undefined,
+                rejectedAt: rejectLog?.AuditDate ? dayjs(rejectLog.AuditDate).format('DD/MM/BBBB HH:mm') : undefined
+              };
+            })(),
             id: i.ItemID,
-            typeLabel: i.TransactionType === 1 ? 'โอนกรอบอัตรากำลัง' : i.TransactionType === 3 ? 'ปรับระดับ' : i.TransactionType === 4 ? 'เพิ่ม/ลดกรอบ' : 'อื่นๆ',
+            typeLabel: i.TransactionType === 1
+                    ? 'ภายใต้ผู้ช่วย'
+                    : i.TransactionType === 2
+                      ? 'โอนกรอบอื่นๆ'
+                      : i.TransactionType === 3
+                      ? 'ปรับระดับ'
+                      : i.TransactionType === 4
+                        ? 'เพิ่ม/ลด'
+                        : i.TransactionType === 6
+                          ? 'ยืม'
+                          : i.TransactionType === 7
+                            ? 'คืนยืม'
+                            : '',
             typeCategory: i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer',
             description: i.TransactionDesc || '',
             remark: i.ReqRemark || '-',
-            hasFile: i.FileCount > 0,
+            hasFile: Number(i.FileCount || 0) > 0,
             fileUrl: i.FileUrl,
             rejectionReason: i.RejectionReason,
           }));
 
-          const logs: ApprovalLogItem[] = detailJson.data.logs.map((l: { Seqno: number; AuditStatus: number; AuditDate?: string; EmployeeID: string; Fullname: string; UserGroupName?: string; UserGroupNo?: string; UnitSide?: string }) => ({
+          const logs: ApprovalLogItem[] = rawLogs.map((l: APIDocAuditLogDetail) => ({
             action: l.Seqno === 0 ? 'สร้าง' : l.AuditStatus === 2 ? 'อนุมัติ' : l.AuditStatus === 1 ? 'รออนุมัติ' : l.AuditStatus === -1 ? 'ไม่อนุมัติ' : 'รอดำเนินการ',
             timestamp: l.AuditDate ? dayjs(l.AuditDate).format('DD/MM/BBBB HH:mm') : '',
             user: `${l.EmployeeID} ${l.Fullname}`,
-            role: (() => {
-              if (l.Seqno === 0) return l.UserGroupName || 'ผู้สร้างรายการ';
-              const baseName = l.UserGroupName || l.UserGroupNo || '';
-              const suffix = l.UnitSide === 'UnitReceive' ? ' (ฝั่งรับ)' : l.UnitSide === 'UnitTransfer' ? ' (ฝั่งให้)' : '';
-              return baseName + suffix;
-            })(),
+            role: toRoleLabel(l),
             status: (l.AuditStatus === 2 ? 'completed' : l.AuditStatus === 1 ? 'current' : 'pending') as 'completed' | 'current' | 'pending',
           }));
 
@@ -521,23 +821,30 @@ export default function TransactionProgressPage() {
 
   // Reject handler
   const handleOpenReject = (item: TransactionProgressItem) => {
+    if (!canRejectItem(item)) return;
     setRejectTarget(item);
     setRejectRemark('');
     setIsRejectModalOpen(true);
   };
 
   const handleConfirmReject = async () => {
+    if (!canRejectBySelectedGroup) return;
     if (!rejectTarget || !rejectRemark.trim()) return;
+    if (rejectTarget.hasRejectedItem || isRejectedStatus(rejectTarget.statusLabel)) return;
     setRejectLoading(true);
 
     try {
-      const employeeId = getEmployeeId();
+      const { employeeId, employeeName } = getUserContext();
+      const actorText = `Rejected by ${employeeId}${employeeName ? ` ${employeeName}` : ''}`;
+      const finalRemark = /Rejected by/i.test(rejectRemark)
+        ? rejectRemark
+        : `${rejectRemark} (${actorText})`;
       const resp = await fetch('/api/documents/reject-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           documentNo: rejectTarget.id,
-          remark: rejectRemark,
+          remark: finalRemark,
           updateBy: employeeId
         })
       });
@@ -558,15 +865,46 @@ export default function TransactionProgressPage() {
     }
   };
 
+  const handleSearchClick = async () => {
+    setAppliedMonth(selectedMonth);
+    setAppliedYear(selectedYear);
+    await fetchProgress();
+  };
+
   // Client-side filtering
   const filteredTransactions = transactions.filter(item => {
+    if (appliedMonth || appliedYear) {
+      const parsed = dayjs(item.effectiveDate);
+      if (!parsed.isValid()) return false;
+
+      if (appliedMonth) {
+        const targetMonth = months.indexOf(appliedMonth) + 1;
+        if (targetMonth > 0 && parsed.month() + 1 !== targetMonth) return false;
+      }
+
+      if (appliedYear) {
+        const selectedYearNum = Number.parseInt(String(appliedYear).trim(), 10);
+        if (Number.isFinite(selectedYearNum)) {
+          const targetAdYear = selectedYearNum > 2400 ? selectedYearNum - 543 : selectedYearNum;
+          if (parsed.year() !== targetAdYear) return false;
+        }
+      }
+    }
+
     if (filterInbox && !item.inboxNumber.toLowerCase().includes(filterInbox.toLowerCase())) return false;
     if (filterCat && item.category !== filterCat) return false;
     if (filterRes && !item.resolution.toLowerCase().includes(filterRes.toLowerCase())) return false;
-    if (filterStatus && item.statusLabel !== filterStatus) return false;
-    if (selectedBusinessUnit && item.businessUnitId !== selectedBusinessUnit) return false;
-    if (selectedDivision && item.divisionId !== selectedDivision) return false;
-    if (selectedAgency && item.agencyId !== selectedAgency) return false;
+    if (filterStatus) {
+      if (filterStatus === 'Rejected') {
+        const isRejected = isRejectedStatus(item.statusLabel) || item.hasRejectedItem;
+        if (!isRejected) return false;
+      } else if (item.statusLabel !== filterStatus) {
+        return false;
+      }
+    }
+    if (!matchesSelected(selectedBusinessUnits, item.businessUnitId, item.businessUnitName)) return false;
+    if (!matchesSelected(selectedDivisions, item.divisionId, item.divisionName)) return false;
+    if (!matchesSelected(selectedAgencies, item.agencyId, item.agencyName)) return false;
     return true;
   });
 
@@ -580,7 +918,7 @@ export default function TransactionProgressPage() {
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterInbox, filterCat, filterRes, filterStatus, selectedBusinessUnit, selectedDivision, selectedAgency, transactions]);
+  }, [filterInbox, filterCat, filterRes, filterStatus, selectedBusinessUnits, selectedDivisions, selectedAgencies, appliedMonth, appliedYear, transactions]);
 
   return (
     <Main currentPath="/transaction/progress">
@@ -620,7 +958,7 @@ export default function TransactionProgressPage() {
                     <option value="2569">2569</option>
                   </select>
                 </div>
-                <Button onClick={fetchProgress} className="bg-blue-600 hover:bg-blue-700 text-white px-4 h-8 text-sm">
+                <Button onClick={handleSearchClick} className="bg-blue-600 hover:bg-blue-700 text-white px-4 h-8 text-sm">
                     <Search className="w-3 h-3 mr-2" /> ค้นหา
                 </Button>
               </div>
@@ -633,14 +971,14 @@ export default function TransactionProgressPage() {
             {/* หน่วยธุรกิจ */}
             <div className="flex items-center gap-3">
                 <label className="text-sm font-medium text-gray-700 whitespace-nowrap">หน่วยธุรกิจ :</label>
-                <ScrollableSelectFilter
-                  value={selectedBusinessUnit}
+                <MultiSelectFilter
+                  values={selectedBusinessUnits}
                   options={businessUnitOptions}
                   placeholder="เลือกหน่วยธุรกิจ..."
-                  onChange={(nextValue) => {
-                    setSelectedBusinessUnit(nextValue);
-                    setSelectedDivision('');
-                    setSelectedAgency('');
+                  onChange={(nextValues) => {
+                    setSelectedBusinessUnits(nextValues);
+                    setSelectedDivisions([]);
+                    setSelectedAgencies([]);
                   }}
                 />
             </div>
@@ -648,13 +986,13 @@ export default function TransactionProgressPage() {
             {/* สายงาน */}
             <div className="flex items-center gap-3">
                 <label className="text-sm font-medium text-gray-700 whitespace-nowrap">สายงาน :</label>
-                <ScrollableSelectFilter
-                  value={selectedDivision}
+                <MultiSelectFilter
+                  values={selectedDivisions}
                   options={lineOfWorkOptions}
                   placeholder="เลือกสายงาน..."
-                  onChange={(nextValue) => {
-                    setSelectedDivision(nextValue);
-                    setSelectedAgency('');
+                  onChange={(nextValues) => {
+                    setSelectedDivisions(nextValues);
+                    setSelectedAgencies([]);
                   }}
                 />
             </div>
@@ -662,11 +1000,11 @@ export default function TransactionProgressPage() {
             {/* หน่วยงาน */}
             <div className="flex items-center gap-3">
                 <label className="text-sm font-medium text-gray-700 whitespace-nowrap">หน่วยงาน :</label>
-                <ScrollableSelectFilter
-                  value={selectedAgency}
+                <MultiSelectFilter
+                  values={selectedAgencies}
                   options={orgUnitOptions}
                   placeholder="เลือกหน่วยงาน..."
-                  onChange={(nextValue) => setSelectedAgency(nextValue)}
+                  onChange={(nextValues) => setSelectedAgencies(nextValues)}
                 />
             </div>
 
@@ -714,6 +1052,7 @@ export default function TransactionProgressPage() {
                           <option value="Waiting HRVerify">Waiting HRVerify</option>
                           <option value="Waiting HRUser">Waiting HRUser</option>
                           <option value="Complete">Complete</option>
+                          <option value="Rejected">Rejected</option>
                         </select>
                     </th>
                     <th className="px-4 py-2 border-b border-gray-200"></th>
@@ -729,7 +1068,14 @@ export default function TransactionProgressPage() {
                     <tr key={item.id} className={`border-b border-gray-100 hover:bg-blue-50/30 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
                       {/* Inbox No. (Clickable) */}
                       <td className="px-4 py-4 text-sm font-medium align-top">
-                         <button onClick={() => handleOpenView(item)} className="text-blue-600 hover:text-blue-800 hover:underline font-mono whitespace-nowrap flex items-center gap-1">
+                         <button
+                           onClick={() => handleOpenView(item)}
+                           className={`hover:underline font-mono whitespace-nowrap flex items-center gap-1 ${
+                             item.hasRejectedItem
+                               ? 'text-red-600 hover:text-red-800'
+                               : 'text-blue-600 hover:text-blue-800'
+                           }`}
+                         >
                             <Hash className="w-3 h-3" />{item.inboxNumber}
                         </button>
                       </td>
@@ -742,19 +1088,23 @@ export default function TransactionProgressPage() {
                       </td>
                       <td className="px-4 py-4 align-top text-center">
                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                            ${item.processStage === 3 ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-yellow-100 text-yellow-800 border border-yellow-200'}`}>
+                            ${getStatusBadgeColor(item)}`}>
                             {item.statusLabel}
                           </span>
                       </td>
                       <td className="px-4 py-4 text-center align-top">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="h-8 text-xs text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300 transition-all shadow-sm"
-                          onClick={() => handleOpenReject(item)}
-                        >
-                          <XCircle className="w-3.5 h-3.5 mr-1.5" />Reject
-                        </Button>
+                        {canRejectItem(item) ? (
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8 text-xs text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300 transition-all shadow-sm"
+                            onClick={() => handleOpenReject(item)}
+                          >
+                            <XCircle className="w-3.5 h-3.5 mr-1.5" />Reject
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-gray-300">-</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -834,7 +1184,7 @@ export default function TransactionProgressPage() {
       {/* VIEW MODAL (POPUP) - Read-Only — styled like Home page modal */}
       {/* ================================================================================= */}
       {isViewModalOpen && selectedTransaction && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 pt-10 pl-20 animate-in fade-in">
           <div className="bg-gray-50 rounded-xl shadow-2xl w-full max-w-[95vw] h-[90vh] flex flex-col overflow-hidden border-t-8 border-blue-600">
             
             {/* HEADER with Stepper */}
@@ -903,8 +1253,12 @@ export default function TransactionProgressPage() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {selectedTransaction.items.map((item) => (
-                                        <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                                    {selectedTransaction.items.map((item, itemIndex) => {
+                                        const rejectReasonRaw = String(item.rejectionReason || '').trim();
+                                        const rejectReasonDisplay = rejectReasonRaw.replace(/\s*\(Rejected by [^)]+\)\s*$/i, '').trim();
+                                        const showRejectReasonText = !!rejectReasonDisplay && !/^Rejected by\b/i.test(rejectReasonDisplay);
+                                        return (
+                                        <tr key={`${item.id}-${itemIndex}`} className="hover:bg-gray-50 transition-colors">
                                             <td className="p-4 align-top">
                                                 <span className={`inline-block px-2 py-1 rounded text-xs font-bold border ${getTypeBadgeColor(item.typeCategory)}`}>
                                                 {item.typeLabel}
@@ -923,7 +1277,18 @@ export default function TransactionProgressPage() {
                                                 {item.rejectionReason && (
                                                     <div className="mt-2 text-xs text-red-700 bg-white border border-red-200 p-2 rounded shadow-sm flex items-start gap-2">
                                                         <XCircle size={14} className="mt-0.5 shrink-0"/> 
-                                                        <span><b>Reject Reason:</b> {item.rejectionReason}</span>
+                                                        <span>
+                                                          {showRejectReasonText && (
+                                                            <span><b>Reject Reason:</b> {rejectReasonDisplay}</span>
+                                                          )}
+                                                          {(item.rejectedBy || item.rejectedRole || item.rejectedAt) && (
+                                                            <span className={`${showRejectReasonText ? 'mt-1' : ''} block space-y-1 text-[11px] text-red-800`}>
+                                                              {item.rejectedBy && <span className="block"><b>Rejected By:</b> {item.rejectedBy}</span>}
+                                                              {item.rejectedRole && <span className="block"><b>Role:</b> {item.rejectedRole}</span>}
+                                                              {item.rejectedAt && <span className="block"><b>Rejected At:</b> {item.rejectedAt}</span>}
+                                                            </span>
+                                                          )}
+                                                        </span>
                                                     </div>
                                                 )}
                                             </td>
@@ -937,7 +1302,8 @@ export default function TransactionProgressPage() {
                                                 ) : <span className="text-gray-300">-</span>}
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                     {selectedTransaction.items.length === 0 && (
                                         <tr><td colSpan={3} className="p-8 text-center text-gray-400 italic">ไม่มีรายการย่อย</td></tr>
                                     )}
@@ -996,24 +1362,24 @@ export default function TransactionProgressPage() {
       {/* REJECT MODAL — styled like Home page Reject All modal */}
       {/* ================================================================================= */}
       {isRejectModalOpen && rejectTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden border-t-4 border-red-600">
             <div className="px-6 py-4 flex justify-between items-center border-b bg-red-50">
-              <h3 className="text-lg font-bold text-red-700 flex items-center gap-2"><XCircle size={20} /> ยืนยันไม่อนุมัติ (Reject)</h3>
+              <h3 className="text-lg font-bold text-red-700 flex items-center gap-2"><XCircle size={20} /> ยืนยันการยกเลิกรายการ (Reject)</h3>
               <button onClick={() => setIsRejectModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
             <div className="p-6">
               <div className="mb-3 text-sm text-gray-600">
                 Ref: <span className="font-bold text-gray-800">{rejectTarget.inboxNumber}</span>
               </div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">ระบุเหตุผลในการไม่อนุมัติ <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">ระบุเหตุผลในการยกเลิกรายการ <span className="text-red-500">*</span></label>
               <textarea 
                 value={rejectRemark}
                 onChange={(e) => setRejectRemark(e.target.value)}
                 rows={4}
                 autoFocus
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none" 
-                placeholder="กรุณาระบุเหตุผลในการตีกลับรายการนี้..."
+                placeholder=""
               />
             </div>
             <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">

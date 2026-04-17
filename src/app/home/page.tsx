@@ -32,6 +32,9 @@ interface TransactionDetail {
   hasFile: boolean;
   fileUrl?: string;
   rejectionReason?: string;
+  rejectedBy?: string;
+  rejectedRole?: string;
+  rejectedAt?: string;
   transactionType: number;
   flowStatus: 'current' | 'pending' | 'completed' | 'rejected' | 'unknown';
   flowLabel: string;
@@ -158,6 +161,16 @@ const normalizeItemId = (value?: string) => String(value || '').trim().toUpperCa
 const toNumberOrUndefined = (value: unknown): number | undefined => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+};
+const toDateTimeMs = (value?: string) => {
+  const ms = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(ms) ? ms : 0;
+};
+const toRoleLabel = (log: Pick<APIDocAuditLog, 'Seqno' | 'UserGroupName' | 'UserGroupNo' | 'UnitSide'>) => {
+  if (log.Seqno === 0) return log.UserGroupName || 'ผู้สร้างรายการ';
+  const baseName = log.UserGroupName || log.UserGroupNo || '';
+  const suffix = log.UnitSide === 'UnitReceive' ? ' (ฝั่งรับ)' : log.UnitSide === 'UnitTransfer' ? ' (ฝั่งให้)' : '';
+  return baseName + suffix;
 };
 
 const getFlowMeta = (auditStatus?: number, unitSide?: string, isMyTurn = false) => {
@@ -404,6 +417,22 @@ export default function Home() {
           if (detailJson.data) {
               const rawLogs: APIDocAuditLog[] = Array.isArray(detailJson.data.logs) ? detailJson.data.logs : [];
               const sortedLogs = [...rawLogs].sort((a, b) => a.Seqno - b.Seqno);
+              const latestRejectByItem = new Map<string, APIDocAuditLog>();
+              let latestRejectGlobal: APIDocAuditLog | undefined;
+              sortedLogs.forEach((log) => {
+                if (toNumberOrUndefined(log.AuditStatus) !== -1) return;
+
+                if (!latestRejectGlobal || toDateTimeMs(log.AuditDate) >= toDateTimeMs(latestRejectGlobal.AuditDate)) {
+                  latestRejectGlobal = log;
+                }
+
+                const itemKey = normalizeItemId(log.ItemID);
+                if (!itemKey) return;
+                const prev = latestRejectByItem.get(itemKey);
+                if (!prev || toDateTimeMs(log.AuditDate) >= toDateTimeMs(prev.AuditDate)) {
+                  latestRejectByItem.set(itemKey, log);
+                }
+              });
               const totalSteps = sortedLogs.reduce((max, curr) => (curr.Seqno > max ? curr.Seqno : max), 0);
               const normalizedEmployeeId = normalizeEmployeeId(employeeId);
               const myActiveRows: APIDocMyActiveApproval[] = Array.isArray(detailJson.data.myActiveApprovals)
@@ -456,17 +485,33 @@ export default function Home() {
                 const effectiveAuditStatus = isMyTurn ? 1 : resolvedAuditStatus;
                 const flowMeta = getFlowMeta(effectiveAuditStatus, resolvedUnitSide, isMyTurn);
                 const flowSideLabel = getUnitSideLabel(resolvedUnitSide);
+                const rejectLog = latestRejectByItem.get(normalizedItemId) || latestRejectGlobal;
 
                 return {
                   id: i.ItemID,
                   actionKey: `${i.ItemID}::${resolvedSeqno ?? 0}`,
-                  typeLabel: i.TransactionType === 1 ? 'โอนกรอบอัตรากำลัง' : i.TransactionType === 3 ? 'ปรับระดับ' : i.TransactionType === 4 ? 'เพิ่ม/ลดกรอบ' : 'อื่นๆ',
+                  typeLabel: i.TransactionType === 1
+                    ? 'ภายใต้ผู้ช่วย'
+                    : i.TransactionType === 2
+                      ? 'โอนกรอบอื่นๆ'
+                      : i.TransactionType === 3
+                      ? 'ปรับระดับ'
+                      : i.TransactionType === 4
+                        ? 'เพิ่ม/ลด'
+                        : i.TransactionType === 6
+                          ? 'ยืม'
+                          : i.TransactionType === 7
+                            ? 'คืนยืม'
+                            : '',
                   typeCategory: i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer',
                   description: i.TransactionDesc || '',
                   remark: i.ReqRemark || '-',
                   hasFile: i.FileCount > 0,
                   fileUrl: i.FileUrl,
                   rejectionReason: i.RejectionReason,
+                  rejectedBy: rejectLog ? `${rejectLog.EmployeeID} ${rejectLog.Fullname}`.trim() : undefined,
+                  rejectedRole: rejectLog ? toRoleLabel(rejectLog) : undefined,
+                  rejectedAt: rejectLog?.AuditDate ? dayjs(rejectLog.AuditDate).format('DD/MM/BBBB HH:mm') : undefined,
                   transactionType: toNumberOrUndefined(i.TransactionType) || 0,
                   flowStatus: flowMeta.flowStatus,
                   flowLabel: flowMeta.flowLabel,
@@ -485,10 +530,7 @@ export default function Home() {
                 timestamp: l.AuditDate ? dayjs(l.AuditDate).format('DD/MM/BBBB HH:mm') : '',
                 user: `${l.EmployeeID} ${l.Fullname}`,
                 role: (() => {
-                  if (l.Seqno === 0) return l.UserGroupName || 'ผู้สร้างรายการ';
-                  const baseName = l.UserGroupName || l.UserGroupNo || '';
-                  const suffix = l.UnitSide === 'UnitReceive' ? ' (ฝั่งรับ)' : l.UnitSide === 'UnitTransfer' ? ' (ฝั่งให้)' : '';
-                  return baseName + suffix;
+                  return toRoleLabel(l);
                 })(),
                 status: l.AuditStatus === 2 ? 'completed' : l.AuditStatus === 1 ? 'current' : 'pending'
               }));
@@ -579,11 +621,13 @@ export default function Home() {
     setIsLoading(true);
     
     let employeeId = 'SYSTEM';
+    let employeeName = '';
     const userDataStr = localStorage.getItem('user_data');
     if (userDataStr) {
       try {
         const userData = JSON.parse(userDataStr);
         employeeId = userData.employeeID || 'SYSTEM';
+        employeeName = String(userData.name || userData.fullName || userData.Fullname || '').trim();
       } catch (e) {}
     }
     
@@ -603,7 +647,9 @@ export default function Home() {
                 itemId: item.id,
                 seqno: item._seqno || 1, // Fallback
                 updateBy: employeeId,
-                remark: action === 'rejected' ? 'Rejected by Reviewer' : undefined
+                remark: action === 'rejected'
+                  ? `Rejected by ${employeeId}${employeeName ? ` ${employeeName}` : ''}`
+                  : undefined
             };
             
             if (action === 'approved') {
@@ -636,12 +682,20 @@ export default function Home() {
     setIsLoading(true);
 
     let employeeId = 'SYSTEM';
+    let employeeName = '';
     const userDataStr = localStorage.getItem('user_data');
     if (userDataStr) {
       try {
-        employeeId = JSON.parse(userDataStr).employeeID || 'SYSTEM';
+        const userData = JSON.parse(userDataStr);
+        employeeId = userData.employeeID || 'SYSTEM';
+        employeeName = String(userData.name || userData.fullName || userData.Fullname || '').trim();
       } catch (e) {}
     }
+
+    const actorText = `Rejected by ${employeeId}${employeeName ? ` ${employeeName}` : ''}`;
+    const finalRemark = rejectAllRemark.includes('Rejected by')
+      ? rejectAllRemark
+      : `${rejectAllRemark} (${actorText})`;
 
     try {
       const resp = await fetch('/api/documents/reject-all', {
@@ -649,7 +703,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           documentNo: selectedInboxItem.id,
-          remark: rejectAllRemark,
+          remark: finalRemark,
           updateBy: employeeId
         })
       });
@@ -848,6 +902,9 @@ export default function Home() {
 {selectedInboxItem.items?.map((item) => {
     const actionState = itemActions[item.actionKey] || 'idle';
     const isDisabledByFlow = !item.canTakeAction || !!item.rejectionReason;
+    const rejectReasonRaw = String(item.rejectionReason || '').trim();
+    const rejectReasonDisplay = rejectReasonRaw.replace(/\s*\(Rejected by [^)]+\)\s*$/i, '').trim();
+    const showRejectReasonText = !!rejectReasonDisplay && !/^Rejected by\b/i.test(rejectReasonDisplay);
     return (
     <tr 
     key={item.actionKey} 
@@ -880,10 +937,21 @@ export default function Home() {
             {/* CASE A: ถูก Reject มาก่อนแล้ว (Show Read-Only Note) */}
             {item.rejectionReason && (
                 <div className="mt-2 text-xs text-red-700 bg-white border border-red-200 p-2 rounded shadow-sm">
-                    <div className="font-bold mb-1 flex items-center gap-1">
-                        <XCircle size={12}/> Rejected Reason:
-                    </div> 
-                    {item.rejectionReason}
+                    {showRejectReasonText && (
+                      <>
+                        <div className="font-bold mb-1 flex items-center gap-1">
+                            <XCircle size={12}/> Rejected Reason:
+                        </div> 
+                        {rejectReasonDisplay}
+                      </>
+                    )}
+                    {(item.rejectedBy || item.rejectedRole || item.rejectedAt) && (
+                      <div className={`${showRejectReasonText ? 'mt-2' : ''} space-y-1 text-[11px] text-red-800`}>
+                        {item.rejectedBy && <div><b>Rejected By:</b> {item.rejectedBy}</div>}
+                        {item.rejectedRole && <div><b>Role:</b> {item.rejectedRole}</div>}
+                        {item.rejectedAt && <div><b>Rejected At:</b> {item.rejectedAt}</div>}
+                      </div>
+                    )}
                 </div>
             )}
 

@@ -287,7 +287,15 @@ export default function TransactionPage() {
             .filter((tx) => tx.transactionData.transactionType !== 5)
             .map((tx) => getFlowKeyByType(tx.transactionData.transactionType))
         ));
-        if (flowKeys.length === 0) return;
+        // If this department has no approval flow items (e.g. only Remark type 5),
+        // collapse it by default to reduce visual noise.
+        if (flowKeys.length === 0) {
+          if (prevCollapsed[deptId] !== true) {
+            newCollapsedDepts[deptId] = true;
+            hasChanges = true;
+          }
+          return;
+        }
 
         const isComplete = flowKeys.every((flowKey) => {
           const scopeKey = getDeptFlowKey(deptId, flowKey);
@@ -1352,7 +1360,10 @@ export default function TransactionPage() {
         } catch { }
       }
 
-      const itemsPayload = savedTransactions.map(tx => {
+      const approvalTransactions = savedTransactions.filter((tx) => tx.transactionData.transactionType !== 5);
+      const remarkTransactions = savedTransactions.filter((tx) => tx.transactionData.transactionType === 5);
+
+      const itemsPayload = approvalTransactions.map(tx => {
         const deptId = tx.transactionData.unitReceive;
         const flowKey = getFlowKeyByType(tx.transactionData.transactionType);
         const scopeKey = getDeptFlowKey(deptId, flowKey);
@@ -1430,10 +1441,41 @@ export default function TransactionPage() {
         } catch { }
       }
 
+      if (remarkTransactions.length > 0) {
+        const remarkTransactionNos = remarkTransactions.map((tx) => tx.id);
+        const directApproveResp = await fetch('/api/transactions/direct-approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transactionNos: remarkTransactionNos,
+            updateBy: employeeId
+          })
+        });
+
+        if (!directApproveResp.ok) {
+          let errStr = 'Failed to auto-approve remark transactions';
+          try {
+            const errData = await directApproveResp.json();
+            if (errData.error) errStr += `\n${errData.error}`;
+            else if (errData.message) errStr += `\n${errData.message}`;
+          } catch { }
+          throw new Error(errStr);
+        }
+      }
+
       const successMessage = submittedDocumentNos.length > 1
         ? `ส่งขออนุมัติเรียบร้อย! (แยก ${submittedDocumentNos.length} เอกสาร: ${submittedDocumentNos.join(', ')})`
-        : 'ส่งขออนุมัติเรียบร้อย!';
-      setAlertInfo({ show: true, title: 'สำเร็จ', message: successMessage, type: 'success' });
+        : submittedDocumentNos.length === 1
+          ? 'ส่งขออนุมัติเรียบร้อย!'
+          : '';
+      const remarkSuccessMessage = remarkTransactions.length > 0
+        ? `รายการบันทึก Remark ${remarkTransactions.length} รายการ ถูกอัปเดตเป็น Completed อัตโนมัติแล้ว`
+        : '';
+
+      const finalSuccessMessage = [successMessage, remarkSuccessMessage]
+        .filter((message) => message.trim().length > 0)
+        .join('\n') || 'ดำเนินการเรียบร้อย!';
+      setAlertInfo({ show: true, title: 'สำเร็จ', message: finalSuccessMessage, type: 'success' });
       setIsSubmitConfirmModalOpen(false);
       setIsRequestModalOpen(false);
       setDynamicApprovers({});
@@ -1442,6 +1484,8 @@ export default function TransactionPage() {
       
       // Clear drafts and reload to simulate them moving to Next Step (or just refresh page)
       setSavedTransactions([]);
+      const countEvent = new Event('draftCountUpdated');
+      window.dispatchEvent(countEvent);
       
     } catch (err: unknown) {
       console.error('Submit Doc Error:', err);
@@ -1523,8 +1567,12 @@ export default function TransactionPage() {
                     value={activeTab || ''}
                     onChange={(e) => handleTabChange(e.target.value ? (parseInt(e.target.value) as TransactionTypeEnum) : null)}
                     className={cn(
-                      "w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500",
-                      !canProceedByCalendar ? "border-red-300 bg-red-50" : "border-gray-300"
+                      "w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 transition-colors",
+                      calendarWindowState.isChecking
+                        ? "border-blue-200 bg-blue-50"
+                        : !calendarWindowState.isAllowed
+                          ? "border-red-300 bg-red-50"
+                          : "border-gray-300"
                     )}
                   >
                     <option value="">เลือกประเภทการเปลี่ยนแปลง...</option>
@@ -2061,27 +2109,31 @@ export default function TransactionPage() {
 
         {/* --- REQUEST MODAL --- */}
         {isRequestModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 backdrop-blur-sm px-4 pt-16 pb-5">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
               <div className="px-6 py-2 border-b bg-linear-gradient-to-r from-blue-200 to-blue-700 flex justify-between items-center bg-blue-50">
                 <h2 className="text-lg font-bold text-blue-900">ยืนยันการส่งขออนุมัติ</h2>
-                <button onClick={() => setIsRequestModalOpen(false)} className="text-white hover:bg-white/20 rounded-full p-1"><X className="w-6 h-6" /></button>
+                <button
+                  onClick={() => setIsRequestModalOpen(false)}
+                  aria-label="ปิดหน้าต่าง"
+                  className="rounded-full p-1.5 bg-white/95 text-blue-800 border border-blue-200 shadow-sm hover:bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
               <div className="p-6 overflow-y-auto flex-1 space-y-6 bg-gray-50">
                 {Object.entries(getTransactionsByDept()).map(([deptId, transactions]) => {
+                  const remarkTransactions = transactions.filter((tx) => tx.transactionData.transactionType === 5);
+                  const approvalTransactions = transactions.filter((tx) => tx.transactionData.transactionType !== 5);
                   const flowKeysInDept = Array.from(new Set(
-                    transactions
-                      .filter((tx) => tx.transactionData.transactionType !== 5)
+                    approvalTransactions
                       .map((tx) => getFlowKeyByType(tx.transactionData.transactionType))
                   ));
 
                   const flowBlocks = flowKeysInDept.map((flowKey) => {
                     const selectionKey = getDeptFlowKey(deptId, flowKey);
-                    const flowTransactions = transactions.filter((tx) => {
-                      if (tx.transactionData.transactionType === 5) return false;
-                      return getFlowKeyByType(tx.transactionData.transactionType) === flowKey;
-                    });
+                    const flowTransactions = approvalTransactions.filter((tx) => getFlowKeyByType(tx.transactionData.transactionType) === flowKey);
                     const groupedByType = flowTransactions.reduce((acc, curr) => {
                       const type = curr.transactionData.transactionType as TransactionTypeEnum;
                       if (!acc[type]) acc[type] = [];
@@ -2155,8 +2207,9 @@ export default function TransactionPage() {
 
                   // Check if at least one person is selected for each approver group in each flow
                   const isAllGroupsSelected = flowBlocks.length > 0 && flowBlocks.every((section) => section.isFlowComplete);
+                  const isNoApprovalRequired = approvalTransactions.length === 0 && remarkTransactions.length > 0;
 
-                  const transactionCount = transactions.filter(t => t.transactionData.transactionType !== 5).length;
+                  const transactionCount = transactions.length;
                   const isCollapsed = collapsedDepts[deptId] === true;
                   return (
                     <div key={deptId} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden transition-all duration-300">
@@ -2172,6 +2225,11 @@ export default function TransactionPage() {
                               <CheckCircle className="h-4 w-4" /> เลือกครบถ้วน
                             </span>
                           )}
+                          {isNoApprovalRequired && (
+                            <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-700 font-bold border border-sky-300 ml-2 animate-in fade-in zoom-in duration-300">
+                              <Info className="h-4 w-4" /> ไม่ต้องเลือกผู้อนุมัติ
+                            </span>
+                          )}
                         </span>
                         <span className="text-xs bg-white px-2 py-1 rounded border text-gray-600 font-bold">{transactionCount} รายการ</span>
                       </div>
@@ -2179,7 +2237,9 @@ export default function TransactionPage() {
                       {!isCollapsed && (
                         <div className="p-3 space-y-4 animate-in slide-in-from-top-2 duration-200">
                           {flowBlocks.length === 0 ? (
-                            <div className="text-red-500 text-sm p-4 bg-red-50 rounded text-center">ไม่พบ Flow ที่ต้องขออนุมัติ</div>
+                            remarkTransactions.length === 0 ? (
+                              <div className="text-red-500 text-sm p-4 bg-red-50 rounded text-center">ไม่พบ Flow ที่ต้องขออนุมัติ</div>
+                            ) : null
                           ) : (
                             flowBlocks.map((section) => (
                               <div key={section.flowKey} className="rounded-lg border border-gray-200 overflow-hidden bg-white">
@@ -2274,6 +2334,34 @@ export default function TransactionPage() {
                               </div>
                             ))
                           )}
+
+                          {remarkTransactions.length > 0 && (
+                            <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
+                              <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                                <span className="text-sm font-bold text-gray-700">รายการบันทึก Remark (ไม่ต้องขออนุมัติ)</span>
+                                <span className="text-[10px] bg-white border border-gray-300 px-2 py-0.5 rounded-full text-gray-600 font-semibold">
+                                  {remarkTransactions.length} รายการ
+                                </span>
+                              </div>
+                              <div className="p-3 space-y-3">
+                                <div className={`rounded-md border-2 overflow-hidden ${getTitleColorClass(5)}`}>
+                                  <div className="divide-y divide-black/10">
+                                    {remarkTransactions.map((tx, idx) => (
+                                      <div key={`${tx.id}-${idx}-remark`} className="p-2 hover:bg-white/20">
+                                        <div className="flex items-center gap-2 text-xs">
+                                          <span className="font-bold bg-white/80 px-1.5 rounded">#{idx + 1}</span>
+                                          <span className="text-xs leading-relaxed opacity-90">{generateTransactionDesc(tx.transactionData, tx.detailData)}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="text-xs text-green-700 bg-green-50 border border-green-200 rounded p-2">
+                                  รายการประเภทนี้ไม่ต้องเลือกผู้อนุมัติ และเมื่อกด CONFIRM ระบบจะอัปเดตเป็น Completed อัตโนมัติ
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2298,7 +2386,15 @@ export default function TransactionPage() {
                   <span className="text-3xl">📤</span>
                 </div>
                 <h3 className="text-xl font-bold text-gray-900 mb-2">ยืนยันการส่งขออนุมัติ</h3>
-                <p className="text-gray-500 text-sm">คุณแน่ใจหรือไม่ที่จะส่งรายการ Transaction <br/>ทั้งหมด เพื่อขออนุมัติ?</p>
+                <p className="text-gray-500 text-sm">
+                  คุณแน่ใจหรือไม่ที่จะยืนยันรายการ Transaction ทั้งหมด?
+                  {savedTransactions.some((tx) => tx.transactionData.transactionType === 5) && (
+                    <>
+                      <br />
+                      รายการบันทึก Remark จะถูกอัปเดตเป็น Completed อัตโนมัติ
+                    </>
+                  )}
+                </p>
               </div>
               <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3 rounded-b-xl">
                 <Button variant="outline" onClick={() => setIsSubmitConfirmModalOpen(false)} disabled={isSubmitting} className="px-4 font-semibold text-gray-600 hover:bg-gray-100">ยกเลิก</Button>

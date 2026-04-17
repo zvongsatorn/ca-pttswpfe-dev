@@ -3,17 +3,30 @@
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import ExcelJS from 'exceljs';
 import { saveExcelFile } from '@/utils/fileDownload';
+import { toast } from 'sonner';
 import {
   ChevronDown,
   ClockAlert,
   FileSpreadsheet,
   Search,
   Send,
+  Download,
+  AlertTriangle,
   Settings,
   Check,
+  CheckCircle,
   Loader2,
+  X,
 } from 'lucide-react';
 import { useState, useRef, useEffect, useMemo, useSyncExternalStore } from 'react';
 
@@ -42,6 +55,68 @@ const getClientYearsSnapshot = () => {
 };
 const serverYears = ['2568', '2569'];
 const getServerYearsSnapshot = () => serverYears;
+const USER_GROUP_NO_BY_ROLE: Record<string, string> = {
+  ADMIN: '01',
+  HRADMIN: '02',
+  HRVERIFY: '03',
+  HRPOLICY: '04',
+  HRUSER: '05',
+  OTHER: '06',
+};
+const normalizeUserGroupNo = (value: string | null | undefined): string => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (/^\d+$/.test(raw)) return raw.padStart(2, '0');
+
+  const normalized = raw.toUpperCase();
+  if (USER_GROUP_NO_BY_ROLE[normalized]) {
+    return USER_GROUP_NO_BY_ROLE[normalized];
+  }
+  if (normalized.includes('HRPOLICY') || normalized.includes('POLICY')) return '04';
+  if (normalized.includes('HRADMIN')) return '02';
+  if (normalized.includes('HRVERIFY') || normalized.includes('VERIFY')) return '03';
+  if (normalized.includes('HRUSER') || normalized.includes('USER')) return '05';
+  if (normalized.includes('ADMIN')) return '01';
+  if (normalized.includes('OTHER')) return '06';
+
+  return normalized;
+};
+const getSelectedUserGroupNo = () => {
+  if (typeof window === 'undefined') return '05';
+
+  const fromSelectedGroup = normalizeUserGroupNo(localStorage.getItem('selected_usergroup'));
+  if (fromSelectedGroup) return fromSelectedGroup;
+
+  const fromSelectedRole = normalizeUserGroupNo(localStorage.getItem('selected_usergroup_role'));
+  if (fromSelectedRole) return fromSelectedRole;
+
+  const userDataRaw = localStorage.getItem('user_data');
+  if (userDataRaw) {
+    try {
+      const userData = JSON.parse(userDataRaw) as {
+        userGroupNo?: string;
+        roleId?: string;
+        role?: string;
+        userGroups?: Array<{ userGroupNo?: string; userGroupRole?: string }>;
+      };
+      const candidates = [
+        userData.userGroupNo,
+        userData.roleId,
+        userData.role,
+        userData.userGroups?.[0]?.userGroupNo,
+        userData.userGroups?.[0]?.userGroupRole,
+      ];
+      for (const candidate of candidates) {
+        const resolved = normalizeUserGroupNo(candidate);
+        if (resolved) return resolved;
+      }
+    } catch (error) {
+      console.error('Failed to parse user_data for selected user group', error);
+    }
+  }
+
+  return '05';
+};
 
 const currentDate = new Date();
 const currentMonth = months[currentDate.getMonth()];
@@ -119,6 +194,17 @@ interface Report3MatchRow {
   f_amount?: number | string;
   FAmount?: number | string;
 }
+
+interface SendToSapResult {
+  resultCode: string;
+  fileReady: boolean;
+  ftpEnabled: boolean;
+  ftpSent: boolean;
+  downloadPath: string;
+  message: string;
+}
+
+type SapMinusRow = Record<string, unknown>;
 
 
 const sapTypes = [
@@ -291,6 +377,16 @@ const truncateText = (text: string | null | undefined, max: number) => {
   return text.substring(0, max) + "...";
 };
 
+const formatNoteForDisplay = (value: unknown): string => {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+
+  // Legacy note formatting uses "$" and "#" as delimiters between lines/entries.
+  return text
+    .replace(/#/g, '\n\n')
+    .replace(/\$/g, '\n');
+};
+
 const toNumber = (value: unknown): number => {
   if (value === null || value === undefined || value === '') return 0;
   if (typeof value === 'string') {
@@ -356,11 +452,86 @@ const containsText = (source: unknown, query: string): boolean => {
   return normalizeText(source).toLowerCase().includes(q);
 };
 
+const normalizeSapStatus = (value: unknown): string => {
+  const raw = normalizeText(value);
+  const normalized = raw.toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'send' || normalized.includes('sent') || normalized.includes('success')) {
+    return 'Sent';
+  }
+  if (normalized.includes('update') || normalized.includes('pending') || normalized.includes('wait')) {
+    return 'Update';
+  }
+  return raw;
+};
+
+const formatDateValue = (value: unknown): string => {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+
+  const isoLike = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+  if (isoLike) {
+    const [, year, month, day] = isoLike;
+    return `${day}/${month}/${year}`;
+  }
+
+  const compact = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact) {
+    const [, year, month, day] = compact;
+    return `${day}/${month}/${year}`;
+  }
+
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    const day = String(parsed.getDate()).padStart(2, '0');
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const year = String(parsed.getFullYear());
+    return `${day}/${month}/${year}`;
+  }
+
+  return text;
+};
+
+const formatSapMinusCellValue = (key: string, value: unknown): string => {
+  if (key.toLowerCase().includes('date')) {
+    return formatDateValue(value);
+  }
+  return String(value ?? '');
+};
+
+const SAP_MINUS_COLUMN_LABELS: Record<string, string> = {
+  OrgUnitNo: 'รหัสหน่วยงาน',
+  UnitName: 'ชื่อหน่วยงาน',
+  BGName: 'ชื่อหน่วยธุรกิจ',
+  Level20: '21',
+  Level18_19: '18-20',
+  Level16_17: '16-17',
+  Level14_15: '14-15',
+  Level11_13: '11-13',
+  Level9_10: '9-10',
+  Level4_8: '4-8',
+  LevelContract: 'Contract',
+  LevelContractSub: 'Contract สัญญาย่อย',
+};
+
+const SAP_MINUS_HIDDEN_COLUMNS = new Set([
+  'BEGINDATE',
+  'ENDDATE',
+  'REMARK',
+  'VERSION',
+  'CREATEBY',
+  'CREATEDATE',
+  'UNITALL',
+]);
+
 export default function HRCenterPage() {
   const years = useSyncExternalStore(emptySubscribe, getClientYearsSnapshot, getServerYearsSnapshot);
 
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [selectedYear, setSelectedYear] = useState(currentYearStr);
+  const [appliedMonth, setAppliedMonth] = useState(currentMonth);
+  const [appliedYear, setAppliedYear] = useState(currentYearStr);
+  const [selectedUserGroupNo, setSelectedUserGroupNo] = useState(getSelectedUserGroupNo);
   const [viewMode, setViewMode] = useState<
     'all' | 'department' | 'department-level'
   >('all');
@@ -378,7 +549,6 @@ export default function HRCenterPage() {
     divisionName: '',
     divisionShortName: '',
     managementType: '',
-    headcountType: '',
     resolutionNumber: '',
     notes: '',
   });
@@ -418,6 +588,23 @@ export default function HRCenterPage() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncUserGroup = () => {
+      setSelectedUserGroupNo(getSelectedUserGroupNo());
+    };
+
+    syncUserGroup();
+    window.addEventListener('storage', syncUserGroup);
+    window.addEventListener('focus', syncUserGroup);
+    window.addEventListener('user-group-changed', syncUserGroup);
+
+    return () => {
+      window.removeEventListener('storage', syncUserGroup);
+      window.removeEventListener('focus', syncUserGroup);
+      window.removeEventListener('user-group-changed', syncUserGroup);
     };
   }, []);
 
@@ -467,6 +654,13 @@ export default function HRCenterPage() {
   // Fetch dynamic data
   const [departmentData, setDepartmentData] = useState<HRCenterItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSendingSap, setIsSendingSap] = useState(false);
+  const [isSendSapConfirmOpen, setIsSendSapConfirmOpen] = useState(false);
+  const [sapSendResult, setSapSendResult] = useState<SendToSapResult | null>(null);
+  const [sapMinusRows, setSapMinusRows] = useState<SapMinusRow[]>([]);
+  const [isSapMinusDialogOpen, setIsSapMinusDialogOpen] = useState(false);
+  const [selectedOrgUnits, setSelectedOrgUnits] = useState<Set<string>>(new Set());
+  const [dataRefreshKey, setDataRefreshKey] = useState(0);
   const report3CacheRef = useRef<Map<string, Report3MatchRow[]>>(new Map());
 
   useEffect(() => {
@@ -485,13 +679,13 @@ export default function HRCenterPage() {
           }
         }
         
-        const userGroupNo = localStorage.getItem('selected_usergroup') || '05';
+        const userGroupNo = normalizeUserGroupNo(selectedUserGroupNo) || '05';
 
-        const monthIndex = months.indexOf(selectedMonth) + 1;
-        const yearAD = Number(selectedYear) - 543;
+        const monthIndex = months.indexOf(appliedMonth) + 1;
+        const yearAD = Number(appliedYear) - 543;
         const effectiveDate = `${yearAD}-${String(monthIndex).padStart(2, '0')}-01`;
 
-        const hrcenterUrl = `/api/transactions/hrcenter?viewMode=${viewMode === 'all' ? 'all' : 'department'}&effectiveMonth=${encodeURIComponent(selectedMonth)}&effectiveYear=${encodeURIComponent(selectedYear)}&employeeId=${encodeURIComponent(employeeId)}&userGroupNo=${encodeURIComponent(userGroupNo)}`;
+        const hrcenterUrl = `/api/transactions/hrcenter?viewMode=${viewMode === 'all' ? 'all' : 'department'}&effectiveMonth=${encodeURIComponent(appliedMonth)}&effectiveYear=${encodeURIComponent(appliedYear)}&employeeId=${encodeURIComponent(employeeId)}&userGroupNo=${encodeURIComponent(userGroupNo)}`;
         const report3Url = `/api/report/report3?effectiveDate=${encodeURIComponent(effectiveDate)}&employeeId=${encodeURIComponent(employeeId)}&userGroupNo=${encodeURIComponent(userGroupNo)}&reportType=0`;
         const reportCacheKey = `${effectiveDate}|${employeeId}|${userGroupNo}`;
         const cachedReportRows = report3CacheRef.current.get(reportCacheKey);
@@ -518,6 +712,7 @@ export default function HRCenterPage() {
           if (isActive) {
             setDepartmentData(hrcenterRows.map((row) => ({
               ...row,
+              SapStatus: normalizeSapStatus(row.SapStatus),
               people_total: getPeopleTotal(row),
               recruit_total: getRecruitTotal(row),
             })));
@@ -541,7 +736,10 @@ export default function HRCenterPage() {
         if (!report3Rows) {
           console.warn("Failed to fetch report3 data, use hrcenter data only");
           if (isActive) {
-            setDepartmentData(hrcenterRows);
+            setDepartmentData(hrcenterRows.map((row) => ({
+              ...row,
+              SapStatus: normalizeSapStatus(row.SapStatus),
+            })));
           }
           return;
         }
@@ -602,6 +800,7 @@ export default function HRCenterPage() {
 
           return {
             ...row,
+            SapStatus: normalizeSapStatus(row.SapStatus),
             people_total: matched ? matched.people_total : toNumber(row.hc_grand_total),
             recruit_total: matched ? matched.recruit_total : toNumber(row.f_amount ?? row.FAmount),
           };
@@ -622,7 +821,7 @@ export default function HRCenterPage() {
     return () => {
       isActive = false;
     };
-  }, [viewMode, selectedMonth, selectedYear]);
+  }, [viewMode, appliedMonth, appliedYear, selectedUserGroupNo, dataRefreshKey]);
 
   // 1. Get Unique Options
   const businessUnitOptions = useMemo(() => {
@@ -633,6 +832,11 @@ export default function HRCenterPage() {
   const departmentOptions = useMemo(() => {
     const depts = new Set(departmentData.map(d => d.UnitName).filter(Boolean));
     return Array.from(depts).sort();
+  }, [departmentData]);
+
+  const managementTypeOptions = useMemo(() => {
+    const levels = new Set(departmentData.map((d) => normalizeText(d.UnitLevelName)).filter(Boolean));
+    return Array.from(levels).sort();
   }, [departmentData]);
 
   // 2. Filter Data
@@ -660,10 +864,10 @@ export default function HRCenterPage() {
       if (!containsText(item.UnitAbbr, headerFilters.divisionShortName)) {
         return false;
       }
-      if (!containsText(item.UnitLevelName, headerFilters.managementType)) {
-        return false;
-      }
-      if (!containsText(item.BGName, headerFilters.headcountType)) {
+      if (
+        headerFilters.managementType &&
+        normalizeText(item.UnitLevelName) !== headerFilters.managementType
+      ) {
         return false;
       }
       if (!containsText(item.ConclusionNo, headerFilters.resolutionNumber)) {
@@ -675,6 +879,148 @@ export default function HRCenterPage() {
       return true;
     });
   }, [departmentData, selectedBusinessUnits, selectedDepartments, searchSapStatus, headerFilters]);
+
+  const selectableOrgUnits = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          filteredData
+            .map((item) => normalizeText(item.OrgUnitNo))
+            .filter((orgUnitNo) => orgUnitNo !== '')
+        )
+      ),
+    [filteredData]
+  );
+
+  const allRowsSelected = selectableOrgUnits.length > 0 && selectableOrgUnits.every((orgUnitNo) => selectedOrgUnits.has(orgUnitNo));
+
+  const sapMinusColumns = useMemo(() => {
+    const firstRow = sapMinusRows[0] || {};
+    return Object.keys(firstRow).filter((key) => !SAP_MINUS_HIDDEN_COLUMNS.has(key.toUpperCase()));
+  }, [sapMinusRows]);
+
+  const toggleSelectAllRows = (checked: boolean) => {
+    if (checked) {
+      setSelectedOrgUnits(new Set(selectableOrgUnits));
+      return;
+    }
+    setSelectedOrgUnits(new Set());
+  };
+
+  const toggleSelectOrgUnit = (orgUnitNo: string, checked: boolean) => {
+    const normalized = normalizeText(orgUnitNo);
+    if (!normalized) return;
+    setSelectedOrgUnits((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(normalized);
+      } else {
+        next.delete(normalized);
+      }
+      return next;
+    });
+  };
+
+  const getEmployeeId = (): string => {
+    if (typeof window === 'undefined') return 'SYSTEM';
+    const userDataStr = localStorage.getItem('user_data');
+    if (!userDataStr) return 'SYSTEM';
+    try {
+      const userData = JSON.parse(userDataStr) as { employeeID?: string };
+      return normalizeText(userData.employeeID) || 'SYSTEM';
+    } catch {
+      return 'SYSTEM';
+    }
+  };
+
+  const fetchSapMinus = async () => {
+    const minusUrl = `/api/transactions/hrcenter/sap-minus?effectiveMonth=${encodeURIComponent(appliedMonth)}&effectiveYear=${encodeURIComponent(appliedYear)}`;
+    const minusRes = await fetch(minusUrl);
+    if (!minusRes.ok) {
+      setSapMinusRows([]);
+      return;
+    }
+    const minusJson = await minusRes.json();
+    const rows: SapMinusRow[] = Array.isArray(minusJson.data) ? minusJson.data : [];
+    setSapMinusRows(rows);
+    setIsSapMinusDialogOpen(false);
+  };
+
+  const handleSendToSap = () => {
+    if (isSendingSap || isLoading) return;
+    setIsSendSapConfirmOpen(true);
+  };
+
+  const handleSearch = () => {
+    setAppliedMonth(selectedMonth);
+    setAppliedYear(selectedYear);
+    setSelectedOrgUnits(new Set());
+    setSapMinusRows([]);
+    setIsSapMinusDialogOpen(false);
+    setDataRefreshKey((prev) => prev + 1);
+  };
+
+  const confirmSendToSap = async () => {
+    if (isSendingSap) return;
+    setIsSendSapConfirmOpen(false);
+    setIsSendingSap(true);
+    setSapSendResult(null);
+    setSapMinusRows([]);
+    setIsSapMinusDialogOpen(false);
+
+    try {
+      const payload = {
+        effectiveMonth: appliedMonth,
+        effectiveYear: appliedYear,
+        employeeId: getEmployeeId(),
+        orgUnits: Array.from(selectedOrgUnits)
+      };
+
+      const response = await fetch('/api/transactions/hrcenter/send-to-sap', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const resultJson = await response.json().catch(() => null) as { data?: SendToSapResult; message?: string } | null;
+      const result = resultJson?.data || null;
+
+      if (!response.ok || !result) {
+        toast.error(resultJson?.message || 'ไม่สามารถนำส่งข้อมูลเข้า SAP ได้');
+        return;
+      }
+
+      setSapSendResult(result);
+      if (result.resultCode === '-1') {
+        toast.warning('พบหน่วยงานที่ยอดไม่เป็น 0 กรุณากดไอคอนคำเตือนเพื่อดูรายละเอียด');
+      } else if (result.resultCode === '2') {
+        toast.warning(result.message || 'ดำเนินการเสร็จสิ้น');
+      } else {
+        toast.success(result.message || 'ดำเนินการเสร็จสิ้น');
+      }
+
+      if (result.resultCode === '-1') {
+        await fetchSapMinus();
+      }
+
+      setDataRefreshKey((prev) => prev + 1);
+
+      if (result.resultCode === '1' || result.resultCode === '2') {
+        setSelectedOrgUnits(new Set());
+      }
+    } catch (error) {
+      console.error('Error sending data to SAP:', error);
+      toast.error('เกิดข้อผิดพลาดระหว่างนำส่งข้อมูลเข้า SAP');
+    } finally {
+      setIsSendingSap(false);
+    }
+  };
+
+  const handleDownloadSapFile = () => {
+    window.open(`/api/transactions/hrcenter/sap-file?t=${Date.now()}`, '_blank', 'noopener,noreferrer');
+  };
 
 
   // Calculate totals
@@ -827,8 +1173,8 @@ export default function HRCenterPage() {
         column.width = maxLength;
       });
 
-      const monthIndex = months.indexOf(selectedMonth) + 1;
-      const yearAD = Number(selectedYear) - 543;
+      const monthIndex = months.indexOf(appliedMonth) + 1;
+      const yearAD = Number(appliedYear) - 543;
       const filename = `transaction_hrcenter_${yearAD}${String(monthIndex).padStart(2, '0')}.xlsx`;
 
       const buffer = await workbook.xlsx.writeBuffer();
@@ -848,7 +1194,7 @@ export default function HRCenterPage() {
   
   {/* 1. Left Side: Title */}
   <h1 className="text-xl font-bold text-gray-800 tracking-wide">
-    กรอบอัตรากำลัง
+    ภาพรวมกรอบอัตรากำลัง
   </h1>
 
   {/* 2. Right Side: Controls Group */}
@@ -886,15 +1232,54 @@ export default function HRCenterPage() {
                 </div>
 
                    {/* Search Button */}
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white px-6 text-md font-bold">
+            <Button
+              onClick={handleSearch}
+              disabled={isLoading}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 text-md font-bold disabled:opacity-60 disabled:cursor-not-allowed"
+            >
                 <Search className="w-4 h-4 mr-2" />
                 ค้นหา
             </Button>
 
-             <Button className="bg-red-700 hover:bg-red-800 text-white px-6 text-md font-bold">
-                <Send className="w-4 h-4 mr-2" />
-                Send to SAP
-            </Button>
+             {normalizeUserGroupNo(selectedUserGroupNo) === '04' && (
+               <>
+                 <Button
+                   onClick={handleSendToSap}
+                   disabled={isSendingSap || isLoading}
+                   className="bg-red-700 hover:bg-red-800 text-white px-6 text-md font-bold disabled:opacity-60 disabled:cursor-not-allowed"
+                 >
+                   {isSendingSap ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+                   Send to SAP
+                 </Button>
+                 {sapSendResult?.fileReady && (
+                   <Button
+                     onClick={handleDownloadSapFile}
+                     variant="outline"
+                     size="icon"
+                     className="h-9 w-9 rounded-full border-green-300 text-green-700 hover:bg-green-50 hover:border-green-400"
+                     title="Download SAP text file"
+                     aria-label="Download SAP text file"
+                   >
+                     <Download className="w-4 h-4" />
+                   </Button>
+                 )}
+                 {sapMinusRows.length > 0 && (
+                   <Button
+                     onClick={() => setIsSapMinusDialogOpen(true)}
+                     variant="outline"
+                     size="icon"
+                     className="relative h-9 w-9 rounded-full border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400"
+                     title="แสดงรายละเอียดหน่วยงานที่ยอดไม่เท่ากับ 0"
+                     aria-label="แสดงรายละเอียดหน่วยงานที่ยอดไม่เท่ากับ 0"
+                   >
+                     <AlertTriangle className="w-4 h-4" />
+                     <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-600 text-white text-[10px] leading-[18px] text-center">
+                       {sapMinusRows.length}
+                     </span>
+                   </Button>
+                 )}
+               </>
+             )}
 
               </div>
             </div>
@@ -916,7 +1301,7 @@ export default function HRCenterPage() {
         Effective Date
       </span>
       <span className="text-lg font-bold text-blue-700 leading-tight">
-        01/{(months.indexOf(selectedMonth) + 1).toString().padStart(2, '0')}/{selectedYear}
+        01/{(months.indexOf(appliedMonth) + 1).toString().padStart(2, '0')}/{appliedYear}
       </span>
     </div>
 
@@ -1046,7 +1431,13 @@ export default function HRCenterPage() {
                   <thead className="sticky top-0 z-20 shadow-sm">
                     <tr className="bg-gray-100 border-b border-gray-200">
                       <th className="px-4 py-3 text-left">
-                        <input type="checkbox" className="w-4 h-4" />
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4"
+                          checked={allRowsSelected}
+                          onChange={(e) => toggleSelectAllRows(e.target.checked)}
+                          title="เลือกหน่วยงานทั้งหมดที่แสดง"
+                        />
                       </th>
                       {visibleColumns.divisionCode && <th className="px-2 py-3 text-left text-xs font-semibold text-gray-700">รหัสหน่วยงาน</th>}
                       {visibleColumns.divisionName && <th className="px-2 py-3 text-left text-xs font-semibold text-gray-700">ชื่อหน่วยงาน</th>}
@@ -1091,7 +1482,7 @@ export default function HRCenterPage() {
                             type="text"
                             value={headerFilters.divisionCode}
                             onChange={(e) => setHeaderFilters(prev => ({ ...prev, divisionCode: e.target.value }))}
-                            className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                            className="w-16 px-1 py-0.5 text-[12px] leading-tight bg-white border border-gray-300 rounded shadow-sm"
                           />
                         </th>
                       )}
@@ -1101,7 +1492,7 @@ export default function HRCenterPage() {
                             type="text"
                             value={headerFilters.divisionName}
                             onChange={(e) => setHeaderFilters(prev => ({ ...prev, divisionName: e.target.value }))}
-                            className="w-full min-w-[120px] px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                            className="w-full min-w-[120px] px-1 py-0.5 text-[12px] leading-tight bg-white border border-gray-300 rounded shadow-sm"
                           />
                         </th>
                       )}
@@ -1111,29 +1502,28 @@ export default function HRCenterPage() {
                             type="text"
                             value={headerFilters.divisionShortName}
                             onChange={(e) => setHeaderFilters(prev => ({ ...prev, divisionShortName: e.target.value }))}
-                            className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                            className="w-16 px-1 py-0.5 text-[12px] leading-tight bg-white border border-gray-300 rounded shadow-sm"
                           />
                         </th>
                       )}
                       {visibleColumns.managementType && (
                         <th className="px-1 py-2">
-                          <input
-                            type="text"
+                          <select
                             value={headerFilters.managementType}
                             onChange={(e) => setHeaderFilters(prev => ({ ...prev, managementType: e.target.value }))}
-                            className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
-                          />
+                            className="w-20 px-1 py-0.5 text-[11px] leading-tight bg-white border border-gray-300 rounded shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">ทั้งหมด</option>
+                            {managementTypeOptions.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
                         </th>
                       )}
                       {visibleColumns.headcountType && (
-                        <th className="px-1 py-2">
-                          <input
-                            type="text"
-                            value={headerFilters.headcountType}
-                            onChange={(e) => setHeaderFilters(prev => ({ ...prev, headcountType: e.target.value }))}
-                            className="w-16 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
-                          />
-                        </th>
+                        <th className="px-1 py-2"></th>
                       )}
 
                       {/* Level Inputs */}
@@ -1158,7 +1548,7 @@ export default function HRCenterPage() {
                             type="text"
                             value={headerFilters.resolutionNumber}
                             onChange={(e) => setHeaderFilters(prev => ({ ...prev, resolutionNumber: e.target.value }))}
-                            className="w-20 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                            className="w-20 px-1 py-0.5 text-[12px] leading-tight bg-white border border-gray-300 rounded shadow-sm"
                           />
                         </th>
                       )}
@@ -1168,7 +1558,7 @@ export default function HRCenterPage() {
                             type="text"
                             value={headerFilters.notes}
                             onChange={(e) => setHeaderFilters(prev => ({ ...prev, notes: e.target.value }))}
-                            className="w-20 px-1 py-1 text-sm bg-white border border-gray-300 rounded shadow-sm"
+                            className="w-20 px-1 py-0.5 text-[12px] leading-tight bg-white border border-gray-300 rounded shadow-sm"
                           />
                         </th>
                       )}
@@ -1179,7 +1569,7 @@ export default function HRCenterPage() {
                              <select 
                                 value={searchSapStatus}
                                 onChange={(e) => setSearchSapStatus(e.target.value)}
-                                className="w-full px-1 py-1 text-xs bg-white border border-gray-300 rounded shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 appearance-none pr-6 font-semibold"
+                                className="w-full px-1 py-0.5 text-[11px] leading-tight bg-white border border-gray-300 rounded shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 appearance-none pr-6 font-medium"
                              >
                                {sapTypes.map(type => (
                                  <option key={type.id} value={type.id}>{type.title}</option>
@@ -1199,7 +1589,15 @@ export default function HRCenterPage() {
                           index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                         }`}
                       >
-                        <td className="px-4 py-3"><input type="checkbox" className="w-4 h-4" /></td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4"
+                            checked={selectedOrgUnits.has(normalizeText(dept.OrgUnitNo))}
+                            onChange={(e) => toggleSelectOrgUnit(normalizeText(dept.OrgUnitNo), e.target.checked)}
+                            title={`เลือกหน่วยงาน ${dept.OrgUnitNo}`}
+                          />
+                        </td>
                         
                         {visibleColumns.divisionCode && <td className="px-2 py-3 text-[11px] text-gray-900 whitespace-nowrap">{dept.OrgUnitNo}</td>}
                         {visibleColumns.divisionName && <td className="px-1 py-3 text-[10px] text-gray-700 min-w-[120px]">{dept.UnitName}</td>}
@@ -1229,8 +1627,8 @@ export default function HRCenterPage() {
                           </td>
                         )}
                         {visibleColumns.notes && (
-                          <td className="px-2 py-3 text-[11px] text-blue-600">
-                            {dept.note}
+                          <td className="px-2 py-3 text-[11px] text-blue-600 whitespace-pre-line break-words">
+                            {formatNoteForDisplay(dept.note)}
                           </td>
                         )}
                         {visibleColumns.sapStatusColumn && (
@@ -1306,7 +1704,91 @@ export default function HRCenterPage() {
             </CardContent>
           </Card>
 
-       
+          <Dialog open={isSendSapConfirmOpen} onOpenChange={setIsSendSapConfirmOpen}>
+            <DialogContent
+              showCloseButton={false}
+              className="w-[calc(100%-2rem)] max-w-[560px] overflow-hidden rounded-xl border border-slate-200 p-0 shadow-2xl"
+            >
+              <div className="border-t-[6px] border-green-600 bg-green-50">
+                <div className="flex items-center justify-between border-b border-green-100 px-5 py-4 sm:px-6 sm:py-4">
+                  <DialogTitle className="flex items-center gap-2.5 text-xl font-bold text-green-700 sm:text-xl">
+                    <CheckCircle className="h-8 w-8 sm:h-8 sm:w-8" />
+                    ยืนยันการนำส่งข้อมูลเข้า SAP
+                  </DialogTitle>
+                  <button
+                    type="button"
+                    onClick={() => setIsSendSapConfirmOpen(false)}
+                    className="rounded-full p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                    aria-label="Close SAP confirmation dialog"
+                  >
+                    <X className="h-7 w-7 sm:h-7 sm:w-7" />
+                  </button>
+                </div>
+              </div>
+              <div className="border-b border-slate-200 bg-white px-5 py-6 sm:px-6 sm:py-6">
+                <DialogDescription className="text-base text-slate-700 sm:text-lg">
+                  ต้องการนำส่งข้อมูลเข้าระบบ SAP ใช่หรือไม่?
+                </DialogDescription>
+              </div>
+              <DialogFooter className="justify-end gap-2.5 bg-slate-50 px-5 py-4 sm:px-6 sm:py-4">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsSendSapConfirmOpen(false)}
+                  disabled={isSendingSap}
+                  className="h-11 rounded-2xl border-slate-200 px-7 text-lg font-bold text-slate-700 hover:bg-slate-100 sm:h-12 sm:px-7 sm:text-lg"
+                >
+                  ยกเลิก
+                </Button>
+                <Button
+                  onClick={confirmSendToSap}
+                  disabled={isSendingSap}
+                  className="h-11 rounded-2xl bg-red-700 px-7 text-lg font-bold text-white hover:bg-red-800 disabled:opacity-60 sm:h-12 sm:px-7 sm:text-lg"
+                >
+                  {isSendingSap ? <Loader2 className="mr-2 h-4 w-4 animate-spin sm:h-5 sm:w-5" /> : <Send className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />}
+                  ยืนยันส่ง SAP
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isSapMinusDialogOpen} onOpenChange={setIsSapMinusDialogOpen}>
+            <DialogContent className="sm:max-w-5xl">
+              <DialogHeader>
+                <DialogTitle className="text-amber-800">รายละเอียดหน่วยงานที่ยอดรวมไม่เป็น 0</DialogTitle>
+             
+              </DialogHeader>
+              <div className="max-h-[60vh] overflow-auto rounded border border-amber-200 bg-white">
+                <table className="min-w-full text-xs">
+                  <thead className="bg-amber-100 text-amber-900 sticky top-0">
+                    <tr>
+                      {sapMinusColumns.map((key) => (
+                        <th key={key} className="px-3 py-2 text-left whitespace-nowrap font-semibold border-b border-amber-200">
+                          {SAP_MINUS_COLUMN_LABELS[key] || key}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sapMinusRows.map((row, index) => (
+                      <tr key={`sap-minus-dialog-${index}`} className="border-b border-amber-100 odd:bg-white even:bg-amber-50/30">
+                        {sapMinusColumns.map((key) => (
+                          <td key={`${index}-${key}`} className="px-3 py-2 whitespace-nowrap text-gray-700">
+                            {formatSapMinusCellValue(key, row[key])}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsSapMinusDialogOpen(false)}>
+                  ปิด
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
       </div>
     </Main>
   );
