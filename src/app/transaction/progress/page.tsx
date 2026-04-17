@@ -17,12 +17,42 @@ import {
   ArrowRight,
   File as FileIcon,
 } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/th';
 import buddhistEra from 'dayjs/plugin/buddhistEra';
 dayjs.extend(buddhistEra);
 dayjs.locale('th');
+
+const getYears = () => {
+  const currentYear = new Date().getFullYear() + 543;
+  const endYear = currentYear + 1;
+  if (typeof window === 'undefined') {
+    return [endYear.toString(), currentYear.toString()];
+  }
+
+  const startYearStr = localStorage.getItem('StartYear') || '';
+  const parsedStartYear = Number.parseInt(startYearStr, 10);
+  const startYear = Number.isInteger(parsedStartYear) ? parsedStartYear : currentYear - 5;
+  const years: string[] = [];
+  for (let year = endYear; year >= startYear; year -= 1) {
+    years.push(year.toString());
+  }
+  return years.length > 0 ? years : [endYear.toString(), currentYear.toString()];
+};
+
+const emptySubscribe = () => () => {};
+let cachedClientYears: string[] | null = null;
+const getClientYearsSnapshot = () => {
+  if (!cachedClientYears) {
+    cachedClientYears = getYears();
+  }
+  return cachedClientYears;
+};
+const getServerYearsSnapshot = () => {
+  const currentYear = new Date().getFullYear() + 543;
+  return [(currentYear + 1).toString(), currentYear.toString()];
+};
 
 // ============================================================================
 // 1. TYPES DEFINITION
@@ -54,6 +84,7 @@ interface TransactionProgressItem {
   id: string;            // DocumentNo
   inboxNumber: string;   
   hasRejectedItem: boolean;
+  allRejected?: boolean;
   effectiveDate: string;
   category: string;      
   resolution: string;    
@@ -107,8 +138,17 @@ interface APIDocAuditLogDetail {
   UnitSide?: string;
 }
 
+interface RejectableItemOption {
+  itemId: string;
+  seqno: number;
+  typeLabel: string;
+  description: string;
+}
+
 interface APIDocumentItem {
   ItemID: string;
+  Seqno?: number;
+  AuditStatus?: number;
   TransactionType: number;
   TransactionDesc: string;
   ReqRemark: string;
@@ -265,6 +305,8 @@ function MultiSelectFilter({
 }
 
 export default function TransactionProgressPage() {
+  const years = useSyncExternalStore(emptySubscribe, getClientYearsSnapshot, getServerYearsSnapshot);
+
   // -- State for Header & Filter --
   const months = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   const currentMonth = months[new Date().getMonth()];
@@ -308,6 +350,13 @@ export default function TransactionProgressPage() {
   const [rejectTarget, setRejectTarget] = useState<TransactionProgressItem | null>(null);
   const [rejectRemark, setRejectRemark] = useState('');
   const [rejectLoading, setRejectLoading] = useState(false);
+  const [isItemRejectModalOpen, setIsItemRejectModalOpen] = useState(false);
+  const [itemRejectTarget, setItemRejectTarget] = useState<{ documentNo: string; inboxNumber: string } | null>(null);
+  const [itemRejectOptions, setItemRejectOptions] = useState<RejectableItemOption[]>([]);
+  const [itemRejectSelection, setItemRejectSelection] = useState('');
+  const [itemRejectOptionsLoading, setItemRejectOptionsLoading] = useState(false);
+  const [itemRejectRemark, setItemRejectRemark] = useState('');
+  const [itemRejectLoading, setItemRejectLoading] = useState(false);
 
   const normalizeOptionValue = (...values: unknown[]) => {
     for (const value of values) {
@@ -372,6 +421,21 @@ export default function TransactionProgressPage() {
     return { value, label };
   };
   const isRejectedStatus = (statusLabel: unknown) => /reject|ไม่อนุมัติ/i.test(String(statusLabel || ''));
+  const getTypeLabelByTransactionType = (transactionType: number) => (
+    transactionType === 1
+      ? 'ภายใต้ผู้ช่วย'
+      : transactionType === 2
+        ? 'โอนกรอบอื่นๆ'
+        : transactionType === 3
+          ? 'ปรับระดับ'
+          : transactionType === 4
+            ? 'เพิ่ม/ลด'
+            : transactionType === 6
+              ? 'ยืม'
+              : transactionType === 7
+                ? 'คืนยืม'
+                : ''
+  );
   const dedupeDocumentItems = (items: APIDocumentItem[]) => {
     const map = new Map<string, APIDocumentItem>();
 
@@ -446,27 +510,17 @@ export default function TransactionProgressPage() {
         return docs.map((doc) => ({
           ...(() => {
             const dedupedItems = dedupeDocumentItems(Array.isArray(doc.items) ? doc.items : []);
-            const hasRejected =
-              dedupedItems.some((i) => String(i.RejectionReason || '').trim().length > 0) ||
-              (Array.isArray(doc.logs) ? doc.logs.some((l) => Number(l.AuditStatus) === -1) : false) ||
-              isRejectedStatus(doc.statusLabel);
+            
+            const rejectedItemsCount = dedupedItems.filter((i) => String(i.RejectionReason || '').trim().length > 0).length;
+            const allRejected = isRejectedStatus(doc.statusLabel) || (dedupedItems.length > 0 && rejectedItemsCount === dedupedItems.length);
+            const hasRejected = rejectedItemsCount > 0 || (Array.isArray(doc.logs) ? doc.logs.some((l) => Number(l.AuditStatus) === -1) : false) || allRejected;
+
             return {
               hasRejectedItem: hasRejected,
+              allRejected: allRejected,
               items: dedupedItems.map((i) => ({
                 id: i.ItemID,
-                typeLabel: i.TransactionType === 1
-                      ? 'ภายใต้ผู้ช่วย'
-                      : i.TransactionType === 2
-                        ? 'โอนกรอบอื่นๆ'
-                        : i.TransactionType === 3
-                        ? 'ปรับระดับ'
-                        : i.TransactionType === 4
-                          ? 'เพิ่ม/ลด'
-                          : i.TransactionType === 6
-                            ? 'ยืม'
-                            : i.TransactionType === 7
-                              ? 'คืนยืม'
-                              : '',
+                typeLabel: getTypeLabelByTransactionType(i.TransactionType),
                 typeCategory: (i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer') as 'transfer' | 'other' | 'add' | 'adjust',
                 description: i.TransactionDesc || '',
                 remark: i.ReqRemark || '-',
@@ -695,7 +749,15 @@ export default function TransactionProgressPage() {
       setRejectTarget(null);
       setRejectRemark('');
     }
-  }, [canRejectBySelectedGroup, isRejectModalOpen]);
+    if (!canRejectBySelectedGroup && isItemRejectModalOpen) {
+      setIsItemRejectModalOpen(false);
+      setItemRejectTarget(null);
+      setItemRejectOptions([]);
+      setItemRejectSelection('');
+      setItemRejectOptionsLoading(false);
+      setItemRejectRemark('');
+    }
+  }, [canRejectBySelectedGroup, isRejectModalOpen, isItemRejectModalOpen]);
 
   useEffect(() => {
     void fetchFilterOptions();
@@ -722,8 +784,95 @@ export default function TransactionProgressPage() {
     }
     return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
   };
-  const canRejectItem = (item: Pick<TransactionProgressItem, 'statusLabel' | 'hasRejectedItem'>) =>
-    canRejectBySelectedGroup && !item.hasRejectedItem && !isRejectedStatus(item.statusLabel);
+  const canRejectItem = (item: Pick<TransactionProgressItem, 'statusLabel' | 'allRejected'>) =>
+    canRejectBySelectedGroup && !item.allRejected && !isRejectedStatus(item.statusLabel);
+  const getTypeSummary = (row: TransactionProgressItem) => {
+    const byLabel = new Map<string, string>();
+    row.items.forEach((item) => {
+      const label = String(item.typeLabel || '').trim();
+      if (!label || byLabel.has(label)) return;
+      byLabel.set(label, item.typeCategory || 'other');
+    });
+    if (byLabel.size === 0 && row.category) {
+      byLabel.set(row.category, row.typeCategory || 'other');
+    }
+    return Array.from(byLabel.entries()).map(([label, category]) => ({ label, category }));
+  };
+  const getResolutionSummary = (row: TransactionProgressItem) => {
+    const lines = row.items
+      .map((item) => `[${item.id}] ${String(item.description || '').trim()}`)
+      .filter((line) => line !== '[]');
+    if (lines.length === 0 && row.resolution) return [row.resolution];
+    return lines;
+  };
+  const fetchRejectableItemOptions = async (documentNo: string): Promise<RejectableItemOption[]> => {
+    const employeeId = getEmployeeId();
+    const res = await fetch(`/api/documents/${documentNo}?employeeId=${employeeId}`);
+    if (!res.ok) return [];
+    const detailJson = await res.json().catch(() => null);
+    if (!detailJson?.data) return [];
+
+    const rawItems: APIDocumentItem[] = Array.isArray(detailJson.data.items) ? detailJson.data.items : [];
+    const dedupedItems = dedupeDocumentItems(rawItems);
+    const rawLogs: APIDocAuditLogDetail[] = Array.isArray(detailJson.data.logs) ? detailJson.data.logs : [];
+    const seqByItem = new Map<string, number>();
+
+    // Preferred source: active approval seq of each item (AuditStatus=1)
+    rawLogs.forEach((log) => {
+      if (Number(log.AuditStatus) !== 1) return;
+      const itemKey = normalizeItemId(log.ItemID);
+      const seqno = Number(log.Seqno || 0);
+      if (!itemKey || seqno < 0 || seqByItem.has(itemKey)) return;
+      seqByItem.set(itemKey, seqno);
+    });
+
+    rawItems.forEach((row) => {
+      const itemKey = normalizeItemId(row.ItemID);
+      if (!itemKey || seqByItem.has(itemKey)) return;
+      const seqno = Number(row.Seqno || 0);
+      if (Number(row.AuditStatus) === 1 && seqno >= 0) {
+        seqByItem.set(itemKey, seqno);
+      }
+    });
+
+    // Fallback for documents that are no longer active: use highest seq from rawItems
+    rawItems.forEach((row) => {
+      const itemKey = normalizeItemId(row.ItemID);
+      const seqno = Number(row.Seqno || 0);
+      if (!itemKey || seqno < 0) return;
+      const prev = seqByItem.get(itemKey) || 0;
+      if (seqno > prev) seqByItem.set(itemKey, seqno);
+    });
+
+    // Fallback: use highest seq from rawLogs (since rawItems might be filtered by EmployeeID for HRPolicy)
+    rawLogs.forEach((log) => {
+      const itemKey = normalizeItemId(log.ItemID);
+      const seqno = Number(log.Seqno || 0);
+      if (!itemKey || seqno < 0) return;
+      const prev = seqByItem.get(itemKey) || 0;
+      if (seqno > prev) seqByItem.set(itemKey, seqno);
+    });
+
+    return dedupedItems
+      .map((item) => {
+        const normalizedItemId = normalizeItemId(item.ItemID);
+        const seqno = seqByItem.get(normalizedItemId) || 0;
+        return {
+          itemId: item.ItemID,
+          seqno,
+          typeLabel: getTypeLabelByTransactionType(item.TransactionType),
+          description: item.TransactionDesc || '',
+          rejectionReason: String(item.RejectionReason || '').trim(),
+        };
+      })
+      .filter((item) => item.seqno >= 0 && !item.rejectionReason)
+      .map((item) => ({
+        itemId: item.itemId,
+        seqno: item.seqno,
+        typeLabel: item.typeLabel,
+        description: item.description,
+      }));
+  };
 
   // View modal: fetch detail from API
   const handleOpenView = async (item: TransactionProgressItem) => {
@@ -759,34 +908,40 @@ export default function TransactionProgressPage() {
           const dedupedItems = dedupeDocumentItems(rawItems);
 
           const items: TransactionDetail[] = dedupedItems.map((i) => ({
-            ...((): { rejectedBy?: string; rejectedRole?: string; rejectedAt?: string } => {
+            ...((): { rejectedBy?: string; rejectedRole?: string; rejectedAt?: string; rejectionReason?: string } => {
               const rejectLog = latestRejectByItem.get(normalizeItemId(i.ItemID)) || latestRejectGlobal;
+              
+              const rawReason = String(i.RejectionReason || '').trim();
+              const actorMatch = rawReason.match(/\(Rejected by ([^)]+)(?: at ([^)]+))?\)\s*$/i);
+              
+              let extractedActor: string | undefined;
+              let extractedDate: string | undefined;
+              if (actorMatch) {
+                extractedActor = actorMatch[1].trim();
+                extractedDate = actorMatch[2] ? actorMatch[2].trim() : undefined;
+                if (!extractedDate && extractedActor.includes(' at ')) {
+                   const parts = extractedActor.split(' at ');
+                   extractedActor = parts[0].trim();
+                   extractedDate = parts.slice(1).join(' at ').trim();
+                }
+              }
+
+              const cleanReason = actorMatch ? rawReason.replace(/\s*\(Rejected by [^)]+\)\s*$/i, '').trim() : rawReason;
+
               return {
-                rejectedBy: rejectLog ? `${rejectLog.EmployeeID} ${rejectLog.Fullname}`.trim() : undefined,
-                rejectedRole: rejectLog ? toRoleLabel(rejectLog) : undefined,
-                rejectedAt: rejectLog?.AuditDate ? dayjs(rejectLog.AuditDate).format('DD/MM/BBBB HH:mm') : undefined
+                rejectedBy: extractedActor || (rejectLog ? `${rejectLog.EmployeeID} ${rejectLog.Fullname}`.trim() : undefined),
+                rejectedRole: extractedActor ? 'ผู้ดูแลระบบ (HR Policy)' : (rejectLog ? toRoleLabel(rejectLog) : undefined),
+                rejectedAt: (extractedDate ? dayjs(extractedDate).format('DD/MM/BBBB HH:mm') : undefined) || (rejectLog?.AuditDate ? dayjs(rejectLog.AuditDate).format('DD/MM/BBBB HH:mm') : undefined),
+                rejectionReason: cleanReason
               };
             })(),
             id: i.ItemID,
-            typeLabel: i.TransactionType === 1
-                    ? 'ภายใต้ผู้ช่วย'
-                    : i.TransactionType === 2
-                      ? 'โอนกรอบอื่นๆ'
-                      : i.TransactionType === 3
-                      ? 'ปรับระดับ'
-                      : i.TransactionType === 4
-                        ? 'เพิ่ม/ลด'
-                        : i.TransactionType === 6
-                          ? 'ยืม'
-                          : i.TransactionType === 7
-                            ? 'คืนยืม'
-                            : '',
+            typeLabel: getTypeLabelByTransactionType(i.TransactionType),
             typeCategory: i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer',
             description: i.TransactionDesc || '',
             remark: i.ReqRemark || '-',
             hasFile: Number(i.FileCount || 0) > 0,
             fileUrl: i.FileUrl,
-            rejectionReason: i.RejectionReason,
           }));
 
           const logs: ApprovalLogItem[] = rawLogs.map((l: APIDocAuditLogDetail) => ({
@@ -835,7 +990,7 @@ export default function TransactionProgressPage() {
 
     try {
       const { employeeId, employeeName } = getUserContext();
-      const actorText = `Rejected by ${employeeId}${employeeName ? ` ${employeeName}` : ''}`;
+      const actorText = `Rejected by ${employeeId}${employeeName ? ` ${employeeName}` : ''} at ${dayjs().toISOString()}`;
       const finalRemark = /Rejected by/i.test(rejectRemark)
         ? rejectRemark
         : `${rejectRemark} (${actorText})`;
@@ -862,6 +1017,76 @@ export default function TransactionProgressPage() {
       console.error(err);
     } finally {
       setRejectLoading(false);
+    }
+  };
+
+  const handleOpenItemReject = async (row: TransactionProgressItem) => {
+    if (!canRejectItem(row)) return;
+    setItemRejectTarget({ documentNo: row.id, inboxNumber: row.inboxNumber });
+    setItemRejectOptions([]);
+    setItemRejectSelection('');
+    setItemRejectRemark('');
+    setIsItemRejectModalOpen(true);
+    setItemRejectOptionsLoading(true);
+
+    try {
+      const options = await fetchRejectableItemOptions(row.id);
+      setItemRejectOptions(options);
+      if (options.length > 0) {
+        setItemRejectSelection(`${options[0].itemId}::${options[0].seqno}`);
+      }
+    } catch (err) {
+      console.error(err);
+      setItemRejectOptions([]);
+      setItemRejectSelection('');
+    } finally {
+      setItemRejectOptionsLoading(false);
+    }
+  };
+
+  const handleConfirmItemReject = async () => {
+    if (!canRejectBySelectedGroup) return;
+    if (!itemRejectTarget || !itemRejectRemark.trim() || !itemRejectSelection) return;
+
+    const selected = itemRejectOptions.find((option) => `${option.itemId}::${option.seqno}` === itemRejectSelection);
+    if (!selected) return;
+
+    setItemRejectLoading(true);
+
+    try {
+      const { employeeId, employeeName } = getUserContext();
+      const actorText = `Rejected by ${employeeId}${employeeName ? ` ${employeeName}` : ''} at ${dayjs().toISOString()}`;
+      const finalRemark = /Rejected by/i.test(itemRejectRemark)
+        ? itemRejectRemark
+        : `${itemRejectRemark} (${actorText})`;
+
+      const resp = await fetch('/api/documents/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          documentNo: itemRejectTarget.documentNo,
+          itemId: selected.itemId,
+          seqno: selected.seqno,
+          remark: finalRemark,
+          updateBy: employeeId
+        })
+      });
+
+      if (!resp.ok) {
+        console.error('Failed to reject item');
+        return;
+      }
+
+      setIsItemRejectModalOpen(false);
+      setItemRejectTarget(null);
+      setItemRejectOptions([]);
+      setItemRejectSelection('');
+      setItemRejectRemark('');
+      await fetchProgress();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setItemRejectLoading(false);
     }
   };
 
@@ -892,8 +1117,20 @@ export default function TransactionProgressPage() {
     }
 
     if (filterInbox && !item.inboxNumber.toLowerCase().includes(filterInbox.toLowerCase())) return false;
-    if (filterCat && item.category !== filterCat) return false;
-    if (filterRes && !item.resolution.toLowerCase().includes(filterRes.toLowerCase())) return false;
+    if (filterCat) {
+      const hasMatchedCategory =
+        item.items.some((detail) => String(detail.typeLabel || '').trim() === filterCat) ||
+        String(item.category || '').trim() === filterCat;
+      if (!hasMatchedCategory) return false;
+    }
+    if (filterRes) {
+      const normalizedFilterRes = filterRes.toLowerCase();
+      const searchableText = [
+        item.resolution,
+        ...item.items.map((detail) => `${detail.id} ${detail.description} ${detail.remark}`)
+      ].join(' ').toLowerCase();
+      if (!searchableText.includes(normalizedFilterRes)) return false;
+    }
     if (filterStatus) {
       if (filterStatus === 'Rejected') {
         const isRejected = isRejectedStatus(item.statusLabel) || item.hasRejectedItem;
@@ -926,7 +1163,7 @@ export default function TransactionProgressPage() {
         
         {/* 1. HEADER GRADIENT */}
         <Card className="border-0 shadow-md rounded-lg overflow-hidden py-0">
-          <div className="bg-gradient-to-r from-blue-200 to-blue-500 px-6 py-3 flex items-center justify-between shadow-lg rounded-t-lg border-b border-blue-500/30">
+          <div className="bg-linear-to-r from-blue-200 to-blue-500 px-6 py-3 flex items-center justify-between shadow-lg rounded-t-lg border-b border-blue-500/30">
             <h1 className="text-xl font-bold text-gray-800 tracking-wide flex items-center gap-2">
               <Clock className="w-6 h-6 text-blue-900" />
               Transaction Progress
@@ -953,9 +1190,9 @@ export default function TransactionProgressPage() {
                     onChange={(e) => setSelectedYear(e.target.value)}
                     className="h-8 bg-transparent text-gray-800 text-sm font-bold border-none focus:ring-0 cursor-pointer outline-none hover:text-blue-700"
                   >
-                    <option value="">ทั้งหมด</option>
-                    <option value="2568">2568</option>
-                    <option value="2569">2569</option>
+                    {years.map((year) => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
                   </select>
                 </div>
                 <Button onClick={handleSearchClick} className="bg-blue-600 hover:bg-blue-700 text-white px-4 h-8 text-sm">
@@ -1080,10 +1317,42 @@ export default function TransactionProgressPage() {
                         </button>
                       </td>
                       <td className="px-4 py-4 text-sm text-gray-900 font-medium align-top">
-                           <span className={`inline-block px-2 py-1 rounded text-xs font-bold border ${getTypeBadgeColor(item.typeCategory)}`}>{item.category}</span>
+                        {(() => {
+                          const typeSummary = getTypeSummary(item);
+                          return (
+                            <div className="flex flex-wrap gap-1.5">
+                              {typeSummary.slice(0, 2).map((type) => (
+                                <span
+                                  key={`${item.id}-${type.label}`}
+                                  className={`inline-block px-2 py-1 rounded text-xs font-bold border ${getTypeBadgeColor(type.category)}`}
+                                  title={type.label}
+                                >
+                                  {type.label}
+                                </span>
+                              ))}
+                              {typeSummary.length > 2 && (
+                                <span className="inline-block px-2 py-1 rounded text-xs font-bold border bg-gray-100 text-gray-700 border-gray-200">
+                                  +{typeSummary.length - 2}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-4 text-sm text-gray-600 align-top leading-relaxed">
-                        {item.resolution}
+                        {(() => {
+                          const resolutionSummary = getResolutionSummary(item);
+                          return (
+                            <div className="space-y-1">
+                              {resolutionSummary.slice(0, 2).map((line, lineIndex) => (
+                                <div key={`${item.id}-res-${lineIndex}`} className="leading-relaxed">{line}</div>
+                              ))}
+                              {resolutionSummary.length > 2 && (
+                                <div className="text-xs text-gray-400">+ อีก {resolutionSummary.length - 2} รายการ</div>
+                              )}
+                            </div>
+                          );
+                        })()}
                         <div className="text-[10px] text-gray-400 mt-1">Created: {item.createdDate}</div>
                       </td>
                       <td className="px-4 py-4 align-top text-center">
@@ -1094,14 +1363,24 @@ export default function TransactionProgressPage() {
                       </td>
                       <td className="px-4 py-4 text-center align-top">
                         {canRejectItem(item) ? (
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="h-8 text-xs text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300 transition-all shadow-sm"
-                            onClick={() => handleOpenReject(item)}
-                          >
-                            <XCircle className="w-3.5 h-3.5 mr-1.5" />Reject
-                          </Button>
+                          <div className="flex items-center justify-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300 transition-all shadow-sm"
+                              onClick={() => handleOpenItemReject(item)}
+                            >
+                              <XCircle className="w-3.5 h-3.5 mr-1.5" />Reject Item
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="h-8 text-xs text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300 transition-all shadow-sm"
+                              onClick={() => handleOpenReject(item)}
+                            >
+                              <XCircle className="w-3.5 h-3.5 mr-1.5" />Reject All
+                            </Button>
+                          </div>
                         ) : (
                           <span className="text-xs text-gray-300">-</span>
                         )}
@@ -1241,7 +1520,7 @@ export default function TransactionProgressPage() {
                   <div className="flex items-center justify-center py-12 text-gray-400">กำลังโหลดข้อมูล...</div>
                 ) : (
                   <>
-                    {/* Items Table — View Only (no Accept/Reject buttons) */}
+                    {/* Items Table */}
                     <Card className="border-gray-200 shadow-sm overflow-hidden">
                         <div className="p-0">
                             <table className="w-full text-sm text-left">
@@ -1254,8 +1533,7 @@ export default function TransactionProgressPage() {
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {selectedTransaction.items.map((item, itemIndex) => {
-                                        const rejectReasonRaw = String(item.rejectionReason || '').trim();
-                                        const rejectReasonDisplay = rejectReasonRaw.replace(/\s*\(Rejected by [^)]+\)\s*$/i, '').trim();
+                                        const rejectReasonDisplay = String(item.rejectionReason || '').trim();
                                         const showRejectReasonText = !!rejectReasonDisplay && !/^Rejected by\b/i.test(rejectReasonDisplay);
                                         return (
                                         <tr key={`${item.id}-${itemIndex}`} className="hover:bg-gray-50 transition-colors">
@@ -1359,13 +1637,96 @@ export default function TransactionProgressPage() {
       )}
 
       {/* ================================================================================= */}
-      {/* REJECT MODAL — styled like Home page Reject All modal */}
+      {/* ITEM REJECT MODAL */}
+      {/* ================================================================================= */}
+      {isItemRejectModalOpen && itemRejectTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden border-t-4 border-red-600">
+            <div className="px-6 py-4 flex justify-between items-center border-b bg-red-50">
+              <h3 className="text-lg font-bold text-red-700 flex items-center gap-2"><XCircle size={20} /> ยืนยันยกเลิกบางรายการ (Reject Item)</h3>
+              <button
+                onClick={() => {
+                  setIsItemRejectModalOpen(false);
+                  setItemRejectTarget(null);
+                  setItemRejectOptions([]);
+                  setItemRejectSelection('');
+                  setItemRejectOptionsLoading(false);
+                  setItemRejectRemark('');
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={20}/>
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="mb-2 text-sm text-gray-600">
+                Ref: <span className="font-bold text-gray-800">{itemRejectTarget.inboxNumber}</span>
+              </div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                เลือกรายการที่ต้องการ Reject <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={itemRejectSelection}
+                onChange={(e) => setItemRejectSelection(e.target.value)}
+                disabled={itemRejectOptionsLoading || itemRejectOptions.length === 0}
+                className="w-full h-10 px-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none bg-white text-sm mb-3 disabled:bg-gray-100 disabled:text-gray-400"
+              >
+                {itemRejectOptionsLoading ? (
+                  <option value="">กำลังโหลดรายการ...</option>
+                ) : itemRejectOptions.length === 0 ? (
+                  <option value="">ไม่พบรายการที่ Reject ได้</option>
+                ) : (
+                  itemRejectOptions.map((option) => (
+                    <option key={`${option.itemId}-${option.seqno}`} value={`${option.itemId}::${option.seqno}`}>
+                      [{option.itemId}] {option.typeLabel} : {option.description}
+                    </option>
+                  ))
+                )}
+              </select>
+              <label className="block text-sm font-medium text-gray-700 mb-2">ระบุเหตุผลในการยกเลิกรายการ <span className="text-red-500">*</span></label>
+              <textarea
+                value={itemRejectRemark}
+                onChange={(e) => setItemRejectRemark(e.target.value)}
+                rows={4}
+                autoFocus
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+                placeholder="โปรดระบุเหตุผล"
+              />
+            </div>
+            <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsItemRejectModalOpen(false);
+                  setItemRejectTarget(null);
+                  setItemRejectOptions([]);
+                  setItemRejectSelection('');
+                  setItemRejectOptionsLoading(false);
+                  setItemRejectRemark('');
+                }}
+              >
+                ยกเลิก
+              </Button>
+              <Button
+                onClick={handleConfirmItemReject}
+                className="bg-red-600 hover:bg-red-700 text-white"
+                disabled={itemRejectLoading || !itemRejectRemark.trim() || !itemRejectSelection || itemRejectOptionsLoading}
+              >
+                {itemRejectLoading ? 'Processing...' : 'ยืนยัน Reject'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================================= */}
+      {/* REJECT ALL MODAL — styled like Home page Reject All modal */}
       {/* ================================================================================= */}
       {isRejectModalOpen && rejectTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden border-t-4 border-red-600">
             <div className="px-6 py-4 flex justify-between items-center border-b bg-red-50">
-              <h3 className="text-lg font-bold text-red-700 flex items-center gap-2"><XCircle size={20} /> ยืนยันการยกเลิกรายการ (Reject)</h3>
+              <h3 className="text-lg font-bold text-red-700 flex items-center gap-2"><XCircle size={20} /> ยืนยันการยกเลิกทั้งหมด (Reject All)</h3>
               <button onClick={() => setIsRejectModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
             <div className="p-6">
