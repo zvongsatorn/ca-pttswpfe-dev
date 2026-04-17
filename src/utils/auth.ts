@@ -46,5 +46,11 @@ export function getUserFromToken(token?: string) {
 
 export function getAuthToken() {
     if (typeof window === 'undefined') return null;
-    return localStorage.getItem('auth_token');
+    const localToken = localStorage.getItem('auth_token');
+    if (localToken && localToken !== 'null' && localToken !== 'undefined') {
+        return localToken;
+    }
+
+    const cookieMatch = document.cookie.match(/(?:^|; )auth_token=([^;]*)/);
+    return cookieMatch ? decodeURIComponent(cookieMatch[1]) : null;
 }

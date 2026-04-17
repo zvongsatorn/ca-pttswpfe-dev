@@ -66,10 +66,13 @@ export default function ReportMenuPage() {
     const fetchReports = async () => {
       try {
         const token = localStorage.getItem('auth_token');
+        const headers: HeadersInit = {};
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+
         const response = await fetch(`/api/menu/submenu/${REPORT_MENU_KEY}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+            headers
         });
         
         if (!response.ok) {

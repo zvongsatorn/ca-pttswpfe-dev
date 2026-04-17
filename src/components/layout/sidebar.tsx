@@ -141,7 +141,8 @@ export default function Sidebar({
         });
 
         if (!response.ok) {
-          throw new Error('Failed to fetch menu');
+          const errorBody = await response.text().catch(() => '');
+          throw new Error(`Failed to fetch menu (${response.status}): ${errorBody || response.statusText}`);
         }
 
         const data: ApiMenuItem[] = await response.json();
@@ -429,7 +430,7 @@ export default function Sidebar({
       <aside
         className={`
         ${collapsed ? 'w-16' : 'w-64'}
-        fixed left-0 top-16 z-[90]
+        fixed left-0 top-16 z-[40]
          bg-white border-r border-gray-200 h-[calc(100vh-4rem)]
         transition-all duration-300 overflow-y-auto
       `}
