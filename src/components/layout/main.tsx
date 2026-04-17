@@ -134,7 +134,8 @@ export default function MainLayout({ children, currentPath, hideChrome = false }
         {/* Main Content */}
         <main
           className={`
-          flex-1 min-w-0 transition-all duration-300 ${hideChrome ? 'p-0' : 'p-6'}
+          flex-1 min-w-0 transition-all duration-300 relative z-0 isolate
+          ${hideChrome ? 'p-0' : 'p-6'}
           ${hideChrome ? 'ml-0' : !sidebarVisible ? 'ml-0' : sidebarCollapsed ? 'ml-16' : 'ml-64'}
         `}
         >
