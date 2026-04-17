@@ -1257,7 +1257,7 @@ export default function TransactionProgressPage() {
                   {/* 3.1 Main Headers */}
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-700 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
                     <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[200px] border-b border-gray-200">
-                        <div className="flex items-center gap-1"><Hash className="w-3 h-3 text-gray-400" />Inbox No.</div>
+                        <div className="flex items-center gap-1"><Hash className="w-3 h-3 text-gray-400" />Document No.</div>
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[200px] border-b border-gray-200">ประเภท</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold w-[50%] border-b border-gray-200">มติ / เรื่อง</th>
