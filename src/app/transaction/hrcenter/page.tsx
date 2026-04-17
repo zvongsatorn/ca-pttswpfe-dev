@@ -1175,7 +1175,7 @@ export default function HRCenterPage() {
 
       const monthIndex = months.indexOf(appliedMonth) + 1;
       const yearAD = Number(appliedYear) - 543;
-      const filename = `transaction_hrcenter_${yearAD}${String(monthIndex).padStart(2, '0')}.xlsx`;
+      const filename = `ภาพรวมการเปลี่ยนแปลงกรอบอัตรากำลัง_${yearAD}${String(monthIndex).padStart(2, '0')}.xlsx`;
 
       const buffer = await workbook.xlsx.writeBuffer();
       await saveExcelFile(buffer, filename);
@@ -1194,7 +1194,7 @@ export default function HRCenterPage() {
   
   {/* 1. Left Side: Title */}
   <h1 className="text-xl font-bold text-gray-800 tracking-wide">
-    ภาพรวมกรอบอัตรากำลัง
+    ภาพรวมการเปลี่ยนแปลงกรอบอัตรากำลัง
   </h1>
 
   {/* 2. Right Side: Controls Group */}

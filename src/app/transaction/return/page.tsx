@@ -671,7 +671,7 @@ export default function ReturnPage() {
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-700">
                     <th className="px-4 py-3 text-left text-sm font-semibold w-[50px]"></th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[150px]">Doc No.</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[150px]">Document No.</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap w-[120px]">Effective Date</th>
                     {/* <th className="px-4 py-3 text-left text-sm font-semibold">หน่วยงาน</th> */}
                     <th className="px-4 py-3 text-left text-sm font-semibold">มติ / เรื่อง</th>

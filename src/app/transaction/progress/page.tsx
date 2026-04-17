@@ -17,7 +17,7 @@ import {
   ArrowRight,
   File as FileIcon,
 } from 'lucide-react';
-import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore, useMemo } from 'react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/th';
 import buddhistEra from 'dayjs/plugin/buddhistEra';
@@ -102,24 +102,7 @@ interface TransactionProgressItem {
   logs: ApprovalLogItem[];
 }
 
-interface Report3FilterItem {
-  BGNo?: string;
-  BGName?: string;
-  OrgUnitNo?: string;
-  UnitText?: string;
-  UnitName?: string;
-  UnitAbbr?: string;
-}
 
-interface Report3FilterResponse {
-  status: number;
-  data?: {
-    businessUnits: Report3FilterItem[];
-    lines: Report3FilterItem[];
-    units: Report3FilterItem[];
-  };
-  message?: string;
-}
 
 interface FilterOption {
   value: string;
@@ -320,9 +303,7 @@ export default function TransactionProgressPage() {
   const [selectedBusinessUnits, setSelectedBusinessUnits] = useState<string[]>([]);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
   const [selectedAgencies, setSelectedAgencies] = useState<string[]>([]);
-  const [businessUnitOptions, setBusinessUnitOptions] = useState<FilterOption[]>([]);
-  const [lineOfWorkOptions, setLineOfWorkOptions] = useState<FilterOption[]>([]);
-  const [orgUnitOptions, setOrgUnitOptions] = useState<FilterOption[]>([]);
+
 
   // Column Filter States
   const [filterInbox, setFilterInbox] = useState('');
@@ -402,24 +383,60 @@ export default function TransactionProgressPage() {
       return normalized ? selected.has(normalized) : false;
     });
   };
-  const toBgOption = (row: Report3FilterItem): FilterOption | null => {
-    const value = toText(row.BGNo);
-    const label = toText(row.BGName);
-    if (!value || !label) return null;
-    return { value, label };
-  };
-  const toLineOption = (row: Report3FilterItem): FilterOption | null => {
-    const value = toText(row.OrgUnitNo);
-    const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
-    if (!value || !label) return null;
-    return { value, label };
-  };
-  const toUnitOption = (row: Report3FilterItem): FilterOption | null => {
-    const value = toText(row.OrgUnitNo);
-    const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
-    if (!value || !label) return null;
-    return { value, label };
-  };
+
+
+  const businessUnitOptions = useMemo(() => {
+    return uniqueOptions(
+      transactions.map((row) => {
+        const value = normalizeOptionValue(row.businessUnitId, row.businessUnitName);
+        const label = normalizeOptionValue(row.businessUnitName, row.businessUnitId);
+        return value && label ? { value, label } : null;
+      }).filter((item): item is FilterOption => item !== null)
+    );
+  }, [transactions]);
+
+  const lineOfWorkOptions = useMemo(() => {
+    return uniqueOptions(
+      transactions
+        .filter((row) => matchesSelected(selectedBusinessUnits, row.businessUnitId, row.businessUnitName))
+        .map((row) => {
+          const value = normalizeOptionValue(row.divisionId, row.divisionName);
+          const label = normalizeOptionValue(row.divisionName, row.divisionId);
+          return value && label ? { value, label } : null;
+        })
+        .filter((item): item is FilterOption => item !== null)
+    );
+  }, [transactions, selectedBusinessUnits]);
+
+  const orgUnitOptions = useMemo(() => {
+    return uniqueOptions(
+      transactions
+        .filter((row) => matchesSelected(selectedBusinessUnits, row.businessUnitId, row.businessUnitName))
+        .filter((row) => matchesSelected(selectedDivisions, row.divisionId, row.divisionName))
+        .map((row) => {
+          const value = normalizeOptionValue(row.agencyId, row.agencyName);
+          const label = normalizeOptionValue(row.agencyName, row.agencyId);
+          return value && label ? { value, label } : null;
+        })
+        .filter((item): item is FilterOption => item !== null)
+    );
+  }, [transactions, selectedBusinessUnits, selectedDivisions]);
+
+  useEffect(() => {
+      const nextBu = syncSelectedMany(selectedBusinessUnits, businessUnitOptions);
+      if (!isSameStringArray(nextBu, selectedBusinessUnits)) setSelectedBusinessUnits(nextBu);
+  }, [businessUnitOptions, selectedBusinessUnits]);
+
+  useEffect(() => {
+      const nextLine = syncSelectedMany(selectedDivisions, lineOfWorkOptions);
+      if (!isSameStringArray(nextLine, selectedDivisions)) setSelectedDivisions(nextLine);
+  }, [lineOfWorkOptions, selectedDivisions]);
+
+  useEffect(() => {
+      const nextUnit = syncSelectedMany(selectedAgencies, orgUnitOptions);
+      if (!isSameStringArray(nextUnit, selectedAgencies)) setSelectedAgencies(nextUnit);
+  }, [orgUnitOptions, selectedAgencies]);
+
   const isRejectedStatus = (statusLabel: unknown) => /reject|ไม่อนุมัติ/i.test(String(statusLabel || ''));
   const getTypeLabelByTransactionType = (transactionType: number) => (
     transactionType === 1
@@ -616,93 +633,6 @@ export default function TransactionProgressPage() {
     }
   };
 
-  const fetchFilterOptions = async () => {
-    const fallbackBusiness = uniqueOptions(
-      transactions
-        .map((row) => {
-          const value = normalizeOptionValue(row.businessUnitId, row.businessUnitName);
-          const label = normalizeOptionValue(row.businessUnitName, row.businessUnitId);
-          return value && label ? { value, label } : null;
-        })
-        .filter((item): item is FilterOption => item !== null)
-    );
-    const fallbackLines = uniqueOptions(
-      transactions
-        .filter((row) => matchesSelected(selectedBusinessUnits, row.businessUnitId, row.businessUnitName))
-        .map((row) => {
-          const value = normalizeOptionValue(row.divisionId, row.divisionName);
-          const label = normalizeOptionValue(row.divisionName, row.divisionId);
-          return value && label ? { value, label } : null;
-        })
-        .filter((item): item is FilterOption => item !== null)
-    );
-    const fallbackUnits = uniqueOptions(
-      transactions
-        .filter((row) => matchesSelected(selectedBusinessUnits, row.businessUnitId, row.businessUnitName))
-        .filter((row) => matchesSelected(selectedDivisions, row.divisionId, row.divisionName))
-        .map((row) => {
-          const value = normalizeOptionValue(row.agencyId, row.agencyName);
-          const label = normalizeOptionValue(row.agencyName, row.agencyId);
-          return value && label ? { value, label } : null;
-        })
-        .filter((item): item is FilterOption => item !== null)
-    );
-    const applyOptions = (nextBusiness: FilterOption[], nextLines: FilterOption[], nextUnits: FilterOption[]) => {
-      setBusinessUnitOptions(nextBusiness);
-      setLineOfWorkOptions(nextLines);
-      setOrgUnitOptions(nextUnits);
-
-      const nextBu = syncSelectedMany(selectedBusinessUnits, nextBusiness);
-      const nextLine = syncSelectedMany(selectedDivisions, nextLines);
-      const nextUnit = syncSelectedMany(selectedAgencies, nextUnits);
-
-      if (!isSameStringArray(nextBu, selectedBusinessUnits)) setSelectedBusinessUnits(nextBu);
-      if (!isSameStringArray(nextLine, selectedDivisions)) setSelectedDivisions(nextLine);
-      if (!isSameStringArray(nextUnit, selectedAgencies)) setSelectedAgencies(nextUnit);
-    };
-
-    try {
-      const { employeeId, userGroupNo } = getUserContext();
-      if (!employeeId || !userGroupNo) {
-        applyOptions(fallbackBusiness, fallbackLines, fallbackUnits);
-        return;
-      }
-
-      const query = new URLSearchParams({
-        effectiveDate: toEffectiveDateParam(),
-        employeeId,
-        userGroupNo,
-      });
-      if (selectedBusinessUnits.length === 1) query.set('bgNo', selectedBusinessUnits[0]);
-      if (selectedDivisions.length === 1) query.set('division', selectedDivisions[0]);
-
-      const res = await fetch(`/api/report/report3/filters?${query.toString()}`);
-      const payload: Report3FilterResponse | null = await res.json().catch(() => null);
-      if (!res.ok || !payload || payload.status !== 200 || !payload.data) {
-        applyOptions(fallbackBusiness, fallbackLines, fallbackUnits);
-        return;
-      }
-
-      const apiBusiness = payload.data.businessUnits.map(toBgOption).filter((item): item is FilterOption => item !== null);
-      const apiLines = payload.data.lines.map(toLineOption).filter((item): item is FilterOption => item !== null);
-      const apiUnits = payload.data.units.map(toUnitOption).filter((item): item is FilterOption => item !== null);
-
-      const nextBusiness = uniqueOptions(
-        [...apiBusiness, ...fallbackBusiness]
-      );
-      const nextLines = uniqueOptions(
-        [...apiLines, ...fallbackLines]
-      );
-      const nextUnits = uniqueOptions(
-        [...apiUnits, ...fallbackUnits]
-      );
-
-      applyOptions(nextBusiness, nextLines, nextUnits);
-    } catch (error) {
-      console.error('Error fetching progress filter options:', error);
-      applyOptions(fallbackBusiness, fallbackLines, fallbackUnits);
-    }
-  };
 
   useEffect(() => {
     fetchProgress();
@@ -759,9 +689,7 @@ export default function TransactionProgressPage() {
     }
   }, [canRejectBySelectedGroup, isRejectModalOpen, isItemRejectModalOpen]);
 
-  useEffect(() => {
-    void fetchFilterOptions();
-  }, [appliedMonth, appliedYear, selectedBusinessUnits, selectedDivisions, transactions]);
+
 
   // ============================================================================
   // 3. HELPERS & HANDLERS
