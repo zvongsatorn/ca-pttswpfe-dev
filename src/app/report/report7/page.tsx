@@ -22,13 +22,23 @@ dayjs.locale('th');
 interface Report7ApiRow {
     key?: string;
     org_unit_no?: string;
+    OrgUnitNo?: string;
     parent_org_unit_no?: string;
+    ParentOrgUnitNo?: string;
     lvl?: number;
+    Lvl?: number;
     bg_no?: string;
+    BGNo?: string;
+    BGName?: string;
     business_unit?: string;
     unit_level_name?: string;
+    UnitLevelName?: string;
     unit_short?: string;
+    UnitShort?: string;
+    UnitAbbr?: string;
     unit_name?: string;
+    UnitName?: string;
+    UnitText?: string;
 
     q_1?: number; q_2?: number; q_3?: number; q_4?: number; q_5?: number; q_6?: number; q_7?: number; q_total?: number;
     q_8?: number; q_10?: number;
@@ -172,6 +182,21 @@ const toText = (value: unknown): string => {
     return String(value).trim();
 };
 
+const normalizeFieldKey = (key: string): string => key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+const pickFieldValue = (row: Report7ApiRow, aliases: string[]): unknown => {
+    const normalized = new Map<string, unknown>();
+    Object.entries(row).forEach(([key, value]) => {
+        normalized.set(normalizeFieldKey(key), value);
+    });
+
+    for (const alias of aliases) {
+        const value = normalized.get(normalizeFieldKey(alias));
+        if (value !== undefined && value !== null && value !== '') return value;
+    }
+    return undefined;
+};
+
 const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
 
 const renderNumber = (value: unknown): React.ReactNode => {
@@ -251,16 +276,50 @@ const toLineOption = (row: Report7FilterItem): FilterOption | null => {
 };
 
 const transformRows = (rows: Report7ApiRow[]): Report7DataType[] => {
-    return rows.map((raw, idx) => ({
+    const normalized = rows.map((raw, idx) => ({
         key: toText(raw.key) || `r7-${idx + 1}`,
-        org_unit_no: toText(raw.org_unit_no),
-        parent_org_unit_no: toText(raw.parent_org_unit_no),
-        lvl: toNumber(raw.lvl),
-        bg_no: toText(raw.bg_no),
-        business_unit: toText(raw.business_unit ?? raw.bg_no),
-        unit_level_name: toText(raw.unit_level_name),
-        unit_short: toText(raw.unit_short),
-        unit_name: toText(raw.unit_name),
+        org_unit_no: toText(
+            pickFieldValue(raw, ['org_unit_no', 'OrgUnitNo', 'orgunitno', 'OrgUnitID', 'org_unit_id'])
+        ),
+        parent_org_unit_no: toText(
+            pickFieldValue(raw, ['parent_org_unit_no', 'ParentOrgUnitNo', 'parentorgunitno'])
+        ),
+        lvl: toNumber(
+            pickFieldValue(raw, ['lvl', 'Lvl', 'level', 'Level', 'unit_level', 'UnitLevel'])
+        ),
+        bg_no: toText(
+            pickFieldValue(raw, ['bg_no', 'BGNo', 'bgno', 'BU', 'business_unit_no'])
+        ),
+        business_unit: toText(
+            pickFieldValue(raw, [
+                'business_unit',
+                'BusinessUnit',
+                'BusinessUnitName',
+                'BGName',
+                'GroupBGName',
+                'group_bg_name',
+                'bg_no',
+                'BGNo',
+                'BU'
+            ])
+        ),
+        unit_level_name: toText(
+            pickFieldValue(raw, [
+                'unit_level_name',
+                'UnitLevelName',
+                'level_name',
+                'LevelName',
+                'UnitLevel',
+                'unit_level',
+                'level'
+            ])
+        ),
+        unit_short: toText(
+            pickFieldValue(raw, ['unit_short', 'UnitShort', 'UnitAbbr', 'unit_abbr', 'OrgUnitAbbr'])
+        ),
+        unit_name: toText(
+            pickFieldValue(raw, ['unit_name', 'UnitName', 'UnitText', 'OrgUnitName', 'unit_text'])
+        ),
 
         q_1: toNumber(raw.q_1), q_2: toNumber(raw.q_2), q_3: toNumber(raw.q_3), q_4: toNumber(raw.q_4),
         q_5: toNumber(raw.q_5), q_6: toNumber(raw.q_6), q_7: toNumber(raw.q_7), q_total: toNumber(raw.q_total),
@@ -284,8 +343,17 @@ const transformRows = (rows: Report7ApiRow[]): Report7DataType[] => {
         shape_vp: toNumber(raw.shape_vp), shape_dm: toNumber(raw.shape_dm), shape_sr: toNumber(raw.shape_sr), shape_jr: toNumber(raw.shape_jr), shape_total: toNumber(raw.shape_total),
         gap_vp: toNumber(raw.gap_vp), gap_dm: toNumber(raw.gap_dm), gap_sr: toNumber(raw.gap_sr), gap_jr: toNumber(raw.gap_jr), gap_total: toNumber(raw.gap_total),
 
-        remark: toText(raw.remark)
+        remark: toText(pickFieldValue(raw, ['remark', 'Remark', 'note', 'Note']))
     })).filter((row) => row.org_unit_no || row.unit_name || row.unit_short);
+
+    const firstDataRow = normalized.find((row) => row.org_unit_no || row.unit_name || row.unit_short);
+    if (firstDataRow && !firstDataRow.unit_level_name && !firstDataRow.business_unit) {
+        console.warn(
+            '[report7] API payload is missing level/business fields. Expected aliases include UnitLevelName/BGName/unit_level_name/business_unit.'
+        );
+    }
+
+    return normalized;
 };
 
 const buildTree = (rows: Report7DataType[]): Report7DataType[] => {
@@ -908,98 +976,271 @@ export default function Report7Page() {
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('Report 07');
 
-        const headers: string[] = [];
+        type GroupKind = 'frame' | 'people' | 'recruit' | 'vacancy' | 'mp' | 'shape' | 'gap';
+        type ColMeta =
+            | { kind: 'base' | 'remark' }
+            | { kind: 'metric'; group: GroupKind; isPercent?: boolean };
+
+        const colors = {
+            gray100: 'FFF3F4F6',
+            gray300: 'FFD1D5DB',
+            gray900: 'FF111827',
+            blue50: 'FFEFF6FF',
+            blue100: 'FFDBEAFE',
+            blue200: 'FFBFDBFE',
+            blue900: 'FF1E3A8A',
+            orange50: 'FFFFF7ED',
+            orange100: 'FFFFEDD5',
+            orange200: 'FFFED7AA',
+            orange900: 'FF9A3412',
+            red50: 'FFFEF2F2',
+            red100: 'FFFEE2E2',
+            red200: 'FFFECACA',
+            red900: 'FF7F1D1D',
+            green100: 'FFDCFCE7',
+            green200: 'FFBBF7D0',
+            green900: 'FF14532D',
+            purple50: 'FFFAF5FF',
+            purple100: 'FFF3E8FF',
+            purple200: 'FFE9D5FF',
+            purple900: 'FF581C87',
+            teal50: 'FFF0FDFA',
+            teal100: 'FFCCFBF1',
+            teal200: 'FF99F6E4',
+            teal900: 'FF134E4A',
+            indigo50: 'FFEEF2FF',
+            indigo100: 'FFE0E7FF',
+            indigo200: 'FFC7D2FE',
+            indigo900: 'FF312E81',
+        };
+
+        const groupStyles: Record<GroupKind, { topBg: string; topFg: string; subBg: string; subFg: string; summaryBg: string }> = {
+            frame: {
+                topBg: colors.blue200,
+                topFg: colors.blue900,
+                subBg: colors.blue50,
+                subFg: colors.gray900,
+                summaryBg: colors.blue100,
+            },
+            people: {
+                topBg: colors.orange200,
+                topFg: colors.orange900,
+                subBg: colors.orange50,
+                subFg: colors.gray900,
+                summaryBg: colors.orange100,
+            },
+            recruit: {
+                topBg: colors.green200,
+                topFg: colors.green900,
+                subBg: colors.green100,
+                subFg: colors.green900,
+                summaryBg: colors.green100,
+            },
+            vacancy: {
+                topBg: colors.red200,
+                topFg: colors.red900,
+                subBg: colors.red50,
+                subFg: colors.gray900,
+                summaryBg: colors.red100,
+            },
+            mp: {
+                topBg: colors.purple200,
+                topFg: colors.purple900,
+                subBg: colors.purple50,
+                subFg: colors.gray900,
+                summaryBg: colors.purple100,
+            },
+            shape: {
+                topBg: colors.teal200,
+                topFg: colors.teal900,
+                subBg: colors.teal50,
+                subFg: colors.gray900,
+                summaryBg: colors.teal100,
+            },
+            gap: {
+                topBg: colors.indigo200,
+                topFg: colors.indigo900,
+                subBg: colors.indigo50,
+                subFg: colors.gray900,
+                summaryBg: colors.indigo100,
+            },
+        };
+
+        const topHeaders: string[] = [];
+        const subHeaders: string[] = [];
         const dataKeys: string[] = [];
+        const columnMeta: ColMeta[] = [];
+        const groupRanges: Array<{ startCol: number; endCol: number; group: GroupKind }> = [];
+
+        const setBorder = (cell: ExcelJS.Cell, topStyle: 'thin' | 'medium' = 'thin') => {
+            cell.border = {
+                top: { style: topStyle, color: { argb: colors.gray300 } },
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
+            };
+        };
+
+        const addBaseColumn = (label: string, key: string, kind: 'base' | 'remark' = 'base') => {
+            topHeaders.push(label);
+            subHeaders.push('');
+            dataKeys.push(key);
+            columnMeta.push({ kind });
+        };
+
+        const addGroupColumns = (
+            title: string,
+            group: GroupKind,
+            columns: Array<{ label: string; key: string; isPercent?: boolean }>
+        ) => {
+            if (!columns.length) return;
+            const startCol = dataKeys.length + 1;
+            columns.forEach((col, index) => {
+                topHeaders.push(index === 0 ? title : '');
+                subHeaders.push(col.label);
+                dataKeys.push(col.key);
+                columnMeta.push({ kind: 'metric', group, isPercent: col.isPercent });
+            });
+            groupRanges.push({ startCol, endCol: dataKeys.length, group });
+        };
 
         if (metricVisibility.unit_short) {
-            headers.push('ชื่อย่อ');
-            dataKeys.push('unit_short');
+            addBaseColumn('ชื่อย่อ', 'unit_short');
         }
         if (metricVisibility.unit_code) {
-            headers.push('รหัสหน่วยงาน');
-            dataKeys.push('org_unit_no');
+            addBaseColumn('รหัสหน่วยงาน', 'org_unit_no');
         }
         if (metricVisibility.unit_name) {
-            headers.push('ชื่อเต็มหน่วยงาน');
-            dataKeys.push('unit_name');
+            addBaseColumn('ชื่อเต็มหน่วยงาน', 'unit_name');
         }
         if (metricVisibility.unit_level_name) {
-            headers.push('ระดับ');
-            dataKeys.push('unit_level_name');
+            addBaseColumn('ระดับ', 'unit_level_name');
         }
         if (metricVisibility.business_unit) {
-            headers.push('หน่วยธุรกิจ');
-            dataKeys.push('business_unit');
+            addBaseColumn('หน่วยธุรกิจ', 'business_unit');
         }
 
         if (metricVisibility.frame) {
-            levelConfigs.forEach((cfg) => {
-                headers.push(`กรอบ ${cfg.label}`);
-                dataKeys.push(cfg.q);
-            });
-            headers.push('Contract Out');
-            dataKeys.push('frame_contract_out');
-            headers.push('Contract สัญญาย่อย');
-            dataKeys.push('frame_sub_contract');
+            addGroupColumns(
+                'กรอบอัตรากำลัง ในระบบ SAP',
+                'frame',
+                [
+                    ...levelConfigs.map((cfg) => ({ label: cfg.label, key: cfg.q })),
+                    { label: 'Contract Out', key: 'frame_contract_out' },
+                    { label: 'Contract สัญญาย่อย', key: 'frame_sub_contract' },
+                ]
+            );
         }
 
         if (metricVisibility.people) {
-            levelConfigs.forEach((cfg) => {
-                headers.push(`จำนวนคน ${cfg.label}`);
-                dataKeys.push(cfg.m);
-            });
+            addGroupColumns(
+                'จำนวนคน',
+                'people',
+                levelConfigs.map((cfg) => ({ label: cfg.label, key: cfg.m }))
+            );
         }
 
         if (metricVisibility.recruit) {
-            headers.push('สรรหา');
-            dataKeys.push('recruit_total');
+            addGroupColumns('สรรหา', 'recruit', [{ label: '', key: 'recruit_total' }]);
         }
 
         if (metricVisibility.vacancy) {
-            levelConfigs.forEach((cfg) => {
-                headers.push(`ว่าง ${cfg.label}`);
-                dataKeys.push(cfg.t);
-            });
+            addGroupColumns(
+                'ว่าง',
+                'vacancy',
+                levelConfigs.map((cfg) => ({ label: cfg.label, key: cfg.t }))
+            );
         }
 
         if (metricVisibility.mp) {
-            mpShapeMetricConfigs.forEach((cfg) => {
-                headers.push(`MP ${cfg.label}`);
-                dataKeys.push(`mp_${cfg.key}`);
-            });
+            addGroupColumns(
+                'Manpower Landscape',
+                'mp',
+                mpShapeMetricConfigs.map((cfg) => ({ label: cfg.label, key: `mp_${cfg.key}` }))
+            );
         }
 
         if (metricVisibility.shape) {
-            mpShapeMetricConfigs.forEach((cfg) => {
-                headers.push(`Shape ${cfg.label}`);
-                dataKeys.push(`shape_${cfg.key}`);
-            });
+            addGroupColumns(
+                'Shape Ratio',
+                'shape',
+                mpShapeMetricConfigs.map((cfg) => ({ label: cfg.label, key: `shape_${cfg.key}` }))
+            );
         }
 
         if (metricVisibility.gap) {
-            gapMetricConfigs.forEach((cfg) => {
-                headers.push(`%Gap ${cfg.label}`);
-                dataKeys.push(`gap_${cfg.key}`);
-            });
+            addGroupColumns(
+                '% Gap',
+                'gap',
+                gapMetricConfigs.map((cfg) => ({ label: cfg.label, key: `gap_${cfg.key}`, isPercent: true }))
+            );
         }
 
         if (metricVisibility.remark) {
-            headers.push('หมายเหตุ');
-            dataKeys.push('remark');
+            addBaseColumn('หมายเหตุ', 'remark', 'remark');
         }
 
-        worksheet.columns = headers.map((header, index) => ({
-            header,
-            key: dataKeys[index],
-            width: index <= 2 ? 34 : 14
-        }));
+        worksheet.columns = dataKeys.map((key, index) => {
+            const meta = columnMeta[index];
+            if (meta?.kind === 'remark') return { key, width: 28 };
+            if (index <= 2) return { key, width: 34 };
+            if (key === 'unit_level_name' || key === 'business_unit') return { key, width: 18 };
+            return { key, width: 14 };
+        });
 
-        worksheet.getRow(1).font = { bold: true, name: 'Sarabun', size: 10 };
-        worksheet.getRow(1).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE5E7EB' }
-        };
+        const headerRow1 = worksheet.addRow(topHeaders);
+        const headerRow2 = worksheet.addRow(subHeaders);
+        headerRow1.height = 24;
+        headerRow2.height = 22;
+
+        groupRanges.forEach(({ startCol, endCol }) => {
+            if (endCol > startCol) {
+                worksheet.mergeCells(1, startCol, 1, endCol);
+            }
+        });
+
+        for (let col = 1; col <= dataKeys.length; col += 1) {
+            const meta = columnMeta[col - 1];
+            if (!meta) continue;
+            const cell1 = worksheet.getCell(1, col);
+            const cell2 = worksheet.getCell(2, col);
+            const subHeader = subHeaders[col - 1];
+
+            if (meta.kind !== 'metric' || subHeader === '') {
+                worksheet.mergeCells(1, col, 2, col);
+                const groupStyle = meta.kind === 'metric' ? groupStyles[meta.group] : null;
+                const fillBg = groupStyle ? groupStyle.topBg : colors.gray100;
+                const fillFg = groupStyle ? groupStyle.topFg : colors.gray900;
+
+                cell1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillBg } };
+                cell1.font = { bold: true, name: 'Sarabun', size: 10, color: { argb: fillFg } };
+                cell1.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+                setBorder(cell1);
+                continue;
+            }
+
+            const groupStyle = groupStyles[meta.group];
+            cell2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: groupStyle.subBg } };
+            cell2.font = { bold: true, name: 'Sarabun', size: 10, color: { argb: groupStyle.subFg } };
+            cell2.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            setBorder(cell2);
+        }
+
+        groupRanges.forEach(({ startCol, group }) => {
+            const cell = worksheet.getCell(1, startCol);
+            const groupStyle = groupStyles[group];
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: groupStyle.topBg } };
+            cell.font = { bold: true, name: 'Sarabun', size: 10, color: { argb: groupStyle.topFg } };
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            setBorder(cell);
+        });
+
+        for (let rowNo = 1; rowNo <= 2; rowNo += 1) {
+            for (let col = 1; col <= dataKeys.length; col += 1) {
+                const cell = worksheet.getCell(rowNo, col);
+                if (!cell.border) setBorder(cell);
+            }
+        }
 
         const flat = flattenRows(allData);
         flat.forEach((row) => {
@@ -1012,7 +1253,23 @@ export default function Report7Page() {
                 }
                 return value || '';
             });
-            worksheet.addRow(rowData);
+            const excelRow = worksheet.addRow(rowData);
+            excelRow.eachCell((cell, colNumber) => {
+                const meta = columnMeta[colNumber - 1];
+                cell.font = { name: 'Sarabun', size: 10 };
+                cell.alignment = {
+                    vertical: 'middle',
+                    horizontal: meta?.kind === 'metric' ? 'center' : 'left',
+                    wrapText: meta?.kind !== 'metric'
+                };
+                if (meta?.kind === 'metric' && meta.isPercent) {
+                    const num = Number(cell.value);
+                    if (Number.isFinite(num)) {
+                        cell.numFmt = '0.00%';
+                    }
+                }
+                setBorder(cell);
+            });
         });
 
         const summary = tableDataWithSummary.find((row) => row.key === 'TOTAL_SUMMARY');
@@ -1029,26 +1286,25 @@ export default function Report7Page() {
                 return value ?? '';
             });
             const summaryRow = worksheet.addRow(summaryValues);
-            summaryRow.eachCell((cell) => {
+            summaryRow.eachCell((cell, colNumber) => {
+                const meta = columnMeta[colNumber - 1];
+                const summaryBg = meta?.kind === 'metric'
+                    ? groupStyles[meta.group].summaryBg
+                    : colors.gray100;
                 cell.font = { bold: true, name: 'Sarabun', size: 10 };
                 cell.fill = {
                     type: 'pattern',
                     pattern: 'solid',
-                    fgColor: { argb: 'FFF3F4F6' }
+                    fgColor: { argb: summaryBg }
                 };
+                cell.alignment = {
+                    vertical: 'middle',
+                    horizontal: meta?.kind === 'metric' ? 'center' : 'left',
+                    wrapText: meta?.kind !== 'metric'
+                };
+                setBorder(cell, 'medium');
             });
         }
-
-        worksheet.eachRow((row) => {
-            row.eachCell((cell) => {
-                cell.border = {
-                    top: { style: 'thin' },
-                    left: { style: 'thin' },
-                    bottom: { style: 'thin' },
-                    right: { style: 'thin' }
-                };
-            });
-        });
 
         const buffer = await workbook.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

@@ -309,7 +309,7 @@ const filterTree = (nodes: Report6DataType[], allowedUnits: string[]): Report6Da
         const isMatched = allowedUnits.includes(String(node.bg_no || '')) || allowedUnits.includes(String(node.org_unit_no || ''));
         const effectiveMatched = isParentMatched || isMatched;
         
-        let newChildren: Report6DataType[] = [];
+        const newChildren: Report6DataType[] = [];
         if (node.children) {
             for (const child of node.children) {
                 const filteredChild = dfs(child, effectiveMatched);
@@ -773,70 +773,183 @@ export default function Report6Page() {
         const showVacancy = metricVisibility.vacancy;
         const showRemark = metricVisibility.remark;
 
-        const headers: string[] = [];
+        type MetricKind =
+            | 'quota_normal'
+            | 'quota_pool'
+            | 'quota_sec'
+            | 'people_normal'
+            | 'people_pool'
+            | 'people_sec'
+            | 'recruit'
+            | 'vacancy';
+        type ColMeta =
+            | { kind: 'unit_short' | 'unit_name' | 'remark' }
+            | { kind: 'metric'; metric: MetricKind; levelLabel: string };
+
+        const topHeaders: string[] = [];
+        const subHeaders: string[] = [];
         const dataKeys: string[] = [];
+        const columnMeta: ColMeta[] = [];
+        const levelRanges: Array<{ startCol: number; endCol: number; levelLabel: string }> = [];
+
+        const palette = {
+            gray100: 'FFF3F4F6',
+            gray900: 'FF111827',
+            gray300: 'FFD1D5DB',
+            blue100: 'FFDBEAFE',
+            blue900: 'FF1E3A8A',
+            indigo100: 'FFE0E7FF',
+            indigo900: 'FF312E81',
+            purple100: 'FFF3E8FF',
+            purple900: 'FF581C87',
+            orange100: 'FFFFEDD5',
+            orange900: 'FF9A3412',
+            amber100: 'FFFEF3C7',
+            amber900: 'FF78350F',
+            yellow100: 'FFFEF9C3',
+            yellow200: 'FFFDE68A',
+            yellow900: 'FF713F12',
+            green50: 'FFF0FDF4',
+            green100: 'FFDCFCE7',
+            green900: 'FF14532D',
+            red50: 'FFFEF2F2',
+            red100: 'FFFEE2E2',
+            red900: 'FF7F1D1D',
+        };
+
+        const metricStyles: Record<MetricKind, { headerBg: string; headerFg: string; bodyBg?: string; summaryBg?: string }> = {
+            quota_normal: { headerBg: palette.blue100, headerFg: palette.blue900 },
+            quota_pool: { headerBg: palette.indigo100, headerFg: palette.indigo900 },
+            quota_sec: { headerBg: palette.purple100, headerFg: palette.purple900 },
+            people_normal: { headerBg: palette.orange100, headerFg: palette.orange900 },
+            people_pool: { headerBg: palette.amber100, headerFg: palette.amber900 },
+            people_sec: { headerBg: palette.yellow100, headerFg: palette.yellow900 },
+            recruit: { headerBg: palette.green100, headerFg: palette.green900, bodyBg: palette.green50, summaryBg: palette.green100 },
+            vacancy: { headerBg: palette.red100, headerFg: palette.red900, bodyBg: palette.red50, summaryBg: palette.red100 },
+        };
+
+        const metricDefinitions: Array<{ enabled: boolean; kind: MetricKind; title: string; key: 'qn' | 'qp' | 'qs' | 'mn' | 'mp' | 'ms' | 'f' | 't' }> = [
+            { enabled: showQuotaNormal, kind: 'quota_normal', title: 'กรอบ ปกติ', key: 'qn' },
+            { enabled: showQuotaPool, kind: 'quota_pool', title: 'กรอบ Pool', key: 'qp' },
+            { enabled: showQuotaSec, kind: 'quota_sec', title: 'กรอบ Sec', key: 'qs' },
+            { enabled: showPeopleNormal, kind: 'people_normal', title: 'คน ปกติ', key: 'mn' },
+            { enabled: showPeoplePool, kind: 'people_pool', title: 'คน Pool', key: 'mp' },
+            { enabled: showPeopleSec, kind: 'people_sec', title: 'คน Sec', key: 'ms' },
+            { enabled: showRecruit, kind: 'recruit', title: 'สรรหา', key: 'f' },
+            { enabled: showVacancy, kind: 'vacancy', title: 'ว่าง', key: 't' },
+        ];
+
+        const setBorder = (cell: ExcelJS.Cell, topStyle: 'thin' | 'medium' = 'thin') => {
+            cell.border = {
+                top: { style: topStyle, color: { argb: palette.gray300 } },
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
+            };
+        };
 
         if (metricVisibility.unit_short) {
-            headers.push('ชื่อย่อ');
+            topHeaders.push('ชื่อย่อ');
+            subHeaders.push('');
             dataKeys.push('unit_short');
+            columnMeta.push({ kind: 'unit_short' });
         }
         if (metricVisibility.unit_name) {
-            headers.push('ชื่อเต็มหน่วย');
+            topHeaders.push('ชื่อเต็มหน่วย');
+            subHeaders.push('');
             dataKeys.push('unit_name');
+            columnMeta.push({ kind: 'unit_name' });
         }
 
         levelConfigs.forEach((level) => {
-            if (showQuotaNormal) {
-                headers.push(`${level.label} - กรอบ ปกติ`);
-                dataKeys.push(level.qn);
-            }
-            if (showQuotaPool) {
-                headers.push(`${level.label} - กรอบ Pool`);
-                dataKeys.push(level.qp);
-            }
-            if (showQuotaSec) {
-                headers.push(`${level.label} - กรอบ Sec`);
-                dataKeys.push(level.qs);
-            }
-            if (showPeopleNormal) {
-                headers.push(`${level.label} - คน ปกติ`);
-                dataKeys.push(level.mn);
-            }
-            if (showPeoplePool) {
-                headers.push(`${level.label} - คน Pool`);
-                dataKeys.push(level.mp);
-            }
-            if (showPeopleSec) {
-                headers.push(`${level.label} - คน Sec`);
-                dataKeys.push(level.ms);
-            }
-            if (showRecruit) {
-                headers.push(`${level.label} - สรรหา`);
-                dataKeys.push(level.f);
-            }
-            if (showVacancy) {
-                headers.push(`${level.label} - ว่าง`);
-                dataKeys.push(level.t);
+            const startCol = dataKeys.length + 1;
+            metricDefinitions.forEach((metric) => {
+                if (!metric.enabled) return;
+                topHeaders.push(level.label);
+                subHeaders.push(metric.title);
+                dataKeys.push(level[metric.key]);
+                columnMeta.push({ kind: 'metric', metric: metric.kind, levelLabel: level.label });
+            });
+            const endCol = dataKeys.length;
+            if (endCol >= startCol) {
+                levelRanges.push({ startCol, endCol, levelLabel: level.label });
             }
         });
 
         if (showRemark) {
-            headers.push('หมายเหตุ');
+            topHeaders.push('หมายเหตุ');
+            subHeaders.push('');
             dataKeys.push('remark');
+            columnMeta.push({ kind: 'remark' });
         }
 
-        worksheet.columns = headers.map((header, index) => ({
-            header,
-            key: dataKeys[index],
-            width: index === 0 ? 28 : index === 1 ? 40 : 14
-        }));
+        worksheet.columns = dataKeys.map((key, index) => {
+            const meta = columnMeta[index];
+            if (meta?.kind === 'unit_short') return { key, width: 28 };
+            if (meta?.kind === 'unit_name') return { key, width: 40 };
+            if (meta?.kind === 'remark') return { key, width: 30 };
+            return { key, width: 14 };
+        });
 
-        worksheet.getRow(1).font = { bold: true, name: 'Sarabun', size: 10 };
-        worksheet.getRow(1).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE5E7EB' }
-        };
+        const row1 = worksheet.addRow(topHeaders);
+        const row2 = worksheet.addRow(subHeaders);
+        row1.height = 24;
+        row2.height = 22;
+
+        levelRanges.forEach(({ startCol, endCol }) => {
+            if (endCol > startCol) {
+                worksheet.mergeCells(1, startCol, 1, endCol);
+            }
+        });
+
+        for (let col = 1; col <= dataKeys.length; col += 1) {
+            const meta = columnMeta[col - 1];
+            if (!meta) continue;
+            const cell1 = worksheet.getCell(1, col);
+            const cell2 = worksheet.getCell(2, col);
+
+            if (meta.kind !== 'metric') {
+                worksheet.mergeCells(1, col, 2, col);
+                cell1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: palette.gray100 } };
+                cell1.font = { bold: true, name: 'Sarabun', size: 10, color: { argb: palette.gray900 } };
+                cell1.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+                setBorder(cell1);
+                continue;
+            }
+
+            const metricStyle = metricStyles[meta.metric];
+            cell2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: metricStyle.headerBg } };
+            cell2.font = { bold: true, name: 'Sarabun', size: 10, color: { argb: metricStyle.headerFg } };
+            cell2.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            setBorder(cell2);
+        }
+
+        levelRanges.forEach(({ startCol, levelLabel }) => {
+            const topCell = worksheet.getCell(1, startCol);
+            const isTotalLevel = levelLabel === 'รวม';
+            topCell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: isTotalLevel ? palette.yellow200 : palette.gray100 }
+            };
+            topCell.font = {
+                bold: true,
+                name: 'Sarabun',
+                size: 10,
+                color: { argb: isTotalLevel ? palette.yellow900 : palette.gray900 }
+            };
+            topCell.alignment = { horizontal: 'center', vertical: 'middle' };
+            setBorder(topCell);
+        });
+
+        for (let rowNo = 1; rowNo <= 2; rowNo += 1) {
+            for (let col = 1; col <= dataKeys.length; col += 1) {
+                const cell = worksheet.getCell(rowNo, col);
+                if (!cell.border) {
+                    setBorder(cell);
+                }
+            }
+        }
 
         const flat = flattenRows(allData);
         flat.forEach((row) => {
@@ -846,7 +959,21 @@ export default function Report6Page() {
                 if (typeof value === 'number') return value;
                 return value || '';
             });
-            worksheet.addRow(rowData);
+            const excelRow = worksheet.addRow(rowData);
+            excelRow.eachCell((cell, colNumber) => {
+                const meta = columnMeta[colNumber - 1];
+                const metricStyle = meta && meta.kind === 'metric' ? metricStyles[meta.metric] : undefined;
+                if (metricStyle?.bodyBg) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: metricStyle.bodyBg } };
+                }
+                cell.font = { name: 'Sarabun', size: 10 };
+                cell.alignment = {
+                    vertical: 'middle',
+                    horizontal: meta?.kind === 'metric' ? 'center' : 'left',
+                    wrapText: meta?.kind !== 'metric'
+                };
+                setBorder(cell);
+            });
         });
 
         const summaryRow: Record<string, string | number> = { unit_short: '', unit_name: 'รวมทั้งสิ้น (Grand Total)' };
@@ -857,24 +984,22 @@ export default function Report6Page() {
 
         const summaryValues = dataKeys.map((key) => summaryRow[key] ?? '');
         const summaryExcelRow = worksheet.addRow(summaryValues);
-        summaryExcelRow.eachCell((cell) => {
+        summaryExcelRow.eachCell((cell, colNumber) => {
+            const meta = columnMeta[colNumber - 1];
+            const metricStyle = meta && meta.kind === 'metric' ? metricStyles[meta.metric] : undefined;
+            const summaryBg = metricStyle?.summaryBg || palette.gray100;
             cell.font = { bold: true, name: 'Sarabun', size: 10 };
             cell.fill = {
                 type: 'pattern',
                 pattern: 'solid',
-                fgColor: { argb: 'FFF3F4F6' }
+                fgColor: { argb: summaryBg }
             };
-        });
-
-        worksheet.eachRow((row) => {
-            row.eachCell((cell) => {
-                cell.border = {
-                    top: { style: 'thin' },
-                    left: { style: 'thin' },
-                    bottom: { style: 'thin' },
-                    right: { style: 'thin' }
-                };
-            });
+            cell.alignment = {
+                vertical: 'middle',
+                horizontal: meta?.kind === 'metric' ? 'center' : 'left',
+                wrapText: meta?.kind !== 'metric'
+            };
+            setBorder(cell, 'medium');
         });
 
         const buffer = await workbook.xlsx.writeBuffer();

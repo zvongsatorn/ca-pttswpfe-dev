@@ -1019,18 +1019,24 @@ export default function Report3Page() {
         const colors = {
             blueHeader: 'FFBFDBFE',
             blueSub: 'FFF0F9FF',
+            blueTotal: 'FFEFF6FF',
             orangeHeader: 'FFFED7AA',
             orangeSub: 'FFFFF7ED',
+            orangeTotal: 'FFFFF7ED',
             purpleHeader: 'FFE9D5FF',
             purpleSub: 'FFFAF5FF',
+            purpleTotal: 'FFFAF5FF',
             indigoHeader: 'FFC7D2FE',
             indigoSub: 'FFEEF2FF',
+            indigoTotal: 'FFEEF2FF',
             greenHeader: 'FFBBF7D0',
+            greenSub: 'FFF0FDF4',
             redHeader: 'FFFECACA',
             redSub: 'FFFEF2F2',
+            redTotal: 'FFFEF2F2',
             grayHeader: 'FFE5E7EB',
-            yellowTotal: 'FFFEF9C3',
             graySummary: 'FFF3F4F6',
+            grayBorder: 'FFD1D5DB',
             blueSummary: 'FFDBEAFE',
             orangeSummary: 'FFFFEDD5',
             purpleSummary: 'FFF3E8FF',
@@ -1119,21 +1125,27 @@ export default function Report3Page() {
             colIndex += 1;
         }
 
-        const styleGroup = (count: number, headerColor: string, subColor: string) => {
+        const styleGroup = (
+            count: number,
+            headerColor: string,
+            subColor: string,
+            totalColor: string
+        ) => {
             worksheet.mergeCells(1, colIndex, 1, colIndex + count - 1);
-            worksheet.getCell(1, colIndex).fill = {
+            const headerCell = worksheet.getCell(1, colIndex);
+            headerCell.fill = {
                 type: 'pattern',
                 pattern: 'solid',
                 fgColor: { argb: headerColor },
             };
-            worksheet.getCell(1, colIndex).alignment = { horizontal: 'center', vertical: 'middle' };
+            headerCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
             for (let i = 0; i < count; i++) {
                 const subCell = worksheet.getCell(2, colIndex + i);
                 subCell.fill = {
                     type: 'pattern',
                     pattern: 'solid',
-                    fgColor: { argb: headersRow2[colIndex + i - 1] === 'รวม' ? colors.yellowTotal : subColor },
+                    fgColor: { argb: headersRow2[colIndex + i - 1] === 'รวม' ? totalColor : subColor },
                 };
                 subCell.alignment = { horizontal: 'center' };
             }
@@ -1141,10 +1153,10 @@ export default function Report3Page() {
             colIndex += count;
         };
 
-        if (checkedList.includes('frame')) styleGroup(10, colors.blueHeader, colors.blueSub);
-        if (checkedList.includes('people')) styleGroup(8, colors.orangeHeader, colors.orangeSub);
-        if (checkedList.includes('line')) styleGroup(8, colors.purpleHeader, colors.purpleSub);
-        if (checkedList.includes('staff')) styleGroup(8, colors.indigoHeader, colors.indigoSub);
+        if (checkedList.includes('frame')) styleGroup(10, colors.blueHeader, colors.blueSub, colors.blueHeader);
+        if (checkedList.includes('people')) styleGroup(8, colors.orangeHeader, colors.orangeSub, colors.orangeHeader);
+        if (checkedList.includes('line')) styleGroup(8, colors.purpleHeader, colors.purpleSub, colors.purpleHeader);
+        if (checkedList.includes('staff')) styleGroup(8, colors.indigoHeader, colors.indigoSub, colors.indigoHeader);
 
         if (checkedList.includes('recruit')) {
             worksheet.mergeCells(1, colIndex, 2, colIndex);
@@ -1156,7 +1168,7 @@ export default function Report3Page() {
             colIndex += 1;
         }
 
-        if (checkedList.includes('vacancy')) styleGroup(8, colors.redHeader, colors.redSub);
+        if (checkedList.includes('vacancy')) styleGroup(8, colors.redHeader, colors.redSub, colors.redHeader);
 
         if (checkedList.includes('remark')) {
             worksheet.mergeCells(1, colIndex, 2, colIndex);
@@ -1227,14 +1239,28 @@ export default function Report3Page() {
                     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
                     cell.font = { bold: true, name: 'Sarabun', size: 10 };
                     cell.border = {
-                        top: { style: 'double' },
+                        top: { style: 'medium', color: { argb: colors.grayBorder } },
                         left: { style: 'thin' },
                         right: { style: 'thin' },
                         bottom: { style: 'thin' },
                     };
                 });
             } else {
-                row.eachCell((cell) => {
+                row.eachCell((cell, colNumber) => {
+                    const key = dataKeys[colNumber - 1] || '';
+                    let fillColor: string | null = null;
+
+                    if (key === 'frame_total') fillColor = colors.blueTotal;
+                    else if (key === 'people_total') fillColor = colors.orangeTotal;
+                    else if (key === 'line_total') fillColor = colors.purpleTotal;
+                    else if (key === 'staff_total') fillColor = colors.indigoTotal;
+                    else if (key === 'recruit_total') fillColor = colors.greenSub;
+                    else if (key === 'vacancy_total') fillColor = colors.redTotal;
+
+                    if (fillColor) {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
+                    }
+
                     cell.font = { name: 'Sarabun', size: 10 };
                     cell.border = {
                         top: { style: 'thin' },

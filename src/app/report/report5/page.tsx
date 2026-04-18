@@ -829,6 +829,8 @@ export default function Report5Page() {
             blue200: 'FFBFDBFE',
             green100: 'FFDCFCE7',
             gray100: 'FFF3F4F6',
+            amber50: 'FFFFFBEB',
+            amber100: 'FFFEF3C7',
         };
 
         const isShow = (k: string) => effectiveCheckedList.includes(k);
@@ -910,9 +912,11 @@ export default function Report5Page() {
             }
 
             worksheet.mergeCells(1, col, 2, col);
-            const fill = (key === 'operator' || key === 'remark' || key === 'log')
-                ? colors.green100
-                : colors.blue100;
+            const fill = key === 'transaction_change'
+                ? colors.amber100
+                : (key === 'operator' || key === 'remark' || key === 'log')
+                    ? colors.green100
+                    : colors.blue100;
             worksheet.getCell(1, col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
             col += 1;
         }
@@ -950,6 +954,7 @@ export default function Report5Page() {
                     const key = dataKeys[colNumber - 1];
                     let fillColor = colors.gray100;
                     if (key.startsWith('frame_')) fillColor = colors.blue200;
+                    else if (key === 'transaction_change') fillColor = colors.amber100;
 
                     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
                     cell.font = { bold: true, name: 'Sarabun', size: 10 };
@@ -972,11 +977,15 @@ export default function Report5Page() {
                     };
                     cell.font = { name: 'Sarabun', size: 10 };
                     if (key === 'transaction_change') {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.amber50 } };
                         if (cellText.startsWith('+')) {
                             cell.font = { name: 'Sarabun', size: 10, color: { argb: 'FF2563EB' } };
                         } else if (cellText.startsWith('-')) {
                             cell.font = { name: 'Sarabun', size: 10, color: { argb: 'FFDC2626' } };
                         }
+                    } else if (key === 'frame_total') {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.blue50 } };
+                        cell.font = { name: 'Sarabun', size: 10, bold: true, color: { argb: 'FF1E3A8A' } };
                     }
                 });
             }
@@ -1009,6 +1018,9 @@ export default function Report5Page() {
                 onCell: (record: Report5DataType) => {
                     if (record.key === 'TOTAL_SUMMARY') {
                         return { className: 'bg-blue-200! font-bold text-gray-900 border-t-2! border-t-gray-300!' };
+                    }
+                    if (key === 'total') {
+                        return { className: 'bg-blue-50! font-bold text-blue-900' };
                     }
                     return { className: 'bg-white' };
                 }

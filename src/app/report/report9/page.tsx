@@ -187,12 +187,17 @@ export default function Report9Page() {
         const worksheet = workbook.addWorksheet('Report 09');
 
         const colors = {
-            bgGray: 'FFE5E7EB',
+            border: 'FFD1D5DB',
+            headerFirstCol: 'FFDBEAFE',
             headerBlue: 'FFBFDBFE',
-            headerBlueSub: 'FFF0F9FF',
+            headerBlueSub: 'FFEFF6FF',
             headerRed: 'FFFECACA',
-            headerYellow: 'FFFEF9C3',
+            headerYellow: 'FFFEF08A',
+            bodyCutRed: 'FFFEE2E2',
+            bodyCutTotal: 'FFFEFCE8',
+            totalBlue: 'FFDBEAFE',
             totalYellow: 'FFFEF9C3',
+            textBlue: 'FF1E3A8A',
         };
 
         const row1 = ['กลุ่ม/หน่วยธุรกิจ'];
@@ -231,7 +236,7 @@ export default function Report9Page() {
 
         worksheet.mergeCells(1, 1, 2, 1);
         const firstCell = worksheet.getCell(1, 1);
-        firstCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.bgGray } };
+        firstCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.headerFirstCol } };
         firstCell.value = row1[0];
 
         let colIdx = 2;
@@ -277,10 +282,10 @@ export default function Report9Page() {
                 cell.font = { bold: true, name: 'Sarabun' };
                 cell.alignment = { vertical: 'middle', horizontal: 'center' };
                 cell.border = {
-                    top: { style: 'thin' },
-                    left: { style: 'thin' },
-                    bottom: { style: 'thin' },
-                    right: { style: 'thin' },
+                    top: { style: 'thin', color: { argb: colors.border } },
+                    left: { style: 'thin', color: { argb: colors.border } },
+                    bottom: { style: 'thin', color: { argb: colors.border } },
+                    right: { style: 'thin', color: { argb: colors.border } },
                 };
             })
         );
@@ -296,47 +301,72 @@ export default function Report9Page() {
                 sheetRow.eachCell((cell, cIdx) => {
                     cell.font = { name: 'Sarabun' };
                     cell.border = {
-                        top: { style: 'thin' },
-                        left: { style: 'thin' },
-                        bottom: { style: 'thin' },
-                        right: { style: 'thin' },
+                        top: { style: 'thin', color: { argb: colors.border } },
+                        left: { style: 'thin', color: { argb: colors.border } },
+                        bottom: { style: 'thin', color: { argb: colors.border } },
+                        right: { style: 'thin', color: { argb: colors.border } },
                     };
 
                     if (cIdx > 1) {
                         cell.alignment = { horizontal: 'center' };
                         cell.numFmt = '#,##0';
+                    } else {
+                        cell.alignment = { horizontal: 'left', vertical: 'middle' };
                     }
 
                     const key = dataKeys[cIdx - 1];
+                    const isCutSupportCol = key === 'cut_support';
+                    const isCutBuCol = key === 'cut_bu';
                     const isCutTotalCol = key === 'cut_total';
                     const isParent = String(row.key).startsWith('bg-');
                     const isTotal = row.key === 'total';
 
-                    if (isCutTotalCol) {
+                    if (isCutSupportCol || isCutBuCol) {
                         cell.fill = {
                             type: 'pattern',
                             pattern: 'solid',
-                            fgColor: { argb: colors.totalYellow },
+                            fgColor: { argb: colors.bodyCutRed },
+                        };
+                    } else if (isCutTotalCol) {
+                        cell.fill = {
+                            type: 'pattern',
+                            pattern: 'solid',
+                            fgColor: { argb: colors.bodyCutTotal },
                         };
                     }
 
                     if (isParent) {
-                        cell.font = { bold: true, name: 'Sarabun' };
+                        cell.font = { bold: true, name: 'Sarabun', color: { argb: colors.textBlue } };
                     }
 
                     if (isTotal) {
-                        cell.font = { bold: true, name: 'Sarabun' };
+                        cell.font = { bold: true, name: 'Sarabun', color: { argb: colors.textBlue } };
                         cell.border = {
-                            top: { style: 'double' },
-                            left: { style: 'thin' },
-                            bottom: { style: 'thin' },
-                            right: { style: 'thin' },
+                            top: { style: 'medium', color: { argb: colors.border } },
+                            left: { style: 'thin', color: { argb: colors.border } },
+                            bottom: { style: 'thin', color: { argb: colors.border } },
+                            right: { style: 'thin', color: { argb: colors.border } },
                         };
-                        cell.fill = {
-                            type: 'pattern',
-                            pattern: 'solid',
-                            fgColor: { argb: colors.totalYellow },
-                        };
+
+                        if (isCutTotalCol) {
+                            cell.fill = {
+                                type: 'pattern',
+                                pattern: 'solid',
+                                fgColor: { argb: colors.totalYellow },
+                            };
+                        } else if (isCutSupportCol || isCutBuCol) {
+                            cell.fill = {
+                                type: 'pattern',
+                                pattern: 'solid',
+                                fgColor: { argb: colors.bodyCutRed },
+                            };
+                        } else {
+                            cell.fill = {
+                                type: 'pattern',
+                                pattern: 'solid',
+                                fgColor: { argb: colors.totalBlue },
+                            };
+                        }
                     }
                 });
 

@@ -757,6 +757,53 @@ export default function Report2Page() {
 
     const handleExportExcel = async () => {
         const workbook = new ExcelJS.Workbook();
+        const excelColors = {
+            blue50: 'FFEFF6FF',
+            blue100: 'FFDBEAFE',
+            blue200: 'FFBFDBFE',
+            blue300: 'FF93C5FD',
+            blue500: 'FF3B82F6',
+            blue700: 'FF1D4ED8',
+            blue800: 'FF1E40AF',
+            blue900: 'FF1E3A8A',
+            orange50: 'FFFFF7ED',
+            orange700: 'FFC2410C',
+            orange800: 'FF9A3412',
+            purple200: 'FFE9D5FF',
+            purple700: 'FF6D28D9',
+            purple900: 'FF581C87',
+            gray50: 'FFF9FAFB',
+            gray100: 'FFF3F4F6',
+            gray700: 'FF374151',
+            gray800: 'FF1F2937',
+            gray900: 'FF111827',
+            red500: 'FFEF4444',
+            white: 'FFFFFFFF',
+        };
+
+        const labelColorMap: Record<string, string> = {
+            'text-blue-700': excelColors.blue700,
+            'text-orange-700': excelColors.orange700,
+            'text-purple-700': excelColors.purple700,
+            'text-gray-700': excelColors.gray700,
+        };
+
+        const setCellBorder = (
+            cell: ExcelJS.Cell,
+            topStyle: 'thin' | 'medium' = 'thin',
+            topColor?: string
+        ) => {
+            const topBorder = topColor
+                ? { style: topStyle, color: { argb: topColor } }
+                : { style: topStyle };
+
+            cell.border = {
+                top: topBorder,
+                left: { style: 'thin' },
+                right: { style: 'thin' },
+                bottom: { style: 'thin' },
+            };
+        };
 
         if (viewMode === 'transposed') {
             if (!transposedData.length) {
@@ -765,14 +812,7 @@ export default function Report2Page() {
             }
 
             const worksheet = workbook.addWorksheet('Report 02');
-            const labelColorMap: Record<string, string> = {
-                'text-blue-700': 'FF1D4ED8',
-                'text-orange-700': 'FFC2410C',
-                'text-purple-700': 'FF6D28D9',
-                'text-gray-700': 'FF374151',
-            };
-
-            type LeafColumn = { parentTitle: string; title: string; dataIndex: string };
+            type LeafColumn = { parentTitle: string; title: string; dataIndex: string; isBizTotal: boolean };
             const leafColumns: LeafColumn[] = [];
 
             const collectLeafColumns = (cols: ColumnsType<DataType>, parentTitle = '') => {
@@ -792,6 +832,7 @@ export default function Report2Page() {
                         parentTitle,
                         title,
                         dataIndex,
+                        isBizTotal: dataIndex === 'biz_total',
                     });
                 });
             };
@@ -855,24 +896,43 @@ export default function Report2Page() {
                 colNo = endCol + 1;
             }
 
-            [1, 2].forEach((rowNo) => {
-                const row = worksheet.getRow(rowNo);
-                row.eachCell((cell) => {
-                    cell.font = { bold: true, name: 'Sarabun' };
-                    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-                    cell.fill = {
-                        type: 'pattern',
-                        pattern: 'solid',
-                        fgColor: { argb: rowNo === 1 ? 'FFBFDBFE' : 'FFE8F1FE' },
-                    };
-                    cell.border = {
-                        top: { style: 'thin' },
-                        left: { style: 'thin' },
-                        right: { style: 'thin' },
-                        bottom: { style: 'thin' },
-                    };
-                });
-            });
+            worksheet.getRow(1).height = 24;
+            worksheet.getRow(2).height = 22;
+
+            for (let currentCol = 1; currentCol <= leafColumns.length; currentCol += 1) {
+                const leaf = leafColumns[currentCol - 1];
+                const row1Cell = worksheet.getCell(1, currentCol);
+                const row2Cell = worksheet.getCell(2, currentCol);
+                const hasSubHeader = header2[currentCol - 1] !== '';
+
+                if (currentCol === 1) {
+                    row1Cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: excelColors.blue100 } };
+                    row1Cell.font = { bold: true, name: 'Sarabun', color: { argb: excelColors.blue900 } };
+                    row1Cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                    setCellBorder(row1Cell);
+                    continue;
+                }
+
+                if (!hasSubHeader) {
+                    const headerBg = leaf.isBizTotal ? excelColors.blue200 : excelColors.blue50;
+                    const headerFg = leaf.isBizTotal ? excelColors.blue900 : excelColors.blue800;
+                    row1Cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerBg } };
+                    row1Cell.font = { bold: true, name: 'Sarabun', color: { argb: headerFg } };
+                    row1Cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                    setCellBorder(row1Cell);
+                    continue;
+                }
+
+                row1Cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: excelColors.blue200 } };
+                row1Cell.font = { bold: true, name: 'Sarabun', color: { argb: excelColors.blue900 } };
+                row1Cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                setCellBorder(row1Cell);
+
+                row2Cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: excelColors.blue50 } };
+                row2Cell.font = { bold: true, name: 'Sarabun', color: { argb: excelColors.blue800 } };
+                row2Cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                setCellBorder(row2Cell);
+            }
 
             const exportMeta = new Map<number, { rowType: string; labelClass: string }>();
             transposedData.forEach((item) => {
@@ -929,19 +989,19 @@ export default function Report2Page() {
                         horizontal: isFirstCol || rowType === 'remark' ? 'left' : 'center',
                         wrapText: rowType === 'remark' || isFirstCol,
                     };
-                    cell.border = {
-                        top: { style: 'thin' },
-                        left: { style: 'thin' },
-                        right: { style: 'thin' },
-                        bottom: { style: 'thin' },
-                    };
+                    setCellBorder(
+                        cell,
+                        rowType === 'month' ? 'medium' : 'thin',
+                        rowType === 'month' ? excelColors.blue300 : undefined
+                    );
 
                     if (rowType === 'month') {
                         cell.fill = {
                             type: 'pattern',
                             pattern: 'solid',
-                            fgColor: { argb: 'FFEFF6FF' },
+                            fgColor: { argb: excelColors.blue100 },
                         };
+                        cell.font = { ...cell.font, color: { argb: excelColors.blue900 } };
                     }
 
                     if (isFirstCol && rowType !== 'month') {
@@ -953,13 +1013,30 @@ export default function Report2Page() {
 
                     if (!isFirstCol && rowType === 'diff') {
                         if (rawValue.startsWith('+')) {
-                            cell.font = { ...cell.font, color: { argb: 'FF2563EB' } };
+                            cell.font = { ...cell.font, color: { argb: excelColors.blue500 } };
                         } else if (rawValue.startsWith('-')) {
-                            cell.font = { ...cell.font, color: { argb: 'FFDC2626' } };
+                            cell.font = { ...cell.font, color: { argb: excelColors.red500 } };
                         }
+                    }
+
+                    if (rowType === 'value' && leafColumns[currentColNo - 1]?.isBizTotal) {
+                        cell.font = { ...cell.font, bold: true };
+                    }
+
+                    if (rowType === 'remark' && !isFirstCol) {
+                        cell.font = { ...cell.font, color: { argb: excelColors.gray700 } };
                     }
                 });
             });
+
+            for (let headerRow = 1; headerRow <= 2; headerRow += 1) {
+                for (let currentCol = 1; currentCol <= leafColumns.length; currentCol += 1) {
+                    const cell = worksheet.getCell(headerRow, currentCol);
+                    if (!cell.border) {
+                        setCellBorder(cell);
+                    }
+                }
+            }
 
             const buffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([buffer], {
@@ -982,28 +1059,72 @@ export default function Report2Page() {
 
         const visible = (key: string) => isColumnVisible(key, checkedList, selectedDatasets);
 
+        type HeaderTone = 'blue' | 'orange' | 'purple' | 'gray';
+        type ExportColMeta = {
+            key: string;
+            kind: 'unit' | 'value' | 'diff' | 'remark';
+            tone: HeaderTone;
+            metricKey?: string;
+        };
+
+        const metricToneMap: Record<string, HeaderTone> = {
+            frame_staff: 'blue',
+            frame_normal: 'blue',
+            people_normal: 'orange',
+            pool_rs: 'blue',
+            people_pool_rs: 'orange',
+            frame_sec: 'blue',
+            traditional: 'blue',
+            new_biz: 'blue',
+            people_new_biz: 'orange',
+            total_actual: 'blue',
+            total_people: 'orange',
+            contact_out: 'purple',
+            contact_out_sub: 'purple',
+            remark: 'gray',
+        };
+
+        const tonePalette: Record<HeaderTone, { headerBg: string; headerFg: string; bodyBg: string }> = {
+            blue: { headerBg: excelColors.blue50, headerFg: excelColors.blue800, bodyBg: excelColors.blue50 },
+            orange: { headerBg: excelColors.orange50, headerFg: excelColors.orange800, bodyBg: excelColors.orange50 },
+            purple: { headerBg: excelColors.purple200, headerFg: excelColors.purple900, bodyBg: excelColors.purple200 },
+            gray: { headerBg: excelColors.gray100, headerFg: excelColors.gray800, bodyBg: excelColors.white },
+        };
+
         const header1: string[] = ['Business'];
         const header2: string[] = [''];
         const header3: string[] = [''];
-
         const dataKeys: string[] = ['unit'];
+        const columnMeta: ExportColMeta[] = [{ key: 'unit', kind: 'unit', tone: 'blue' }];
+        const monthRanges: Array<{ startCol: number; endCol: number }> = [];
+        const metricRanges: Array<{ startCol: number; endCol: number; kind: 'horizontal' | 'vertical' }> = [];
 
         months.forEach((monthKey) => {
             const monthLabel = dayjs(monthKey, 'YYYYMM').format('MMMM YYYY');
-            const startCol = dataKeys.length;
+            const monthStartCol = dataKeys.length + 1;
 
             const addNumeric = (key: string, title: string, withDiff: boolean) => {
                 if (!visible(key)) return;
+                const tone = metricToneMap[key] || 'blue';
+                const metricStartCol = dataKeys.length + 1;
 
                 header2.push(title);
                 header3.push('จำนวน');
                 dataKeys.push(`${key}_${monthKey}`);
+                columnMeta.push({ key: `${key}_${monthKey}`, kind: 'value', tone, metricKey: key });
 
                 if (withDiff) {
                     header2.push('');
                     header3.push('+/-');
                     dataKeys.push(`${key}_${monthKey}_diff_export`);
+                    columnMeta.push({ key: `${key}_${monthKey}_diff_export`, kind: 'diff', tone, metricKey: key });
                 }
+
+                metricRanges.push({
+                    startCol: metricStartCol,
+                    endCol: dataKeys.length,
+                    kind: withDiff ? 'horizontal' : 'horizontal',
+                });
             };
 
             addNumeric('frame_staff', 'กรอบ พนง.', true);
@@ -1021,83 +1142,90 @@ export default function Report2Page() {
             addNumeric('contact_out_sub', 'Contact Out สัญญาย่อย', false);
 
             if (visible('remark')) {
+                const remarkCol = dataKeys.length + 1;
                 header2.push('หมายเหตุ');
-                header3.push('ข้อความ');
+                header3.push('');
                 dataKeys.push(`remark_${monthKey}`);
+                columnMeta.push({ key: `remark_${monthKey}`, kind: 'remark', tone: 'gray', metricKey: 'remark' });
+                metricRanges.push({ startCol: remarkCol, endCol: remarkCol, kind: 'vertical' });
             }
 
-            const monthSpan = dataKeys.length - startCol;
+            const monthSpan = dataKeys.length - monthStartCol + 1;
             if (monthSpan > 0) {
                 header1.push(`Actual ${monthLabel}`);
-                for (let i = 1; i < monthSpan; i++) header1.push('');
+                for (let i = 1; i < monthSpan; i += 1) header1.push('');
+                monthRanges.push({ startCol: monthStartCol, endCol: dataKeys.length });
             }
         });
 
         worksheet.addRow(header1);
         worksheet.addRow(header2);
         worksheet.addRow(header3);
+        worksheet.getRow(1).height = 24;
+        worksheet.getRow(2).height = 22;
+        worksheet.getRow(3).height = 22;
 
         worksheet.mergeCells(1, 1, 3, 1);
 
-        let colPtr = 2;
-        months.forEach((monthKey) => {
-            const monthLabel = dayjs(monthKey, 'YYYYMM').format('MMMM YYYY');
-            const monthStartCol = colPtr;
-
-            const countCols = () => {
-                let count = 0;
-                const add = (key: string, withDiff: boolean) => {
-                    if (!visible(key)) return;
-                    count += withDiff ? 2 : 1;
-                };
-
-                add('frame_staff', true);
-                add('frame_normal', true);
-                add('people_normal', true);
-                add('pool_rs', true);
-                add('people_pool_rs', true);
-                add('frame_sec', true);
-                add('traditional', true);
-                add('new_biz', true);
-                add('people_new_biz', true);
-                add('total_actual', true);
-                add('total_people', true);
-                add('contact_out', false);
-                add('contact_out_sub', false);
-                if (visible('remark')) count += 1;
-                return count;
-            };
-
-            const span = countCols();
-            if (span <= 0) return;
-
-            if (span > 1) worksheet.mergeCells(1, monthStartCol, 1, monthStartCol + span - 1);
-            worksheet.getCell(1, monthStartCol).value = `Actual ${monthLabel}`;
-
-            colPtr += span;
+        monthRanges.forEach(({ startCol, endCol }) => {
+            if (endCol > startCol) {
+                worksheet.mergeCells(1, startCol, 1, endCol);
+            }
+            const monthCell = worksheet.getCell(1, startCol);
+            monthCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: excelColors.blue200 } };
+            monthCell.font = { bold: true, name: 'Sarabun', color: { argb: excelColors.blue900 } };
+            monthCell.alignment = { vertical: 'middle', horizontal: 'center' };
+            setCellBorder(monthCell);
         });
 
-        [1, 2, 3].forEach((rowNo) => {
-            const row = worksheet.getRow(rowNo);
-            row.eachCell((cell) => {
-                cell.font = { bold: true, name: 'Sarabun' };
-                cell.alignment = { vertical: 'middle', horizontal: 'center' };
-                cell.fill = {
-                    type: 'pattern',
-                    pattern: 'solid',
-                    fgColor: { argb: rowNo === 1 ? 'FFBFDBFE' : rowNo === 2 ? 'FFE8F1FE' : 'FFF3F7FF' },
-                };
-                cell.border = {
-                    top: { style: 'thin' },
-                    left: { style: 'thin' },
-                    right: { style: 'thin' },
-                    bottom: { style: 'thin' },
-                };
-            });
+        metricRanges.forEach(({ startCol, endCol, kind }) => {
+            if (kind === 'vertical') {
+                worksheet.mergeCells(2, startCol, 3, startCol);
+                return;
+            }
+            if (endCol > startCol) {
+                worksheet.mergeCells(2, startCol, 2, endCol);
+            }
         });
 
+        const unitHeaderCell = worksheet.getCell(1, 1);
+        unitHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: excelColors.blue100 } };
+        unitHeaderCell.font = { bold: true, name: 'Sarabun', color: { argb: excelColors.blue900 } };
+        unitHeaderCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        setCellBorder(unitHeaderCell);
+
+        for (let colNo = 2; colNo <= dataKeys.length; colNo += 1) {
+            const meta = columnMeta[colNo - 1];
+            if (!meta) continue;
+            const tone = tonePalette[meta.tone];
+
+            const header2Cell = worksheet.getCell(2, colNo);
+            header2Cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: tone.headerBg } };
+            header2Cell.font = { bold: true, name: 'Sarabun', color: { argb: tone.headerFg } };
+            header2Cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            setCellBorder(header2Cell);
+
+            if (meta.kind !== 'remark') {
+                const header3Cell = worksheet.getCell(3, colNo);
+                header3Cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: tone.headerBg } };
+                header3Cell.font = { bold: true, name: 'Sarabun', color: { argb: tone.headerFg } };
+                header3Cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                setCellBorder(header3Cell);
+            }
+        }
+
+        for (let rowNo = 1; rowNo <= 3; rowNo += 1) {
+            for (let colNo = 1; colNo <= dataKeys.length; colNo += 1) {
+                const cell = worksheet.getCell(rowNo, colNo);
+                if (!cell.border) {
+                    setCellBorder(cell);
+                }
+            }
+        }
+
+        const exportRowMeta = new Map<number, { rowKind: string; isTotal: boolean }>();
         data.forEach((item) => {
-            const row: (string | number)[] = [item.unit];
+            const rowValues: (string | number)[] = [item.unit];
 
             months.forEach((monthKey) => {
                 const prevMonthKey = dayjs(monthKey, 'YYYYMM').subtract(1, 'month').format('YYYYMM');
@@ -1106,11 +1234,11 @@ export default function Report2Page() {
                     if (!visible(key)) return;
 
                     const currentKey = `${key}_${monthKey}`;
-                    row.push(toNumber(item[currentKey]));
+                    rowValues.push(toNumber(item[currentKey]));
 
                     if (withDiff) {
                         const diff = getDiffValue(item, currentKey, `${key}_${prevMonthKey}`);
-                        row.push(diff !== 0 ? (diff > 0 ? `+${diff}` : `${diff}`) : '0');
+                        rowValues.push(diff !== 0 ? (diff > 0 ? `+${diff}` : `${diff}`) : '0');
                     }
                 };
 
@@ -1129,45 +1257,79 @@ export default function Report2Page() {
                 addValue('contact_out_sub', false);
 
                 if (visible('remark')) {
-                    row.push(String(item[`remark_${monthKey}`] ?? ''));
+                    rowValues.push(String(item[`remark_${monthKey}`] ?? ''));
                 }
             });
 
-            worksheet.addRow(row);
+            const row = worksheet.addRow(rowValues);
+            exportRowMeta.set(row.number, {
+                rowKind: String(item.row_kind || 'normal'),
+                isTotal: isTotalUnit(String(item.unit)),
+            });
         });
 
-        worksheet.columns = dataKeys.map((key, idx) => ({
-            width: idx === 0 ? 25 : key.includes('remark_') ? 30 : 12,
-        }));
+        worksheet.columns = dataKeys.map((key, idx) => {
+            if (idx === 0) return { width: 25 };
+            if (key.includes('remark_')) return { width: 30 };
+            if (key.includes('contact_out_sub')) return { width: 18 };
+            return { width: 12 };
+        });
 
         worksheet.eachRow((row, rowNumber) => {
             if (rowNumber <= 3) return;
-            const unitCell = row.getCell(1);
-            const isTotal = String(unitCell.value ?? '').trim() === 'รวม';
+            const rowMeta = exportRowMeta.get(rowNumber);
+            const rowKind = rowMeta?.rowKind || 'normal';
+            const isTotal = Boolean(rowMeta?.isTotal);
 
             row.eachCell((cell, colNo) => {
-                cell.font = { ...cell.font, name: 'Sarabun', bold: isTotal };
-                cell.alignment = { vertical: 'middle', horizontal: colNo === 1 ? 'left' : 'center' };
-                cell.border = {
-                    top: { style: 'thin' },
-                    left: { style: 'thin' },
-                    right: { style: 'thin' },
-                    bottom: { style: 'thin' },
-                };
+                const colMeta = columnMeta[colNo - 1];
+                const isFirstCol = colNo === 1;
+                const isRemarkCol = colMeta?.kind === 'remark';
 
-                if (isTotal) {
-                    cell.fill = {
-                        type: 'pattern',
-                        pattern: 'solid',
-                        fgColor: { argb: 'FFEFF6FF' },
-                    };
+                cell.font = {
+                    ...cell.font,
+                    name: 'Sarabun',
+                    bold: false,
+                };
+                cell.alignment = {
+                    vertical: 'middle',
+                    horizontal: isFirstCol || isRemarkCol ? 'left' : 'center',
+                    wrapText: isFirstCol || isRemarkCol,
+                };
+                setCellBorder(cell);
+
+                if (!isFirstCol && colMeta?.kind === 'value') {
+                    cell.numFmt = '#,##0';
                 }
 
-                const v = String(cell.value ?? '');
-                if (v.startsWith('+')) {
-                    cell.font = { ...cell.font, color: { argb: 'FF2563EB' } };
-                } else if (v.startsWith('-')) {
-                    cell.font = { ...cell.font, color: { argb: 'FFDC2626' } };
+                if (isTotal) {
+                    if (isFirstCol) {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: excelColors.blue100 } };
+                        cell.font = { ...cell.font, bold: true, color: { argb: excelColors.blue900 } };
+                    } else if (colMeta && colMeta.kind !== 'remark') {
+                        cell.fill = {
+                            type: 'pattern',
+                            pattern: 'solid',
+                            fgColor: { argb: tonePalette[colMeta.tone].bodyBg },
+                        };
+                        cell.font = { ...cell.font, bold: true };
+                    }
+                } else if (rowKind === 'group' && isFirstCol) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: excelColors.gray50 } };
+                    cell.font = { ...cell.font, bold: true, color: { argb: excelColors.gray900 } };
+                }
+
+                if (colMeta?.kind === 'diff' && !isFirstCol) {
+                    const text = String(cell.value ?? '');
+                    if (text.startsWith('+')) {
+                        cell.font = { ...cell.font, color: { argb: excelColors.blue500 } };
+                    } else if (text.startsWith('-')) {
+                        cell.font = { ...cell.font, color: { argb: excelColors.red500 } };
+                    }
+                }
+
+                if (isRemarkCol && !isTotal) {
+                    cell.font = { ...cell.font, color: { argb: excelColors.gray700 } };
                 }
             });
         });

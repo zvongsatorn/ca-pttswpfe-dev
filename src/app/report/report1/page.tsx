@@ -557,41 +557,268 @@ export default function Report1Page() {
       const worksheet = workbook.addWorksheet('Report 01');
       if (!tableData.length) throw new Error('ไม่พบข้อมูลสำหรับ Export');
 
-      const exportLevels = ['21', '18-20', '16-17', '14-15', '11-13', '9-10', '4-8', 'รวม'];
-      const dataKeys: string[] = ['unit'];
-      const headers: string[] = ['กลุ่ม/หน่วยธุรกิจ'];
-
-      const addCols = (show: boolean, subKeys: string[], subLabels: string[]) => {
-        if (!show) return;
-        subKeys.forEach((sk, i) => {
-          dataKeys.push(sk);
-          headers.push(subLabels[i]);
-        });
+      const colors = {
+        blue50: 'FFEFF6FF',
+        blue100: 'FFDBEAFE',
+        blue200: 'FFBFDBFE',
+        blue300: 'FF93C5FD',
+        blue800: 'FF1E40AF',
+        blue900: 'FF1E3A8A',
+        orange50: 'FFFFF7ED',
+        orange200: 'FFFED7AA',
+        orange800: 'FF9A3412',
+        red50: 'FFFEF2F2',
+        red200: 'FFFECACA',
+        red800: 'FF991B1B',
+        green50: 'FFDCFCE7',
+        green200: 'FFBBF7D0',
+        green900: 'FF14532D',
+        purple300: 'FFD8B4FE',
+        white: 'FFFFFFFF',
+        black: 'FF000000',
       };
 
-      addCols(isShow('frame_staff'), exportLevels.map((_, i) => `frame_staff_${i}`), exportLevels.map(l => `กรอบพนักงาน ${l}`));
-      addCols(isShow('people_normal'), exportLevels.map((_, i) => `people_normal_${i}`), exportLevels.map(l => `คนปกติ ${l}`));
-      addCols(isShow('frame_sec'), exportLevels.map((_, i) => `frame_sec_${i}`), exportLevels.map(l => `กรอบSec ${l}`));
-      addCols(isShow('people_sec'), exportLevels.map((_, i) => `people_sec_${i}`), exportLevels.map(l => `คนSec ${l}`));
-      addCols(isShow('total_frame'), ['sum_frame_normal', 'sum_frame_pool', 'sum_frame_trad', 'sum_frame_newbiz', 'sum_frame_total'], ['รวมกรอบ-ปกติ', 'รวมกรอบ-Pool', 'รวมกรอบ-Trad', 'รวมกรอบ-NB', 'รวมกรอบ']);
-      addCols(isShow('total_people'), ['sum_people_normal', 'sum_people_pool', 'sum_people_trad', 'sum_people_newbiz', 'sum_people_total'], ['รวมคน-ปกติ', 'รวมคน-Pool', 'รวมคน-Trad', 'รวมคน-NB', 'รวมคน']);
-      addCols(isShow('recruit'), ['recruit_total'], ['สรรหา']);
-      addCols(isShow('vacancy'), exportLevels.map((_, i) => `vacancy_${i}`), exportLevels.map(l => `ว่าง ${l}`));
-      if (isShow('contact_out')) {
-        dataKeys.push('contact_out');
-        headers.push('Contact Out');
-      }
-      if (isShow('contact_out_sub')) {
-        dataKeys.push('contact_out_sub');
-        headers.push('Contact Outสัญญาย่อย');
+      type ExportColumn = {
+        key: string;
+        label: string;
+        subBg: string;
+        subFg: string;
+        bodyBg?: string;
+        isTotalCol?: boolean;
+        isRecruitCol?: boolean;
+        isNumeric?: boolean;
+      };
+
+      type ExportGroup = {
+        enabled: boolean;
+        title: string;
+        topBg: string;
+        topFg: string;
+        columns: ExportColumn[];
+      };
+
+      const exportLevels = ['21', '18-20', '16-17', '14-15', '11-13', '9-10', '4-8', 'รวม'];
+      const makeLevelColumns = (
+        prefix: string,
+        subBg: string,
+        subFg: string,
+        totalHeaderBg: string,
+        totalHeaderFg: string,
+        totalBodyBg: string
+      ): ExportColumn[] => exportLevels.map((level, i) => {
+        const isTotal = level === 'รวม';
+        return {
+          key: `${prefix}_${i}`,
+          label: level,
+          subBg: isTotal ? totalHeaderBg : subBg,
+          subFg: isTotal ? totalHeaderFg : subFg,
+          bodyBg: isTotal ? totalBodyBg : undefined,
+          isTotalCol: isTotal,
+          isNumeric: true,
+        };
+      });
+
+      const groups: ExportGroup[] = [
+        {
+          enabled: isShow('frame_staff'),
+          title: 'กรอบพนักงาน',
+          topBg: colors.blue200,
+          topFg: colors.blue900,
+          columns: makeLevelColumns('frame_staff', colors.blue50, colors.blue800, colors.blue200, colors.blue900, colors.blue50),
+        },
+        {
+          enabled: isShow('people_normal'),
+          title: 'คนปกติ & Pool RS',
+          topBg: colors.orange200,
+          topFg: colors.orange800,
+          columns: makeLevelColumns('people_normal', colors.orange50, colors.orange800, colors.orange200, colors.orange800, colors.orange50),
+        },
+        {
+          enabled: isShow('frame_sec'),
+          title: 'กรอบ Secondment',
+          topBg: colors.blue200,
+          topFg: colors.blue900,
+          columns: makeLevelColumns('frame_sec', colors.blue50, colors.blue800, colors.blue200, colors.blue900, colors.blue50),
+        },
+        {
+          enabled: isShow('people_sec'),
+          title: 'คน Secondment',
+          topBg: colors.orange200,
+          topFg: colors.orange800,
+          columns: makeLevelColumns('people_sec', colors.orange50, colors.orange800, colors.orange200, colors.orange800, colors.orange50),
+        },
+        {
+          enabled: isShow('total_frame'),
+          title: 'รวมกรอบ',
+          topBg: colors.blue200,
+          topFg: colors.blue900,
+          columns: [
+            { key: 'sum_frame_normal', label: 'ปกติ', subBg: colors.blue50, subFg: colors.blue800, isNumeric: true },
+            { key: 'sum_frame_pool', label: 'Pool RS', subBg: colors.blue50, subFg: colors.blue800, isNumeric: true },
+            { key: 'sum_frame_trad', label: 'Traditional', subBg: colors.blue50, subFg: colors.blue800, isNumeric: true },
+            { key: 'sum_frame_newbiz', label: 'New Biz', subBg: colors.blue50, subFg: colors.blue800, isNumeric: true },
+            { key: 'sum_frame_total', label: 'รวม', subBg: colors.blue200, subFg: colors.blue900, bodyBg: colors.blue50, isTotalCol: true, isNumeric: true },
+          ],
+        },
+        {
+          enabled: isShow('total_people'),
+          title: 'รวมคน',
+          topBg: colors.orange200,
+          topFg: colors.orange800,
+          columns: [
+            { key: 'sum_people_normal', label: 'คนปกติ', subBg: colors.orange50, subFg: colors.orange800, isNumeric: true },
+            { key: 'sum_people_pool', label: 'คน Pool RS', subBg: colors.orange50, subFg: colors.orange800, isNumeric: true },
+            { key: 'sum_people_trad', label: 'คน Traditional', subBg: colors.orange50, subFg: colors.orange800, isNumeric: true },
+            { key: 'sum_people_newbiz', label: 'คน New Biz', subBg: colors.orange50, subFg: colors.orange800, isNumeric: true },
+            { key: 'sum_people_total', label: 'รวม', subBg: colors.orange200, subFg: colors.orange800, bodyBg: colors.orange50, isTotalCol: true, isNumeric: true },
+          ],
+        },
+        {
+          enabled: isShow('recruit'),
+          title: 'สรรหา',
+          topBg: colors.green200,
+          topFg: colors.green900,
+          columns: [
+            { key: 'recruit_total', label: '', subBg: colors.green200, subFg: colors.green900, bodyBg: colors.green50, isRecruitCol: true, isNumeric: true },
+          ],
+        },
+        {
+          enabled: isShow('vacancy'),
+          title: 'ว่าง',
+          topBg: colors.red200,
+          topFg: colors.red800,
+          columns: makeLevelColumns('vacancy', colors.red50, colors.red800, colors.red200, colors.red800, colors.red50),
+        },
+        {
+          enabled: isShow('contact_out'),
+          title: 'Contact Out',
+          topBg: colors.purple300,
+          topFg: colors.black,
+          columns: [
+            { key: 'contact_out', label: '', subBg: colors.purple300, subFg: colors.black, isNumeric: true },
+          ],
+        },
+        {
+          enabled: isShow('contact_out_sub'),
+          title: 'Contact Out สัญญาย่อย',
+          topBg: colors.purple300,
+          topFg: colors.black,
+          columns: [
+            { key: 'contact_out_sub', label: '', subBg: colors.purple300, subFg: colors.black, isNumeric: true },
+          ],
+        },
+      ];
+
+      const topHeader: string[] = ['กลุ่ม/หน่วยธุรกิจ'];
+      const subHeader: string[] = [''];
+      const dataKeys: string[] = ['unit'];
+      const columnMeta: ExportColumn[] = [{
+        key: 'unit',
+        label: 'กลุ่ม/หน่วยธุรกิจ',
+        subBg: colors.blue100,
+        subFg: colors.blue900,
+        isNumeric: false,
+      }];
+      const groupRanges: Array<{ startCol: number; endCol: number; topBg: string; topFg: string }> = [];
+
+      groups.forEach((group) => {
+        if (!group.enabled) return;
+        const startCol = dataKeys.length + 1;
+        topHeader.push(group.title);
+        for (let i = 1; i < group.columns.length; i += 1) topHeader.push('');
+
+        group.columns.forEach((column) => {
+          subHeader.push(column.label);
+          dataKeys.push(column.key);
+          columnMeta.push(column);
+        });
+
+        groupRanges.push({
+          startCol,
+          endCol: dataKeys.length,
+          topBg: group.topBg,
+          topFg: group.topFg,
+        });
+      });
+
+      worksheet.columns = dataKeys.map((k, i) => ({
+        width: i === 0 ? 40 : (k === 'contact_out_sub' ? 20 : 12),
+      }));
+
+      const topHeaderRow = worksheet.addRow(topHeader);
+      const subHeaderRow = worksheet.addRow(subHeader);
+      topHeaderRow.height = 24;
+      subHeaderRow.height = 24;
+
+      worksheet.mergeCells(1, 1, 2, 1);
+      const unitHeaderCell = worksheet.getCell(1, 1);
+      unitHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.blue100 } };
+      unitHeaderCell.font = { bold: true, name: 'Sarabun', color: { argb: colors.blue900 } };
+      unitHeaderCell.alignment = { vertical: 'middle', horizontal: 'center' };
+      unitHeaderCell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' },
+      };
+
+      groupRanges.forEach(({ startCol, endCol, topBg, topFg }) => {
+        if (startCol === endCol) {
+          worksheet.mergeCells(1, startCol, 2, startCol);
+          const singleCell = worksheet.getCell(1, startCol);
+          singleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: topBg } };
+          singleCell.font = { bold: true, name: 'Sarabun', color: { argb: topFg } };
+          singleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+          singleCell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' },
+          };
+          return;
+        }
+
+        worksheet.mergeCells(1, startCol, 1, endCol);
+        const groupCell = worksheet.getCell(1, startCol);
+        groupCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: topBg } };
+        groupCell.font = { bold: true, name: 'Sarabun', color: { argb: topFg } };
+        groupCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        groupCell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+      });
+
+      for (let col = 2; col <= dataKeys.length; col += 1) {
+        const meta = columnMeta[col - 1];
+        if (!meta || !meta.label) continue;
+        const subCell = worksheet.getCell(2, col);
+        subCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: meta.subBg } };
+        subCell.font = { bold: true, name: 'Sarabun', color: { argb: meta.subFg } };
+        subCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        subCell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
       }
 
-      worksheet.columns = dataKeys.map((_, i) => ({ width: i === 0 ? 40 : 10 }));
-
-      const headerRow = worksheet.addRow(headers);
-      headerRow.font = { bold: true };
-      headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBFDBFE' } };
-      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+      for (let rowNo = 1; rowNo <= 2; rowNo += 1) {
+        for (let colNo = 1; colNo <= dataKeys.length; colNo += 1) {
+          const cell = worksheet.getCell(rowNo, colNo);
+          if (!cell.border) {
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' },
+            };
+          }
+        }
+      }
 
       const addRows = (rowsData: DataType[], depth: number) => {
         rowsData.forEach((item) => {
@@ -602,16 +829,58 @@ export default function Report1Page() {
             if (typeof v === 'string') return v;
             return '';
           });
+
           const row = worksheet.addRow(rowData);
-          if (depth === 0) {
-            row.font = { bold: true };
-            row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
-          }
+          const isTotalRow = item.key === 'total';
+          const isParentRow = item.key.startsWith('bg-');
+
+          row.eachCell((cell, colNo) => {
+            const meta = columnMeta[colNo - 1];
+            const isFirstCol = colNo === 1;
+            const shouldPreserveColumnColor = !!meta?.isTotalCol || !!meta?.isRecruitCol;
+            let fillColor = meta?.bodyBg;
+
+            if (isTotalRow && (isFirstCol || !shouldPreserveColumnColor)) {
+              fillColor = colors.blue100;
+            } else if (isParentRow && !fillColor) {
+              fillColor = colors.white;
+            }
+
+            if (fillColor) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
+            }
+
+            const fontColor = (isTotalRow || isParentRow) ? colors.blue900 : undefined;
+            cell.font = {
+              name: 'Sarabun',
+              bold: Boolean(isTotalRow || isParentRow || meta?.isTotalCol),
+              ...(fontColor ? { color: { argb: fontColor } } : {}),
+            };
+            cell.alignment = isFirstCol
+              ? { vertical: 'middle', horizontal: 'left' }
+              : { vertical: 'middle', horizontal: 'center' };
+
+            if (!isFirstCol && meta?.isNumeric) {
+              cell.numFmt = '#,##0';
+            }
+
+            const bottomStyle = isParentRow
+              ? { style: 'medium' as const, color: { argb: colors.blue300 } }
+              : { style: 'thin' as const };
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: bottomStyle,
+              right: { style: 'thin' },
+            };
+          });
+
           if (item.children?.length) addRows(item.children, depth + 1);
         });
       };
 
       addRows(tableData, 0);
+      worksheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 2 }];
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob(

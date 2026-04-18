@@ -290,13 +290,18 @@ const generateColumns = (
     themeColor: string,
     summaryColorClass: string,
     isTotalGroup = false,
-    showChange = true
+    showChange = true,
+    totalHeaderClass = 'bg-yellow-200! text-yellow-900! font-bold',
+    totalCellClass = 'bg-yellow-50! text-gray-900! font-semibold'
 ) => {
     const cols: ColumnsType<Report4DataType> = [];
 
-    const getCellProps = (record: Report4DataType) => {
+    const getCellProps = (record: Report4DataType, isTotalCol = false) => {
         if (record.key === 'TOTAL_SUMMARY') {
             return { className: `${summaryColorClass} font-bold text-gray-900 border-t-2! border-t-gray-300!` };
+        }
+        if (isTotalCol) {
+            return { className: totalCellClass };
         }
         return { className: 'bg-white' };
     };
@@ -306,15 +311,19 @@ const generateColumns = (
         const subLabels = ['ปกติ', 'Pool RS', 'Traditional', 'New Biz', 'รวม'];
 
         subKeys.forEach((key, index) => {
+            const isTotalCol = key === 'total';
             cols.push({
                 title: subLabels[index],
                 dataIndex: `${prefix}_${key}`,
                 key: `${prefix}_${key}`,
                 width: 60,
                 align: 'center',
-                onHeaderCell: () => ({ className: `${themeColor} text-gray-700` }),
+                className: isTotalCol ? totalCellClass : '',
+                onHeaderCell: () => ({
+                    className: isTotalCol ? totalHeaderClass : `${themeColor} text-gray-700`
+                }),
                 render: renderNumber,
-                onCell: getCellProps,
+                onCell: (record: Report4DataType) => getCellProps(record, isTotalCol),
             });
 
             if (showChange) {
@@ -324,16 +333,19 @@ const generateColumns = (
                     key: `${prefix}_${key}_change`,
                     width: 50,
                     align: 'center',
-                    onHeaderCell: () => ({ className: `${themeColor} text-gray-700` }),
+                    className: isTotalCol ? totalCellClass : '',
+                    onHeaderCell: () => ({
+                        className: isTotalCol ? totalHeaderClass : `${themeColor} text-gray-700`
+                    }),
                     render: renderChange,
-                    onCell: getCellProps,
+                    onCell: (record: Report4DataType) => getCellProps(record, isTotalCol),
                 });
             }
         });
     } else {
         levelKeys.forEach((key, index) => {
-            let headerClassName = '';
-            if (key === 'total') headerClassName = 'bg-yellow-50! font-bold text-gray-900';
+            const isTotalCol = key === 'total';
+            const cellClassName = isTotalCol ? totalCellClass : '';
 
             cols.push({
                 title: levelLabels[index],
@@ -341,14 +353,14 @@ const generateColumns = (
                 key: `${prefix}_${key}`,
                 width: key === 'total' ? 70 : 60,
                 align: 'center',
-                className: headerClassName,
+                className: cellClassName,
                 onHeaderCell: () => ({
-                    className: key === 'total'
-                        ? 'bg-yellow-200! text-yellow-900! font-bold'
+                    className: isTotalCol
+                        ? totalHeaderClass
                         : `${themeColor} text-gray-700`
                 }),
                 render: renderNumber,
-                onCell: getCellProps,
+                onCell: (record: Report4DataType) => getCellProps(record, isTotalCol),
             });
 
             if (showChange) {
@@ -358,14 +370,14 @@ const generateColumns = (
                     key: `${prefix}_${key}_change`,
                     width: 50,
                     align: 'center',
-                    className: headerClassName,
+                    className: cellClassName,
                     onHeaderCell: () => ({
-                        className: key === 'total'
-                            ? 'bg-yellow-200! text-yellow-900! font-bold'
+                        className: isTotalCol
+                            ? totalHeaderClass
                             : `${themeColor} text-gray-700`
                     }),
                     render: renderChange,
-                    onCell: getCellProps,
+                    onCell: (record: Report4DataType) => getCellProps(record, isTotalCol),
                 });
             }
         });
@@ -857,7 +869,7 @@ export default function Report4Page() {
             greenHeader: 'FFBBF7D0', greenSub: 'FFF0FDF4',
             redHeader: 'FFFECACA', redSub: 'FFFEF2F2',
             purpleHeader: 'FFD8B4FE',
-            grayHeader: 'FFE5E7EB', yellowTotal: 'FFFEF9C3',
+            grayHeader: 'FFE5E7EB',
             graySummary: 'FFF3F4F6',
             blueSummary: 'FFDBEAFE',
             orangeSummary: 'FFFFEDD5',
@@ -961,15 +973,21 @@ export default function Report4Page() {
             colIndex++;
         }
 
-        const styleGroup = (count: number, headerColor: string, subColor: string) => {
+        const styleGroup = (
+            count: number,
+            headerColor: string,
+            subColor: string,
+            totalColor: string,
+            totalSpan = 2
+        ) => {
             worksheet.mergeCells(1, colIndex, 1, colIndex + count - 1);
             worksheet.getCell(1, colIndex).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerColor } };
             worksheet.getCell(1, colIndex).alignment = { horizontal: 'center', vertical: 'middle' };
 
             for (let i = 0; i < count; i++) {
                 const subCell = worksheet.getCell(2, colIndex + i);
-                const title = headersRow2[colIndex + i - 1];
-                const cellColor = title === 'รวม' ? colors.yellowTotal : subColor;
+                const isTotalBand = i >= Math.max(0, count - totalSpan);
+                const cellColor = isTotalBand ? totalColor : subColor;
                 subCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cellColor } };
                 subCell.alignment = { horizontal: 'center' };
             }
@@ -977,12 +995,12 @@ export default function Report4Page() {
             colIndex += count;
         };
 
-        if (isShow('frame_staff')) styleGroup(16, colors.blueHeader, colors.blueSub);
-        if (isShow('people_normal')) styleGroup(16, colors.orangeHeader, colors.orangeSub);
-        if (isShow('frame_sec')) styleGroup(16, colors.blueHeader, colors.blueSub);
-        if (isShow('people_sec')) styleGroup(16, colors.orangeHeader, colors.orangeSub);
-        if (isShow('total_frame')) styleGroup(10, colors.blueHeader, colors.blueSub);
-        if (isShow('total_people')) styleGroup(10, colors.orangeHeader, colors.orangeSub);
+        if (isShow('frame_staff')) styleGroup(16, colors.blueHeader, colors.blueSub, colors.blueHeader, 2);
+        if (isShow('people_normal')) styleGroup(16, colors.orangeHeader, colors.orangeSub, colors.orangeHeader, 2);
+        if (isShow('frame_sec')) styleGroup(16, colors.blueHeader, colors.blueSub, colors.blueHeader, 2);
+        if (isShow('people_sec')) styleGroup(16, colors.orangeHeader, colors.orangeSub, colors.orangeHeader, 2);
+        if (isShow('total_frame')) styleGroup(10, colors.blueHeader, colors.blueSub, colors.blueHeader, 2);
+        if (isShow('total_people')) styleGroup(10, colors.orangeHeader, colors.orangeSub, colors.orangeHeader, 2);
 
         if (isShow('recruit')) {
             worksheet.mergeCells(1, colIndex, 2, colIndex);
@@ -991,7 +1009,7 @@ export default function Report4Page() {
             colIndex += 1;
         }
 
-        if (isShow('vacancy')) styleGroup(8, colors.redHeader, colors.redSub);
+        if (isShow('vacancy')) styleGroup(8, colors.redHeader, colors.redSub, colors.redHeader, 1);
 
         if (isShow('contact_out')) {
             worksheet.mergeCells(1, colIndex, 2, colIndex);
@@ -1082,9 +1100,24 @@ export default function Report4Page() {
                     cell.font = { name: 'Sarabun', size: 10 };
 
                     const key = dataKeys[colNumber - 1];
-                    if (key && key.includes('recruit')) {
-                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.greenSub } };
+                    if (key) {
+                        if (key.includes('recruit')) {
+                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.greenSub } };
+                        } else if (
+                            /^(frame_staff|frame_sec)_total(_change)?$/.test(key) ||
+                            /^total_frame_total(_change)?$/.test(key)
+                        ) {
+                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.blueSub } };
+                        } else if (
+                            /^(people_normal|people_sec)_total(_change)?$/.test(key) ||
+                            /^total_people_total(_change)?$/.test(key)
+                        ) {
+                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.orangeSub } };
+                        } else if (/^vacancy_total(_change)?$/.test(key)) {
+                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.redSub } };
+                        }
                     }
+
                     if (key && key.includes('change')) {
                         const val = item[key];
                         if (typeof val === 'number') {
@@ -1124,32 +1157,80 @@ export default function Report4Page() {
 
             ...(isShow('frame_staff') ? [{
                 title: 'กรอบพนักงาน', className: 'bg-blue-200! text-blue-900 font-bold text-center',
-                children: generateColumns('frame_staff', 'bg-blue-50!', 'bg-blue-100!')
+                children: generateColumns(
+                    'frame_staff',
+                    'bg-blue-50!',
+                    'bg-blue-100!',
+                    false,
+                    true,
+                    'bg-blue-200! text-blue-900! font-bold',
+                    'bg-blue-50! text-blue-900! font-semibold'
+                )
             }] : []),
 
             ...(isShow('people_normal') ? [{
                 title: 'คนปกติ & Pool RS', className: 'bg-orange-200! text-orange-900 font-bold text-center',
-                children: generateColumns('people_normal', 'bg-orange-50!', 'bg-orange-100!')
+                children: generateColumns(
+                    'people_normal',
+                    'bg-orange-50!',
+                    'bg-orange-100!',
+                    false,
+                    true,
+                    'bg-orange-200! text-orange-900! font-bold',
+                    'bg-orange-50! text-orange-900! font-semibold'
+                )
             }] : []),
 
             ...(isShow('frame_sec') ? [{
                 title: 'กรอบ Secondment', className: 'bg-blue-200! text-blue-900 font-bold text-center',
-                children: generateColumns('frame_sec', 'bg-blue-50!', 'bg-blue-100!')
+                children: generateColumns(
+                    'frame_sec',
+                    'bg-blue-50!',
+                    'bg-blue-100!',
+                    false,
+                    true,
+                    'bg-blue-200! text-blue-900! font-bold',
+                    'bg-blue-50! text-blue-900! font-semibold'
+                )
             }] : []),
 
             ...(isShow('people_sec') ? [{
                 title: 'คน Secondment', className: 'bg-orange-200! text-orange-900 font-bold text-center',
-                children: generateColumns('people_sec', 'bg-orange-50!', 'bg-orange-100!')
+                children: generateColumns(
+                    'people_sec',
+                    'bg-orange-50!',
+                    'bg-orange-100!',
+                    false,
+                    true,
+                    'bg-orange-200! text-orange-900! font-bold',
+                    'bg-orange-50! text-orange-900! font-semibold'
+                )
             }] : []),
 
             ...(isShow('total_frame') ? [{
                 title: 'รวมกรอบ', className: 'bg-blue-200! text-blue-900 font-bold text-center',
-                children: generateColumns('total_frame', 'bg-blue-50!', 'bg-blue-100!', true)
+                children: generateColumns(
+                    'total_frame',
+                    'bg-blue-50!',
+                    'bg-blue-100!',
+                    true,
+                    true,
+                    'bg-blue-200! text-blue-900! font-bold',
+                    'bg-blue-50! text-blue-900! font-semibold'
+                )
             }] : []),
 
             ...(isShow('total_people') ? [{
                 title: 'รวมคน', className: 'bg-orange-200! text-orange-900 font-bold text-center',
-                children: generateColumns('total_people', 'bg-orange-50!', 'bg-orange-100!', true)
+                children: generateColumns(
+                    'total_people',
+                    'bg-orange-50!',
+                    'bg-orange-100!',
+                    true,
+                    true,
+                    'bg-orange-200! text-orange-900! font-bold',
+                    'bg-orange-50! text-orange-900! font-semibold'
+                )
             }] : []),
 
             ...(isShow('recruit') ? [{
@@ -1160,7 +1241,15 @@ export default function Report4Page() {
 
             ...(isShow('vacancy') ? [{
                 title: 'ว่าง', className: 'bg-red-200! text-red-900 font-bold text-center ',
-                children: generateColumns('vacancy', 'bg-red-50!', 'bg-red-100!', false, false)
+                children: generateColumns(
+                    'vacancy',
+                    'bg-red-50!',
+                    'bg-red-100!',
+                    false,
+                    false,
+                    'bg-red-200! text-red-900! font-bold',
+                    'bg-red-50! text-red-900! font-semibold'
+                )
             }] : []),
 
             ...(isShow('contact_out') ? [{
