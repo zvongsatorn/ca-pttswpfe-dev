@@ -175,6 +175,59 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
         return flowHistory?.some(h => h.ApproveHistStatus === -1) || false;
     }, [flowHistory]);
 
+    const rejectRemarkItems = useMemo(() => {
+        const rejectedSteps = [...(flowHistory || [])]
+            .filter((step) => Number(step.ApproveHistStatus) === -1)
+            .sort((a, b) => (Number(b.Seqno) || 0) - (Number(a.Seqno) || 0));
+
+        if (rejectedSteps.length === 0) return [] as Array<{ rejectBy: string; remark: string }>;
+
+        const splitRemarkEntries = (rawRemark: string) => {
+            return rawRemark
+                .replace(/\r\n/g, '\n')
+                .split('\n')
+                .flatMap((line) => line.split(/,(?=\s*\d{1,2}\/\d{1,2}\/\d{4})/))
+                .map((part) => part.trim())
+                .filter(Boolean);
+        };
+
+        const cleanRemarkText = (rawText: string) => {
+            return rawText
+                .replace(/^\s*,+/, '')
+                .replace(/\s*:\s*;/g, ' : ')
+                .replace(/\s*;\s*$/g, '')
+                .replace(/\s*,\s*$/g, '')
+                .trim();
+        };
+
+        const items: Array<{ rejectBy: string; remark: string }> = [];
+
+        rejectedSteps.forEach((step) => {
+            const stepRemarkRaw = step.Remark ?? (step as { remark?: string }).remark ?? '';
+            const stepRemarkText = String(stepRemarkRaw).trim();
+            if (!stepRemarkText) return;
+
+            const rejectBy = String(step.Fullname || '').trim() || 'ไม่ระบุผู้ส่งกลับ';
+            const entryParts = splitRemarkEntries(stepRemarkText);
+            const parsedParts = entryParts.length > 0 ? entryParts : [stepRemarkText];
+
+            parsedParts.forEach((entry) => {
+                const cleaned = cleanRemarkText(entry);
+                if (cleaned) {
+                    items.push({ rejectBy, remark: cleaned });
+                }
+            });
+        });
+
+        const seen = new Set<string>();
+        return items.filter((item) => {
+            const key = `${item.rejectBy}::${item.remark}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }, [flowHistory]);
+
     // For Resend: The user is the creator AND it was rejected (and still pending)
     const isCreatorBack = header.ManDriverStatus === 1 && 
                           currentUser?.employeeID === header.CreateBy && 
@@ -227,16 +280,32 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
         isOpen: boolean;
         title: string;
         message: string;
+        cancelText: string;
+        confirmText: string;
         onConfirm: () => void;
     }>({
         isOpen: false,
         title: '',
         message: '',
+        cancelText: 'ยกเลิก',
+        confirmText: 'ยืนยัน',
         onConfirm: () => {}
     });
 
-    const openConfirm = (title: string, message: string, onConfirm: () => void) => {
-        setConfirmState({ isOpen: true, title, message, onConfirm });
+    const openConfirm = (
+        title: string,
+        message: string,
+        onConfirm: () => void,
+        labels?: { cancelText?: string; confirmText?: string }
+    ) => {
+        setConfirmState({
+            isOpen: true,
+            title,
+            message,
+            onConfirm,
+            cancelText: labels?.cancelText || 'ยกเลิก',
+            confirmText: labels?.confirmText || 'ยืนยัน'
+        });
     };
 
     const refreshData = async () => {
@@ -405,6 +474,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
             };
             await saveMainKey(mkdId, payload, token);
             toast.success("บันทึกข้อมูลเรียบร้อย");
+            // Stop add/edit row after save; user can click ADD again when needed.
             setIsAddingMainRow(false);
             setEditingMainRowId(null);
             refreshData();
@@ -571,9 +641,17 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
             toast.error(`Weight รวมต้องเท่ากับ 100% (ปัจจุบัน: ${totalWeight}%) กรุณาแก้ไขก่อนส่งอนุมัติ`);
             return; 
         }
-        openConfirm('ยืนยันส่งอนุมัติ', 'คุณต้องการส่งเอกสารนี้เพื่อขออนุมัติใช่หรือไม่?', () => {
-            requestApproveAction();
-        });
+        const confirmMessage = isCreatorBack
+            ? 'คุณต้องการส่งกลับเอกสารนี้เพื่ออนุมัติใหม่ใช่หรือไม่?'
+            : 'คุณต้องการส่งเอกสารนี้เพื่อขออนุมัติใช่หรือไม่?';
+        openConfirm(
+            'ยืนยันส่งอนุมัติ',
+            confirmMessage,
+            () => {
+                requestApproveAction();
+            },
+            isCreatorBack ? { cancelText: 'Cancel', confirmText: 'Resend' } : undefined
+        );
     };
 
     const requestApproveAction = async () => {
@@ -772,26 +850,40 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                 </CardContent>
             </Card>
 
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-x-6 gap-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-x-6 gap-y-4 flex-1 w-full">
-                    <div className="md:col-span-2">
-                        <Label className="text-sm font-semibold text-gray-700 mb-1 block">Request No.</Label>
-                        <Input value={header.RequestNo || '-'} readOnly className="bg-gray-50 border-gray-200 font-medium text-blue-900 shadow-inner" />
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row justify-between items-start gap-x-6 gap-y-4">
+                <div className="flex-1 w-full space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-x-6 gap-y-4">
+                        <div className="md:col-span-2">
+                            <Label className="text-sm font-semibold text-gray-700 mb-1 block">Request No.</Label>
+                            <Input value={header.RequestNo || '-'} readOnly className="bg-gray-50 border-gray-200 font-medium text-blue-900 shadow-inner" />
+                        </div>
+                        <div className="md:col-span-2">
+                            <Label className="text-sm font-semibold text-gray-700 mb-1 block">Date</Label>
+                            <Input value={dayjs(header.RequestDate).format('DD/MM/YYYY')} readOnly className="bg-gray-50 border-gray-200 shadow-inner" />
+                        </div>
+                        <div className="md:col-span-2">
+                            <Label className="text-sm font-semibold text-gray-700 mb-1 block">รหัสหน่วยงาน</Label>
+                            <Input value={header.OrgUnitNo || '-'} readOnly className="bg-gray-50 border-gray-200 shadow-inner" />
+                        </div>
+                        <div className="md:col-span-6">
+                            <Label className="text-sm font-semibold text-gray-700 mb-1 block">ชื่อหน่วยงาน (OrgUnit)</Label>
+                            <Input value={header.OrgUnitName || header.UnitName || '-'} readOnly className="bg-gray-50 border-gray-200 shadow-inner" />
+                        </div>
                     </div>
-                    <div className="md:col-span-2">
-                        <Label className="text-sm font-semibold text-gray-700 mb-1 block">Date</Label>
-                        <Input value={dayjs(header.RequestDate).format('DD/MM/YYYY')} readOnly className="bg-gray-50 border-gray-200 shadow-inner" />
-                    </div>
-                    <div className="md:col-span-2">
-                        <Label className="text-sm font-semibold text-gray-700 mb-1 block">รหัสหน่วยงาน</Label>
-                        <Input value={header.OrgUnitNo || '-'} readOnly className="bg-gray-50 border-gray-200 shadow-inner" />
-                    </div>
-                    <div className="md:col-span-6">
-                        <Label className="text-sm font-semibold text-gray-700 mb-1 block">ชื่อหน่วยงาน (OrgUnit)</Label>
-                        <Input value={header.OrgUnitName || header.UnitName || '-'} readOnly className="bg-gray-50 border-gray-200 shadow-inner" />
-                    </div>
+                    {rejectRemarkItems.length > 0 && (
+                        <div className="md:max-w-[420px] rounded-md border border-red-200 bg-red-50 px-3 py-2">
+                            <p className="text-[11px] font-semibold text-red-700">หมายเหตุการส่งกลับ</p>
+                            <div className="mt-1 space-y-1">
+                                {rejectRemarkItems.map((item, idx) => (
+                                    <p key={`${item.rejectBy}-${idx}`} className="text-xs text-red-800 whitespace-pre-wrap break-words">
+                                        {item.rejectBy} : {item.remark}
+                                    </p>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
-                <div className="flex gap-3 w-full md:w-auto mt-4 md:mt-0 justify-end h-[40px]">
+                <div className="flex gap-3 w-full md:w-auto mt-4 md:mt-7 md:self-start justify-end h-[40px]">
                     <Button variant="outline" className="text-white bg-slate-500 hover:bg-slate-600 hover:text-white border-slate-300 font-bold min-w-[100px] shadow-sm transition-all h-full" onClick={() => router.push(fromInbox ? '/home' : '/mkd/history')}>
                         <ArrowLeft className="w-4 h-4 mr-2 font-bold" /> BACK
                     </Button>
@@ -851,7 +943,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                              {!isReadOnly ? (
                                 <div className="flex gap-2">
                                     <Button className="bg-blue-600 hover:bg-blue-700 font-bold shadow-sm transition-all" onClick={openAddMainKey}>
-                                        <Plus className="w-4 h-4 mr-2" /> Add Manpower Key Driver
+                                        <Plus className="w-4 h-4 mr-2" /> Add/Edit Manpower Key Driver
                                     </Button>
                                     <Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50 font-bold shadow-sm transition-all" onClick={openCopyModal}>
                                         <FileText className="w-4 h-4 mr-2" /> COPY
@@ -1600,7 +1692,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                             onClick={() => setConfirmState(prev => ({...prev, isOpen: false}))}
                             className="h-9 px-6 text-slate-600 border-slate-300 hover:bg-slate-100"
                         >
-                            ยกเลิก
+                            {confirmState.cancelText}
                         </Button>
                         <Button 
                             onClick={() => {
@@ -1609,7 +1701,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                             }}
                             className="h-9 px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold font-prompt"
                         >
-                            ยืนยัน
+                            {confirmState.confirmText}
                         </Button>
                     </div>
                 </DialogContent>
@@ -1624,7 +1716,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                         </DialogTitle>
                     </DialogHeader>
                     <div className="py-4">
-                        <p className="text-sm text-slate-600">คุณต้องการยืนยันการเห็นชอบรายการนี้เพื่อส่งไปยังลำดับถัดไปใช่หรือไม่?</p>
+                        <p className="text-sm text-slate-600">คุณต้องการยืนยันการเห็นชอบรายการนี้ใช่หรือไม่?</p>
                     </div>
                     <DialogFooter className="gap-2 sm:gap-5">
                         <Button variant="outline" onClick={() => setIsApproveModalOpen(false)}>CANCEL</Button>

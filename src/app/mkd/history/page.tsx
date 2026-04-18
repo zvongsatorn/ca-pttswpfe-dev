@@ -106,6 +106,16 @@ interface MKDRecord {
   fileUpload: string | null;
 }
 
+interface ReusableFileOption {
+  sourceManDriverId: string;
+  requestNo: string;
+  fileName: string;
+  fileUpload: string;
+  createDate?: string | null;
+}
+
+const NO_REUSABLE_FILE_VALUE = '__NONE__';
+
 const statusOptions = [
   { value: 'ทั้งหมด', label: 'ทั้งหมด' },
   { value: 'ยกเลิก', label: 'ยกเลิก' },
@@ -142,6 +152,11 @@ export default function MKDHistoryPage() {
   const [isApproving, setIsApproving] = useState(false);
   const [user, setUser] = useState<string>('SYSTEM');
   const [existingFile, setExistingFile] = useState<string | null>(null);
+  const [existingFileName, setExistingFileName] = useState<string>('');
+  const [existingFileSourceManDriverId, setExistingFileSourceManDriverId] = useState<string | null>(null);
+  const [reusableFileOptions, setReusableFileOptions] = useState<ReusableFileOption[]>([]);
+  const [reusableFilesLoading, setReusableFilesLoading] = useState(false);
+  const [selectedReusableFileValue, setSelectedReusableFileValue] = useState(NO_REUSABLE_FILE_VALUE);
   
   // Column Filters
   const [filterReqNo, setFilterReqNo] = useState('');
@@ -373,6 +388,94 @@ export default function MKDHistoryPage() {
     return 'text-gray-800 font-bold';
   };
 
+  const reusableFileKey = (file: ReusableFileOption) => `${file.sourceManDriverId}::${file.fileUpload}`;
+
+  const fetchReusableFiles = useCallback(async (record: MKDRecord) => {
+    try {
+      setReusableFilesLoading(true);
+      setReusableFileOptions([]);
+
+      let employeeId = '';
+      let userGroupNo = '';
+      const userDataStr = localStorage.getItem('user_data');
+      if (userDataStr) {
+        try {
+          const userData = JSON.parse(userDataStr);
+          employeeId = userData.employeeID || '';
+          userGroupNo = localStorage.getItem('selected_usergroup') || '';
+          if (!userGroupNo) {
+            userGroupNo = userData.userGroupNo || userData.roleId || '';
+          }
+          if (!userGroupNo && userData.userGroups && userData.userGroups.length > 0) {
+            userGroupNo = userData.userGroups[0].userGroupNo;
+          }
+        } catch {
+          // no-op
+        }
+      }
+
+      if (!employeeId) return;
+
+      const numericYear = parseInt(year);
+      const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : year;
+      const res = await mkdService.getReusableMkdFiles({
+        EffectiveYear: ceYear,
+        EmployeeID: employeeId,
+        UserGroupNo: userGroupNo
+      });
+
+      const fromApi: ReusableFileOption[] = (res?.data || []).map((item: Record<string, unknown>) => ({
+        sourceManDriverId: String(item.sourceManDriverId || ''),
+        requestNo: String(item.requestNo || ''),
+        fileName: String(item.fileName || item.fileUpload || ''),
+        fileUpload: String(item.fileUpload || ''),
+        createDate: item.createDate ? String(item.createDate) : null
+      })).filter((item: ReusableFileOption) => item.sourceManDriverId && item.fileUpload);
+
+      const deduped = new Map<string, ReusableFileOption>();
+      fromApi.forEach((file) => {
+        deduped.set(reusableFileKey(file), file);
+      });
+
+      if (record.fileUpload) {
+        const currentRecordFile: ReusableFileOption = {
+          sourceManDriverId: record.mkdID,
+          requestNo: record.reqNo,
+          fileName: record.fileUpload,
+          fileUpload: record.fileUpload
+        };
+        deduped.set(reusableFileKey(currentRecordFile), currentRecordFile);
+      }
+
+      const options = Array.from(deduped.values());
+      setReusableFileOptions(options);
+    } catch (error) {
+      console.error('Error fetching reusable MKD files', error);
+      setReusableFileOptions([]);
+    } finally {
+      setReusableFilesLoading(false);
+    }
+  }, [year]);
+
+  const handleReusableFileChange = (value: string) => {
+    setSelectedReusableFileValue(value);
+
+    if (value === NO_REUSABLE_FILE_VALUE) {
+      setExistingFile(null);
+      setExistingFileName('');
+      setExistingFileSourceManDriverId(null);
+      return;
+    }
+
+    const picked = reusableFileOptions.find((item) => reusableFileKey(item) === value);
+    if (!picked) return;
+
+    setExistingFile(picked.fileUpload);
+    setExistingFileName(picked.fileName);
+    setExistingFileSourceManDriverId(picked.sourceManDriverId);
+    setUploadFile(null);
+  };
+
   // Column Filtering Logic
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
@@ -426,6 +529,9 @@ export default function MKDHistoryPage() {
         conclusionNo,
         mkdApproveCount: parseInt(mkdApproveCount) || 0,
         file: uploadFile || undefined,
+        existingFileUpload: !uploadFile ? (existingFile || undefined) : undefined,
+        existingFileSourceManDriverId: !uploadFile ? (existingFileSourceManDriverId || undefined) : undefined,
+        existingFileName: !uploadFile ? (existingFileName || undefined) : undefined,
         status: 3, // Final Approve
         remark: 'Approved from History Page',
         updateBy: user
@@ -441,6 +547,10 @@ export default function MKDHistoryPage() {
         setConclusionNo('');
         setMkdApproveCount('');
         setUploadFile(null);
+        setExistingFile(null);
+        setExistingFileName('');
+        setExistingFileSourceManDriverId(null);
+        setSelectedReusableFileValue(NO_REUSABLE_FILE_VALUE);
       } else {
         setResultTitle('เกิดข้อผิดพลาด');
         setResultMessage(res?.message || 'Failed to approve');
@@ -479,6 +589,10 @@ export default function MKDHistoryPage() {
         remark: 'Not Approved from History Page',
         updateBy: user,
         mkdApproveCount: parseInt(mkdApproveCount) || 0,
+        file: uploadFile || undefined,
+        existingFileUpload: !uploadFile ? (existingFile || undefined) : undefined,
+        existingFileSourceManDriverId: !uploadFile ? (existingFileSourceManDriverId || undefined) : undefined,
+        existingFileName: !uploadFile ? (existingFileName || undefined) : undefined
       });
       if (res && res.success) {
         setIsAppModalOpen(false);
@@ -501,13 +615,18 @@ export default function MKDHistoryPage() {
     }
   };
 
-  const openApproveModal = (record: MKDRecord) => {
+  const openApproveModal = async (record: MKDRecord) => {
     setSelectedRecordId(record.mkdID);
     setSelectedApproveId(record.approveID || '');
     setConclusionNo(record.noConclusion || '');
     setMkdApproveCount(record.mkdCount ? record.mkdCount.toString() : '0');
+    setUploadFile(null);
     setExistingFile(record.fileUpload || null);
+    setExistingFileName(record.fileUpload || '');
+    setExistingFileSourceManDriverId(record.fileUpload ? record.mkdID : null);
+    setSelectedReusableFileValue(record.fileUpload ? `${record.mkdID}::${record.fileUpload}` : NO_REUSABLE_FILE_VALUE);
     setIsAppModalOpen(true);
+    await fetchReusableFiles(record);
   };
 
   // Listen for user group changes from Header
@@ -1059,7 +1178,7 @@ const handleViewDashboard = (mkdId: string) => {
                 setSelectedOrgUnit('');
               }}
             >
-              ยกเลิก
+              CANCEL
             </Button>
             <Button
               className="bg-green-600 hover:bg-green-700 text-white"
@@ -1099,13 +1218,44 @@ const handleViewDashboard = (mkdId: string) => {
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="reusableFile" className="text-right">ไฟล์ที่เคยอัปโหลด</Label>
+              <div className="col-span-3">
+                <Select
+                  value={selectedReusableFileValue}
+                  onValueChange={handleReusableFileChange}
+                  disabled={reusableFilesLoading}
+                >
+                  <SelectTrigger id="reusableFile" className="w-full">
+                    <SelectValue placeholder={reusableFilesLoading ? 'กำลังโหลดไฟล์เดิม...' : 'เลือกไฟล์เดิม (ถ้ามี)'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_REUSABLE_FILE_VALUE}>ไม่เลือกไฟล์เดิม (อัปโหลดใหม่)</SelectItem>
+                    {reusableFileOptions.map((file) => (
+                      <SelectItem key={reusableFileKey(file)} value={reusableFileKey(file)}>
+                        {file.fileName} ({file.requestNo || file.sourceManDriverId})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="file" className="text-right">แนบไฟล์ (PDF) <span className="text-red-500">*</span></Label>
               <div className="col-span-3 flex items-center gap-2">
                 <Input
                   id="file"
                   type="file"
                   accept=".pdf"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                  onChange={(e) => {
+                    const nextFile = e.target.files?.[0] || null;
+                    setUploadFile(nextFile);
+                    if (nextFile) {
+                      setSelectedReusableFileValue(NO_REUSABLE_FILE_VALUE);
+                      setExistingFile(null);
+                      setExistingFileName('');
+                      setExistingFileSourceManDriverId(null);
+                    }
+                  }}
                   className="flex-1"
                 />
                 {existingFile && (
@@ -1114,7 +1264,12 @@ const handleViewDashboard = (mkdId: string) => {
                     variant="ghost"
                     size="sm"
                     className="text-blue-600 hover:text-blue-800"
-                    onClick={() => window.open(`/api/mkd/${selectedRecordId}/files/${existingFile}`, '_blank')}
+                    onClick={() =>
+                      window.open(
+                        `/api/mkd/${existingFileSourceManDriverId || selectedRecordId}/files/${existingFile}`,
+                        '_blank'
+                      )
+                    }
                   >
                     <FileText className="h-4 w-4 mr-1" />
                     ดูไฟล์เดิม

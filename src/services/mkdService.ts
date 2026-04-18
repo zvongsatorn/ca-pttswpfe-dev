@@ -163,6 +163,9 @@ export interface ApproveManDriverData {
     updateBy?: string;
     comment?: string;
     file?: File;
+    existingFileUpload?: string;
+    existingFileSourceManDriverId?: string;
+    existingFileName?: string;
     approveId?: string;
     conclusionNo?: string;
     mkdApproveCount?: number;
@@ -183,6 +186,18 @@ export const approveManDriver = async (id: string, data: ApproveManDriverData, t
         method: 'PUT',
         body: formData
     });
+};
+
+export const getReusableMkdFiles = async (
+    params: { EffectiveYear: string; EmployeeID: string; UserGroupNo?: string },
+    token?: string
+) => {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+        if (value) searchParams.append(key, String(value));
+    });
+    const queryString = searchParams.toString();
+    return await fetchWithAuth(`/api/mkd/reusable-files${queryString ? `?${queryString}` : ''}`, token);
 };
 
 export const requestApproveMKD = async (id: string, user: string, approveId?: string | number, token?: string) => {

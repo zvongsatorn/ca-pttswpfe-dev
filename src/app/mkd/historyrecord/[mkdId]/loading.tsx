@@ -11,7 +11,7 @@ export default function HistoryRecordDetailLoading() {
                     <div className="flex justify-between items-start mb-6">
                         <Space orientation="vertical" size={12}>
                             <Skeleton.Input active style={{ width: 400, height: 40 }} />
-                            <Space separator={<Divider type="vertical" />}>
+                            <Space separator={<Divider orientation="vertical" />}>
                                 <Skeleton.Input active style={{ width: 200 }} />
                                 <Skeleton.Input active style={{ width: 150 }} />
                             </Space>

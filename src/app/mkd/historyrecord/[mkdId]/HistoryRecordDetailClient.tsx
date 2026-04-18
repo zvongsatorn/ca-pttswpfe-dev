@@ -222,9 +222,10 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
     const headcountYears = localHeadcount.years || [];
 
     const effectiveYear = header.EffectiveYear || 0;
-    
-    // Editable if status is 1 (e.g. Reject/Draft equivalent for history record)
-    const isReadOnly = header.ManDriverStatus !== 1;
+    const currentStatus = Number(header.ManDriverStatus);
+    const canShowEdit = currentStatus === 2;
+    const canConfirm = currentStatus === 1;
+    const isReadOnly = currentStatus !== 1;
 
     const allYears = useMemo(() => {
         const yearsArr = localYears || [];
@@ -373,9 +374,9 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
             };
             await saveMainKey(mkdId, payload, token);
             toast.success("บันทึกข้อมูลเรียบร้อย");
+            // Stop add/edit row after save; user can click ADD again when needed.
             setIsAddingMainRow(false);
             refreshData();
-            setIsMainModalOpen(false);
         } catch {
             toast.error("เกิดข้อผิดพลาดในการบันทึก");
         } finally {
@@ -586,7 +587,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                 const res = await updateManDriverStatus(mkdId, 2, currentUser?.EmployeeID || currentUser?.employeeID || 'SYSTEM', token);
                 if (res?.success) {
                     toast.success('ยืนยันข้อมูลเรียบร้อยแล้ว');
-                    router.push('/mkd/history');
+                    router.push('/mkd/historyrecord');
                 } else {
                     throw new Error('Failed to confirm');
                 }
@@ -597,6 +598,26 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                 setIsSubmitting(false);
             }
         });
+    };
+
+    const handleEnableEditMode = async () => {
+        if (!canShowEdit) return;
+
+        // If status=2, move back to status=1 first, then allow editing and reconfirm.
+        try {
+            setLoading(true);
+            const res = await updateManDriverStatus(mkdId, 1, currentUser?.EmployeeID || currentUser?.employeeID || 'SYSTEM', token);
+            if (!res?.success) {
+                throw new Error('ไม่สามารถเปิดโหมดแก้ไขได้');
+            }
+            await refreshData();
+            toast.success('เปลี่ยนสถานะเป็นรอยืนยันแล้ว กรุณาแก้ไขและกด Confirm');
+        } catch (err: unknown) {
+            const error = err as Error;
+            toast.error(error.message || 'เกิดข้อผิดพลาดในการเปิดโหมดแก้ไข');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleExportExcel = async () => {
@@ -668,8 +689,22 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                     </div>
                 </div>
                 <div className="flex gap-3 w-full md:w-auto mt-4 md:mt-0 justify-end h-[40px]">
-                    {header.ManDriverStatus === 1 && (
-                        <Button className="bg-green-600 hover:bg-green-700 font-medium min-w-max shadow-sm transition-all text-white h-full" onClick={handleConfirm} disabled={isSubmitting}>
+                    {canShowEdit && (
+                        <Button
+                            className="bg-blue-600 hover:bg-blue-700 font-medium min-w-max shadow-sm transition-all text-white h-full"
+                            onClick={handleEnableEditMode}
+                            disabled={loading || isSubmitting}
+                        >
+                            <Edit className="w-4 h-4 mr-2" />
+                            Edit
+                        </Button>
+                    )}
+                    {canConfirm && (
+                        <Button
+                            className="bg-green-600 hover:bg-green-700 font-medium min-w-max shadow-sm transition-all text-white h-full"
+                            onClick={handleConfirm}
+                            disabled={loading || isSubmitting}
+                        >
                             {isSubmitting ? <span className="animate-spin mr-2">⏳</span> : <CheckCircle className="w-4 h-4 mr-2" />}
                             Confirm
                         </Button>
@@ -713,7 +748,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                         <div className="flex justify-between items-center mb-4">
                             {!isReadOnly && (
                                 <Button className="bg-blue-600 hover:bg-blue-700 font-bold shadow-sm transition-all text-white" onClick={openAddMainKey}>
-                                    <Plus className="w-4 h-4 mr-2" /> Add Manpower Key Driver
+                                    <Plus className="w-4 h-4 mr-2" /> Add/Edit Manpower Key Driver
                                 </Button>
                             )}
                         </div>
@@ -1434,7 +1469,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                             onClick={() => setConfirmState(prev => ({...prev, isOpen: false}))}
                             className="h-9 px-6 text-slate-600 border-slate-300 hover:bg-slate-100"
                         >
-                            ยกเลิก
+                            Cancel
                         </Button>
                         <Button 
                             onClick={() => {
@@ -1443,7 +1478,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                             }}
                             className="h-9 px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold font-prompt"
                         >
-                            ยืนยัน
+                            Confirm
                         </Button>
                     </div>
                 </DialogContent>

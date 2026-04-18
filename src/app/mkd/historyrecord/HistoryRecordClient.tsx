@@ -95,6 +95,12 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
         }
         return (dayjs().year() + 543).toString();
     });
+    const [statusFilter, setStatusFilter] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('mkd_historyrecord_status') || 'ทั้งหมด';
+        }
+        return 'ทั้งหมด';
+    });
 
     const [records, setRecords] = useState<HistoryRecord[]>([]);
     const [isNewModalOpen, setIsNewModalOpen] = useState(false);
@@ -170,6 +176,12 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
         }
     }, [selectedYear, fetchHistory]);
 
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('mkd_historyrecord_status', statusFilter);
+        }
+    }, [statusFilter]);
+
     // --- Actions ---
     const handleCreateRecord = async () => {
         if (!currentUser) {
@@ -232,14 +244,27 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
             const reqDate = r.datebd ? dayjs(r.datebd).format('DD/MM/YYYY') : '';
             const orgUnit = (r.OrgUnitName || '').toLowerCase();
             const createBy = (r.EmpName || r.CreateBy || '').toLowerCase();
+            const status = (r.status || '').trim();
 
             if (filterReqNo && !reqNo.includes(filterReqNo.toLowerCase())) return false;
             if (filterReqDate && !reqDate.includes(filterReqDate)) return false;
             if (filterOrgUnit && !orgUnit.includes(filterOrgUnit.toLowerCase())) return false;
             if (filterCreateBy && !createBy.includes(filterCreateBy.toLowerCase())) return false;
+            if (statusFilter !== 'ทั้งหมด' && status !== statusFilter) return false;
             return true;
         });
-    }, [records, filterReqNo, filterReqDate, filterOrgUnit, filterCreateBy]);
+    }, [records, filterReqNo, filterReqDate, filterOrgUnit, filterCreateBy, statusFilter]);
+
+    const statusFilterOptions = useMemo(() => {
+        const statuses = Array.from(
+            new Set(
+                records
+                    .map((r) => (r.status || '').trim())
+                    .filter((s) => s.length > 0 && s !== '-')
+            )
+        );
+        return ['ทั้งหมด', ...statuses];
+    }, [records]);
 
     return (
         <div className="w-full bg-slate-50 min-h-screen p-6">
@@ -319,7 +344,18 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                                         <th className="px-4 py-3">
                                             <Input className="bg-white h-9 text-xs" value={filterCreateBy} onChange={e => setFilterCreateBy(e.target.value)} placeholder="" />
                                         </th>
-                                        <th className="px-4 py-3"></th>
+                                        <th className="px-4 py-3">
+                                            <Select value={statusFilter} onValueChange={setStatusFilter}>
+                                                <SelectTrigger className="bg-white h-9 text-xs">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {statusFilterOptions.map((status) => (
+                                                        <SelectItem key={status} value={status}>{status}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </th>
                                         <th className="px-4 py-3"></th>
                                     </tr>
                                 </thead>
@@ -386,9 +422,9 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                         </div>
                     </div>
                     <div className="flex justify-end gap-3 mt-4">
-                        <Button variant="outline" onClick={() => setIsNewModalOpen(false)}>ยกเลิก (CANCEL)</Button>
+                        <Button variant="outline" onClick={() => setIsNewModalOpen(false)}>CANCEL</Button>
                         <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleCreateRecord} disabled={loading}>
-                            {loading ? 'กำลังสร้าง...' : 'สร้าง (CREATE)'}
+                            {loading ? 'กำลังสร้าง...' : 'CREATE'}
                         </Button>
                     </div>
                 </DialogContent>
