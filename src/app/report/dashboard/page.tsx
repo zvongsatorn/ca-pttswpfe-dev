@@ -389,7 +389,19 @@ export default function DashboardPage() {
             const monthStr = (filterDate.month() + 1).toString().padStart(2, '0');
             const yearStr = (filterDate.year() > 2500 ? filterDate.year() - 543 : filterDate.year()).toString();
 
-            const divisionForQuery = units[0] || filteredUnitOptions[0]?.value || '';
+            const selectedOrgUnits = (() => {
+                if (units.length === 0 || filterType === 'ALL') return [] as string[];
+                if (filterType === 'UNIT' || filterType === 'LINE') return Array.from(new Set(units));
+                // BU: map selected BG to OrgUnitNo list from currently loaded dashboard rows.
+                return Array.from(new Set(
+                    dashboardData
+                        .filter((item) => units.includes(item.bgNo))
+                        .map((item) => item.orgUnitNo)
+                        .filter((v) => Boolean(v))
+                ));
+            })();
+
+            const divisionForQuery = selectedOrgUnits.length === 1 ? selectedOrgUnits[0] : '';
 
             const query = new URLSearchParams({
                 effectiveMonth: monthStr,
@@ -399,6 +411,9 @@ export default function DashboardPage() {
                 isSecondment: isSecondmentId.toString(),
                 division: divisionForQuery
             });
+            if (selectedOrgUnits.length > 0) {
+                query.set('orgUnits', selectedOrgUnits.join(','));
+            }
 
             const res = await fetch(`/api/report/dashboard/excel?${query}`);
             if (res.ok) {
