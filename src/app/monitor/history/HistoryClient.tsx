@@ -113,10 +113,11 @@ const getFileUrl = (fileUpload: string): string => {
     const normalized = fileUpload.trim();
     if (!normalized) return '';
     if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
-    if (normalized.startsWith('/api/')) return normalized;
-    if (normalized.startsWith('uploads/')) return `/api/${normalized}`;
-    if (normalized.includes('/')) return `/api/${normalized.replace(/^\/+/, '')}`;
-    return `/api/uploads/transactions/${normalized}`;
+    if (normalized.startsWith('/api/')) return normalized.replace(/^\/api\//, '/');
+    if (normalized.startsWith('/uploads/')) return normalized;
+    if (normalized.startsWith('uploads/')) return `/${normalized}`;
+    if (normalized.includes('/')) return `/${normalized.replace(/^\/+/, '')}`;
+    return `/uploads/transactions/${normalized}`;
 };
 
 export default function HistoryClient({
@@ -558,7 +559,7 @@ export default function HistoryClient({
                     </div>
 
                     <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 flex-1 min-w-[320px]">
-                        <label className="text-slate-600 font-bold text-xs uppercase tracking-wider whitespace-nowrap">UNIT</label>
+                        <label className="text-slate-600 font-bold text-xs uppercase tracking-wider whitespace-nowrap">หน่วยงาน</label>
                         <Select
                             placeholder="เลือกหน่วยงาน..."
                             allowClear

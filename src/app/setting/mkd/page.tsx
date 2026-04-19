@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Table, Button, Input, Upload, App, Popconfirm, Modal, Card } from 'antd';
+import { Table, Button, Input, Upload, App, Popconfirm, Modal, Card, Tooltip } from 'antd';
 import type { UploadFile, GetProp, UploadProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { UploadOutlined, FileTextOutlined, CheckCircleOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
@@ -81,11 +81,16 @@ function MKDContent() {
         } finally { setLoading(false); }
     };
 
-    const handleDelete = async (key: string) => {
+    const handleDelete = async (record: MKDDataType) => {
+        if (record.chkuse > 0) {
+            message.warning("รายการนี้ถูกใช้งานแล้ว ไม่สามารถลบได้");
+            return;
+        }
+
         setLoading(true);
         try {
-            const res = await updateMasterKey(key, { UpdateBy: currentUser?.employeeID || 'SYSTEM' }, token);
-            if (res?.success) { message.success("ทำการลบข้อมูลเรียบร้อย"); setData(prev => prev.filter(item => item.key !== key)); }
+            const res = await updateMasterKey(record.key, { UpdateBy: currentUser?.employeeID || 'SYSTEM' }, token);
+            if (res?.success) { message.success("ทำการลบข้อมูลเรียบร้อย"); setData(prev => prev.filter(item => item.key !== record.key)); }
             else { message.error(res?.message || 'Failed to delete'); }
         } finally { setLoading(false); }
     };
@@ -138,11 +143,30 @@ function MKDContent() {
         { title: 'Manpower Key Driver Name', dataIndex: 'driver', key: 'driver', className: 'font-medium text-slate-800' },
         {
             title: 'จัดการ', key: 'action', align: 'center', width: 100,
-            render: (_: unknown, record: MKDDataType) => (
-                <Popconfirm title="ต้องการยืนยันใช่หรือไม่?" onConfirm={() => handleDelete(record.key)} okText="ตกลง" cancelText="ยกเลิก" okButtonProps={{ danger: true, className: "bg-red-600 font-bold" }}>
-                    <Button type="text" danger icon={<Trash2 size={16} />} className="hover:bg-red-50 rounded-full flex items-center justify-center mx-auto" size="small" />
-                </Popconfirm>
-            ),
+            render: (_: unknown, record: MKDDataType) => {
+                const inUse = record.chkuse > 0;
+
+                if (inUse) {
+                    return (
+                        <Tooltip title="รายการนี้ถูกใช้งานแล้ว ไม่สามารถลบได้">
+                            <Button
+                                type="text"
+                                danger
+                                disabled
+                                icon={<Trash2 size={16} />}
+                                className="rounded-full flex items-center justify-center mx-auto opacity-40 cursor-not-allowed"
+                                size="small"
+                            />
+                        </Tooltip>
+                    );
+                }
+
+                return (
+                    <Popconfirm title="ต้องการยืนยันใช่หรือไม่?" onConfirm={() => handleDelete(record)} okText="ตกลง" cancelText="ยกเลิก" okButtonProps={{ danger: true, className: "bg-red-600 font-bold" }}>
+                        <Button type="text" danger icon={<Trash2 size={16} />} className="hover:bg-red-50 rounded-full flex items-center justify-center mx-auto" size="small" />
+                    </Popconfirm>
+                );
+            },
         }
     ];
 
@@ -188,7 +212,7 @@ function MKDContent() {
                 okText="เพิ่มรายการ" okButtonProps={{ className: "bg-blue-600 font-bold px-10 h-10 rounded-lg" }} cancelButtonProps={{ className: "px-8 h-10 rounded-lg" }} confirmLoading={loading} width={450}>
                 <div className="py-4">
                     <p className="text-slate-500 mb-2 font-bold text-xs uppercase tracking-wider">ชื่อ Manpower Key Driver :</p>
-                    <Input placeholder="ระบุชื่อ Keyman..." className="w-full h-11 text-base rounded-lg" value={newKeyman} onChange={(e) => setNewKeyman(e.target.value)} onPressEnter={handleAdd} autoFocus />
+                    <Input placeholder="ระบุชื่อ..." className="w-full h-11 text-base rounded-lg" value={newKeyman} onChange={(e) => setNewKeyman(e.target.value)} onPressEnter={handleAdd} autoFocus />
                 </div>
             </Modal>
         </div>

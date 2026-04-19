@@ -44,8 +44,7 @@ const { Text } = Typography;
 interface CostFormValues {
     orgUnitNo: string;
     levelGroupNo: string;
-    effectiveDate: Dayjs;
-    note?: string;
+    note: string;
     cost: number;
 }
 
@@ -65,6 +64,11 @@ interface LevelOption {
 
 const DEFAULT_EFFECTIVE_DATE = dayjs();
 const DEFAULT_TEMPLATE_HEADERS = ['OrgUnitNo', 'LevelGroupNo', 'EffectiveDate', 'Note', 'Cost'];
+const requiredLabel = (text: string) => (
+    <span>
+        {text} <span style={{ color: '#ff4d4f' }}>*</span>
+    </span>
+);
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
@@ -187,7 +191,6 @@ function CostContent() {
 
     const [exportEffectiveDate, setExportEffectiveDate] = useState<Dayjs>(DEFAULT_EFFECTIVE_DATE);
     const [exportingExcel, setExportingExcel] = useState(false);
-    const modalEffectiveDate = Form.useWatch('effectiveDate', form);
     const tableAreaRef = useRef<HTMLDivElement>(null);
     const [tableScrollY, setTableScrollY] = useState(320);
     const selectNumberOnFocus = (event: React.FocusEvent<HTMLInputElement>) => {
@@ -260,11 +263,8 @@ function CostContent() {
 
     useEffect(() => {
         if (!isModalOpen) return;
-        const effectiveDate = dayjs.isDayjs(modalEffectiveDate)
-            ? modalEffectiveDate.format('YYYY-MM-DD')
-            : dayjs().format('YYYY-MM-DD');
-        void loadLevelOptions(effectiveDate);
-    }, [isModalOpen, modalEffectiveDate, loadLevelOptions]);
+        void loadLevelOptions(effectiveDate.format('YYYY-MM-DD'));
+    }, [isModalOpen, effectiveDate, loadLevelOptions]);
 
     useEffect(() => {
         const updateTableHeight = () => {
@@ -293,7 +293,6 @@ function CostContent() {
         form.setFieldsValue({
             orgUnitNo: selectedOrgUnitNo || '',
             levelGroupNo: '',
-            effectiveDate,
             note: '',
             cost: 0
         });
@@ -305,7 +304,6 @@ function CostContent() {
         form.setFieldsValue({
             orgUnitNo: record.OrgUnitNo,
             levelGroupNo: record.LevelGroupNo,
-            effectiveDate: dayjs(record.EffectiveDate),
             note: record.Note || '',
             cost: Number(record.Cost || 0)
         });
@@ -330,13 +328,18 @@ function CostContent() {
         const nextPayload: CostPayload = {
             orgUnitNo: String(values.orgUnitNo || '').trim(),
             levelGroupNo: String(values.levelGroupNo || '').trim(),
-            effectiveDate: values.effectiveDate.format('YYYY-MM-DD'),
+            effectiveDate: effectiveDate.format('YYYY-MM-DD'),
             note: String(values.note || '').trim(),
             cost: Number(values.cost || 0)
         };
 
         if (!nextPayload.orgUnitNo || !nextPayload.levelGroupNo) {
-            messageApi.warning('กรุณากรอก OrgUnitNo และ LevelGroupNo');
+            messageApi.warning('กรุณากรอก หน่วยงาน และ ระดับ');
+            return;
+        }
+
+        if (!nextPayload.note) {
+            messageApi.warning('กรุณาระบุ ค่าใช้จ่าย');
             return;
         }
 
@@ -472,7 +475,7 @@ function CostContent() {
             const costCol = headerIndexMap.get(normalizeHeader('Cost'));
 
             if (!orgCol || !levelCol || !dateCol || !costCol) {
-                messageApi.error('Template ไม่ถูกต้อง: ต้องมีหัวคอลัมน์ OrgUnitNo, LevelGroupNo, EffectiveDate, Cost');
+                messageApi.error('Template ไม่ถูกต้อง: ต้องมีหัวคอลัมน์ OrgUnitNo, LevelGroupNo, EffectiveDate, ค่าใช้จ่าย (Note), Cost');
                 setImporting(false);
                 return;
             }
@@ -492,7 +495,7 @@ function CostContent() {
                 const isCompletelyEmpty = !orgUnitNo && !levelGroupNo && !effectiveDate && Number.isNaN(cost);
                 if (isCompletelyEmpty) continue;
 
-                if (!orgUnitNo || !levelGroupNo || !effectiveDate || !isValidDateOnly(effectiveDate) || Number.isNaN(cost)) {
+                if (!orgUnitNo || !levelGroupNo || !effectiveDate || !isValidDateOnly(effectiveDate) || !note || Number.isNaN(cost)) {
                     errors.push(`แถว ${rowNo}: ข้อมูลไม่ครบหรือรูปแบบไม่ถูกต้อง`);
                     continue;
                 }
@@ -612,6 +615,13 @@ function CostContent() {
         () => new Map(unitOptions.map((option) => [option.value, option.label])),
         [unitOptions]
     );
+    const unitOptionsWithCode = useMemo(
+        () => unitOptions.map((option) => ({
+            ...option,
+            label: option.label ? `${option.value} - ${option.label}` : option.value
+        })),
+        [unitOptions]
+    );
 
     const filteredRows = useMemo(
         () => rows.filter((row) => !selectedOrgUnitNo || row.OrgUnitNo === selectedOrgUnitNo),
@@ -620,7 +630,7 @@ function CostContent() {
 
     const columns: ColumnsType<CostRow> = [
         {
-            title: 'OrgUnitNo',
+            title: 'หน่วยงาน',
             dataIndex: 'OrgUnitNo',
             key: 'OrgUnitNo',
             width: '14%',
@@ -648,7 +658,7 @@ function CostContent() {
             align: 'center'
         },
         {
-            title: 'Note',
+            title: 'ค่าใช้จ่าย',
             dataIndex: 'Note',
             key: 'Note',
             width: '18%',
@@ -656,7 +666,7 @@ function CostContent() {
             render: (value: CostRecord['Note']) => value || '-'
         },
         {
-            title: 'Cost',
+            title: 'จำนวน',
             dataIndex: 'Cost',
             key: 'Cost',
             width: '12%',
@@ -732,7 +742,7 @@ function CostContent() {
                                                 placeholder="เลือกหน่วยงาน"
                                                 value={selectedOrgUnitNo || undefined}
                                                 onChange={(value) => setSelectedOrgUnitNo(value || '')}
-                                                options={unitOptions}
+                                                options={unitOptionsWithCode}
                                                 optionFilterProp="label"
                                             />
                                         </div>
@@ -860,15 +870,15 @@ function CostContent() {
                     centered
                 >
                 <Form form={form} layout="vertical" className="pt-4" requiredMark={false}>
-                    <Form.Item name="orgUnitNo" label="OrgUnitNo" rules={[{ required: true, message: 'กรุณาระบุ OrgUnitNo' }]}>
+                    <Form.Item name="orgUnitNo" label={requiredLabel('หน่วยงาน')} rules={[{ required: true, message: 'กรุณาระบุ หน่วยงาน' }]}>
                         <Select
                             showSearch
                             placeholder="เลือกหน่วยงาน"
-                            options={unitOptions}
+                            options={unitOptionsWithCode}
                             optionFilterProp="label"
                         />
                     </Form.Item>
-                    <Form.Item name="levelGroupNo" label="LevelGroupNo" rules={[{ required: true, message: 'กรุณาระบุ LevelGroupNo' }]}>
+                    <Form.Item name="levelGroupNo" label={requiredLabel('ระดับ')} rules={[{ required: true, message: 'กรุณาระบุ ระดับ' }]}>
                         <Select
                             showSearch
                             loading={loadingLevelOptions}
@@ -877,13 +887,10 @@ function CostContent() {
                             optionFilterProp="label"
                         />
                     </Form.Item>
-                    <Form.Item name="effectiveDate" label="EffectiveDate" rules={[{ required: true, message: 'กรุณาระบุ EffectiveDate' }]}>
-                        <DatePicker format="YYYY-MM-DD" className="w-full" allowClear={false} />
+                    <Form.Item name="note" label={requiredLabel('ค่าใช้จ่าย')} rules={[{ required: true, message: 'กรุณาระบุ ค่าใช้จ่าย' }]}>
+                        <Input maxLength={200} placeholder="ระบุรายละเอียดค่าใช้จ่าย" />
                     </Form.Item>
-                    <Form.Item name="note" label="Note">
-                        <Input maxLength={200} placeholder="ระบุหมายเหตุ (ถ้ามี)" />
-                    </Form.Item>
-                    <Form.Item name="cost" label="Cost" rules={[{ required: true, message: 'กรุณาระบุ Cost' }]}>
+                    <Form.Item name="cost" label={requiredLabel('จำนวน')} rules={[{ required: true, message: 'กรุณาระบุ จำนวน' }]}>
                         <InputNumber<number>
                             style={{ width: '100%' }}
                             min={0}

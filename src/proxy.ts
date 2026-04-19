@@ -6,8 +6,8 @@ export function proxy(request: NextRequest) {
   const token = request.cookies.get('auth_token')?.value;
 
   try {
-    // 1. Handle API Proxying
-    if (pathname.startsWith('/api/')) {
+    // 1. Handle API + backend static upload proxying
+    if (pathname.startsWith('/api/') || pathname.startsWith('/uploads/')) {
       const rawUrl = (process.env.BACKEND_URL || 'http://localhost:5000').trim().replace(/^['"]|['"]$/g, '');
       const backendUrl = rawUrl.replace(/\/$/, '') || 'http://localhost:5000';
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Table, Button, Input, Select, Modal, Card, Typography, Tag, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Search, Eye, Activity, MapPin, ClipboardList, Clock, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
@@ -34,6 +34,9 @@ interface UserTrackingDataType {
     UserGroupName: string;
     UserGroupNo: string;
     BGName: string;
+    GroupLabel?: string;
+    RoleCategory?: 'HRVERIFY' | 'HRUSER' | 'HRPOLICY' | 'OTHER';
+    RoleTier?: 'EXECUTIVE' | 'STAFF' | 'UNKNOWN';
 }
 
 interface UnitTrackingDataType {
@@ -69,11 +72,80 @@ const toText = (value: unknown): string => {
     return String(value).trim();
 };
 
+const normalizeRoleText = (value: unknown): string => (
+    toText(value).toUpperCase().replace(/[\s_-]+/g, '')
+);
+
+const normalizeGroupNo = (value: unknown): string => {
+    const raw = toText(value);
+    if (/^\d+$/.test(raw)) return raw.padStart(2, '0');
+    return raw.toUpperCase();
+};
+
+const isHrVerifyRole = (value: unknown): boolean => normalizeRoleText(value).includes('HRVERIFY');
+
+const isHrUserRole = (value: unknown): boolean => normalizeRoleText(value).includes('HRUSER');
+
+const isHrPolicyRole = (value: unknown): boolean => normalizeRoleText(value).includes('HRPOLICY');
+
+const getRoleTierByGroupNo = (value: unknown): 'EXECUTIVE' | 'STAFF' | 'UNKNOWN' => {
+    const groupNo = normalizeGroupNo(value);
+    if (groupNo === '05' || groupNo === '06') return 'EXECUTIVE';
+    if (groupNo === '02' || groupNo === '03') return 'STAFF';
+    return 'UNKNOWN';
+};
+
+const getRoleCategory = (
+    userGroupNo: unknown,
+    userGroupName?: unknown
+): 'HRVERIFY' | 'HRUSER' | 'HRPOLICY' | 'OTHER' => {
+    const groupNo = normalizeGroupNo(userGroupNo);
+
+    if (groupNo === '03' || groupNo === '06') return 'HRVERIFY';
+    if (groupNo === '02' || groupNo === '05') return 'HRUSER';
+    if (groupNo === '04' || groupNo === '07') return 'HRPOLICY';
+
+    const roleText = normalizeRoleText(userGroupName);
+    if (isHrVerifyRole(roleText)) return 'HRVERIFY';
+    if (isHrUserRole(roleText)) return 'HRUSER';
+    if (isHrPolicyRole(roleText)) return 'HRPOLICY';
+    return 'OTHER';
+};
+
+const toScopeTokens = (value: unknown): Set<string> => {
+    const text = toText(value);
+    if (!text) return new Set();
+
+    return new Set(
+        text
+            .split(',')
+            .map((item) => item.trim().toUpperCase())
+            .filter(Boolean)
+    );
+};
+
+const hasAnyOverlap = (left: Set<string>, right: Set<string>): boolean => {
+    for (const token of right) {
+        if (left.has(token)) return true;
+    }
+    return false;
+};
+
+const getOverlapScore = (left: Set<string>, right: Set<string>): number => {
+    let score = 0;
+    for (const token of right) {
+        if (left.has(token)) score += 1;
+    }
+    return score;
+};
+
 export default function TrackingClient({ token, currentUser, initialMonth, initialYear }: TrackingClientProps) {
     const { message: messageApi } = App.useApp();
     const [loading, setLoading] = useState(false);
     const [selectedMonth, setSelectedMonth] = useState<string>(initialMonth);
     const [selectedYear, setSelectedYear] = useState<string>(initialYear);
+    const selectedMonthRef = useRef(initialMonth);
+    const selectedYearRef = useRef(initialYear);
     const [activeUserGroupNo, setActiveUserGroupNo] = useState('');
     const [activeEmployeeId, setActiveEmployeeId] = useState('');
 
@@ -101,6 +173,34 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
         employeeId: '',
         name: '',
     });
+
+    const isActiveGroupHrVerify = useMemo(() => {
+        const activeGroupNo = normalizeGroupNo(activeUserGroupNo);
+        const selectedGroupRole = typeof window !== 'undefined'
+            ? toText(localStorage.getItem('selected_usergroup_role'))
+            : '';
+        const currentGroupRole = toText(
+            currentUser?.userGroups?.find((group) => toText(group.userGroupNo) === activeUserGroupNo)?.userGroupRole
+        );
+
+        return ['03', '06'].includes(activeGroupNo)
+            || isHrVerifyRole(selectedGroupRole)
+            || isHrVerifyRole(currentGroupRole);
+    }, [activeUserGroupNo, currentUser]);
+
+    const isActiveGroupHrPolicy = useMemo(() => {
+        const activeGroupNo = normalizeGroupNo(activeUserGroupNo);
+        const selectedGroupRole = typeof window !== 'undefined'
+            ? toText(localStorage.getItem('selected_usergroup_role'))
+            : '';
+        const currentGroupRole = toText(
+            currentUser?.userGroups?.find((group) => toText(group.userGroupNo) === activeUserGroupNo)?.userGroupRole
+        );
+
+        return ['04', '07'].includes(activeGroupNo)
+            || isHrPolicyRole(selectedGroupRole)
+            || isHrPolicyRole(currentGroupRole);
+    }, [activeUserGroupNo, currentUser]);
 
     const years = useMemo(() => {
         const currentYearBE = dayjs().year() + 543;
@@ -169,7 +269,135 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
         return () => window.removeEventListener('user-group-changed', syncUserContext);
     }, [resolveUserGroupNo, resolveEmployeeId]);
 
-    const handleSearch = useCallback(async () => {
+    useEffect(() => {
+        selectedMonthRef.current = selectedMonth;
+        selectedYearRef.current = selectedYear;
+    }, [selectedMonth, selectedYear]);
+
+    const applyViewerScopeFilter = useCallback((rows: UserTrackingDataType[]): UserTrackingDataType[] => {
+        if (!isActiveGroupHrVerify) return rows;
+
+        const viewerEmployeeId = toText(activeEmployeeId);
+        if (!viewerEmployeeId) return rows;
+
+        const viewerRow = rows.find((row) => toText(row.EmployeeID) === viewerEmployeeId);
+        const viewerScopes = toScopeTokens(viewerRow?.BGName);
+        const viewerTier = viewerRow
+            ? getRoleTierByGroupNo(viewerRow.UserGroupNo)
+            : getRoleTierByGroupNo(activeUserGroupNo);
+
+        return rows.filter((row) => {
+            const rowEmployeeId = toText(row.EmployeeID);
+            if (!rowEmployeeId) return false;
+
+            if (rowEmployeeId === viewerEmployeeId) return true;
+            if (getRoleCategory(row.UserGroupNo, row.UserGroupName) !== 'HRUSER') return false;
+            if (viewerTier !== 'UNKNOWN' && getRoleTierByGroupNo(row.UserGroupNo) !== viewerTier) return false;
+
+            if (viewerScopes.size === 0) return true;
+            return hasAnyOverlap(viewerScopes, toScopeTokens(row.BGName));
+        });
+    }, [activeEmployeeId, isActiveGroupHrVerify, activeUserGroupNo]);
+
+    const applyPolicyGrouping = useCallback((rows: UserTrackingDataType[]): UserTrackingDataType[] => {
+        const withRole = rows.map((row) => ({
+            ...row,
+            RoleCategory: getRoleCategory(row.UserGroupNo, row.UserGroupName),
+            RoleTier: getRoleTierByGroupNo(row.UserGroupNo),
+        }));
+
+        if (!isActiveGroupHrPolicy) {
+            return withRole;
+        }
+
+        const sortByNameThenId = (a: UserTrackingDataType, b: UserTrackingDataType) => {
+            const nameCompare = toText(a.Name).localeCompare(toText(b.Name), 'th');
+            if (nameCompare !== 0) return nameCompare;
+            return toText(a.EmployeeID).localeCompare(toText(b.EmployeeID), 'en');
+        };
+
+        const groupedRows: UserTrackingDataType[] = [];
+        const policyTiers: Array<{ tier: 'EXECUTIVE' | 'STAFF'; label: string }> = [
+            { tier: 'EXECUTIVE', label: 'กลุ่มผู้บริหาร (06↔05)' },
+            { tier: 'STAFF', label: 'กลุ่มพนักงาน (03↔02)' },
+        ];
+
+        policyTiers.forEach(({ tier, label }) => {
+            const verifiers = withRole
+                .filter((row) => row.RoleCategory === 'HRVERIFY' && row.RoleTier === tier)
+                .sort(sortByNameThenId);
+            const hrUsers = withRole
+                .filter((row) => row.RoleCategory === 'HRUSER' && row.RoleTier === tier)
+                .sort(sortByNameThenId);
+
+            const assignmentByUserId = new Map<string, string>();
+            const verifierScopeMap = new Map<string, Set<string>>();
+
+            verifiers.forEach((verifier) => {
+                verifierScopeMap.set(toText(verifier.EmployeeID), toScopeTokens(verifier.BGName));
+            });
+
+            hrUsers.forEach((user) => {
+                const userScopes = toScopeTokens(user.BGName);
+                let bestVerifierId = '';
+                let bestScore = 0;
+
+                verifiers.forEach((verifier) => {
+                    const verifierId = toText(verifier.EmployeeID);
+                    const score = getOverlapScore(verifierScopeMap.get(verifierId) || new Set(), userScopes);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestVerifierId = verifierId;
+                    }
+                });
+
+                if (bestVerifierId) {
+                    assignmentByUserId.set(toText(user.EmployeeID), bestVerifierId);
+                }
+            });
+
+            verifiers.forEach((verifier) => {
+                const verifierId = toText(verifier.EmployeeID);
+                const groupLabel = `${label} | ผู้ดูแล: ${toText(verifier.Name)} (${verifierId})`;
+                groupedRows.push({
+                    ...verifier,
+                    GroupLabel: groupLabel,
+                });
+
+                hrUsers
+                    .filter((user) => assignmentByUserId.get(toText(user.EmployeeID)) === verifierId)
+                    .forEach((user) => {
+                        groupedRows.push({
+                            ...user,
+                            GroupLabel: groupLabel,
+                        });
+                    });
+            });
+
+            hrUsers
+                .filter((user) => !assignmentByUserId.has(toText(user.EmployeeID)))
+                .forEach((user) => {
+                    groupedRows.push({
+                        ...user,
+                        GroupLabel: `${label} | ผู้ดูแล: ไม่พบ HRVERIFY`,
+                    });
+                });
+        });
+
+        withRole
+            .filter((row) => row.RoleTier === 'UNKNOWN')
+            .sort(sortByNameThenId)
+            .forEach((row) => {
+                groupedRows.push({
+                    ...row,
+                    GroupLabel: 'กลุ่มอื่นๆ',
+                });
+            });
+
+        return groupedRows;
+    }, [isActiveGroupHrPolicy]);
+
+    const fetchTrackingData = useCallback(async (month: string, year: string) => {
         if (!activeEmployeeId || !activeUserGroupNo) {
             setData([]);
             return;
@@ -177,8 +405,8 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
 
         setLoading(true);
         try {
-            const adYear = (parseInt(selectedYear, 10) - 543).toString();
-            const monthIndex = MONTHS.indexOf(selectedMonth) + 1;
+            const adYear = (parseInt(year, 10) - 543).toString();
+            const monthIndex = MONTHS.indexOf(month) + 1;
             const monthValue = monthIndex.toString().padStart(2, '0');
 
             const res = await getTrackingUsers({
@@ -196,17 +424,26 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
                 UserGroupNo: toText(item.UserGroupNo),
                 BGName: toText(item.BGName),
             }));
-            setData(mappedData);
+            setData(applyPolicyGrouping(applyViewerScopeFilter(mappedData)));
         } catch {
             messageApi.error('ไม่สามารถโหลดข้อมูลติดตามงานได้');
         } finally {
             setLoading(false);
         }
-    }, [selectedMonth, selectedYear, activeUserGroupNo, activeEmployeeId, token, messageApi]);
+    }, [activeUserGroupNo, activeEmployeeId, token, messageApi, applyViewerScopeFilter, applyPolicyGrouping]);
+
+    const handleSearch = useCallback(() => {
+        void fetchTrackingData(selectedMonth, selectedYear);
+    }, [fetchTrackingData, selectedMonth, selectedYear]);
 
     useEffect(() => {
-        void handleSearch();
-    }, [handleSearch]);
+        if (!activeEmployeeId || !activeUserGroupNo) {
+            setData([]);
+            return;
+        }
+
+        void fetchTrackingData(selectedMonthRef.current, selectedYearRef.current);
+    }, [activeEmployeeId, activeUserGroupNo, fetchTrackingData]);
 
     const mapPendingRows = useCallback((rows: Array<Record<string, unknown>>): TransactionPendingDataType[] => {
         return rows.map((item, index) => {
@@ -365,6 +602,11 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
         return 'bg-gray-100 text-gray-800 border-gray-200';
     };
 
+    const bgColumnWidth = '32%';
+    const nameColumnWidth = '18%';
+    const userGroupColumnWidth = '14%';
+    const trackingColumnWidth = '18%';
+
     const columns: ColumnsType<UserTrackingDataType> = [
         {
             title: () => (
@@ -399,7 +641,7 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
             ),
             dataIndex: 'Name',
             key: 'Name',
-            width: '18%',
+            width: nameColumnWidth,
             ellipsis: true,
         },
         {
@@ -417,9 +659,19 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
             ),
             dataIndex: 'UserGroupName',
             key: 'UserGroupName',
-            width: '14%',
+            width: userGroupColumnWidth,
             ellipsis: true,
-            render: (text) => <Tag color="blue" className="rounded-full px-3 m-0">{text}</Tag>,
+            render: (text, record) => {
+                const role = record.RoleCategory || getRoleCategory(record.UserGroupNo, text);
+                const color = role === 'HRVERIFY'
+                    ? 'blue'
+                    : role === 'HRUSER'
+                        ? 'default'
+                        : role === 'HRPOLICY'
+                            ? 'purple'
+                            : 'default';
+                return <Tag color={color} className="rounded-full px-3 m-0">{text}</Tag>;
+            },
         },
         {
             title: () => (
@@ -455,7 +707,7 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
             ),
             dataIndex: 'BGName',
             key: 'BGName',
-            width: '32%',
+            width: bgColumnWidth,
             align: 'left',
         },
         {
@@ -466,7 +718,7 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
                 </div>
             ),
             key: 'tracking',
-            width: '18%',
+            width: trackingColumnWidth,
             align: 'center',
             render: (_: unknown, record: UserTrackingDataType) => {
                 const count = pendingCountByEmployee[record.EmployeeID];
@@ -511,11 +763,11 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
 
     return (
         <div className="w-full max-w-full overflow-x-hidden bg-slate-50 p-6 tracking-modern">
-            <div className="rounded-xl bg-gradient-to-r from-blue-600 to-blue-400 p-3 shadow-md border border-blue-500 mb-6 text-white">
+            <div className="rounded-xl bg-linear-to-r from-blue-600 to-blue-400 p-3 shadow-md border border-blue-500 mb-6 text-white">
                 <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
                     <div className="flex items-center gap-3">
                         <Activity className="text-2xl text-white" />
-                        <Title level={4} className="m-0 font-bold" style={{ color: '#ffffff' }}>ติดตามสถานะงาน (Transaction Pending)</Title>
+                        <Title level={4} className="m-0 font-bold" style={{ color: '#ffffff' }}>ติดตามสถานะงาน (User Tracking)</Title>
                     </div>
                     <div className="flex flex-wrap items-center xl:justify-end gap-3">
                         <div className="flex items-center gap-2 bg-white/15 px-3 py-2 rounded-lg border border-white/30">
@@ -545,7 +797,7 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
                             loading={loading}
                             icon={<Search size={18} />}
                             style={{ backgroundColor: '#ffffff', color: '#1d4ed8', borderColor: '#ffffff' }}
-                            className="h-10 px-6 rounded-lg font-bold shadow-md flex items-center gap-2 transition-all active:scale-95 hover:!bg-blue-50 hover:!text-blue-800"
+                            className="h-10 px-6 rounded-lg font-bold shadow-md flex items-center gap-2 transition-all active:scale-95 hover:bg-blue-50! hover:text-blue-800!"
                         >
                             เรียกดูข้อมูล
                         </Button>
@@ -558,6 +810,11 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
                     columns={columns}
                     dataSource={filteredData}
                     loading={loading}
+                    rowClassName={(record) => {
+                        if (record.RoleCategory === 'HRVERIFY') return 'tracking-role-verify-row';
+                        if (record.RoleCategory === 'HRUSER') return 'tracking-role-user-row';
+                        return '';
+                    }}
                     pagination={{
                         pageSize: 10,
                         showSizeChanger: true,
@@ -713,6 +970,18 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
                 }
                 .modern-tracking-table .ant-table-row:hover > td {
                     background-color: #f1f5f9 !important;
+                }
+                .modern-tracking-table .tracking-role-verify-row > td {
+                    background-color: #dbeafe !important;
+                }
+                .modern-tracking-table .tracking-role-user-row > td {
+                    background-color: #ffffff !important;
+                }
+                .modern-tracking-table .tracking-role-verify-row:hover > td {
+                    background-color: #bfdbfe !important;
+                }
+                .modern-tracking-table .tracking-role-user-row:hover > td {
+                    background-color: #f8fafc !important;
                 }
                 .modern-tracking-table .ant-table-cell {
                     white-space: normal !important;

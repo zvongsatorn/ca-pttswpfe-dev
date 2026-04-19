@@ -8,6 +8,7 @@ import Main from '@/components/layout/main';
 import {
     getDelayRetirementData,
     getEmployeeOptions,
+    getDelayRetireYears,
     createDelayRetirement,
     updateDelayRetirement,
     deleteDelayRetirement,
@@ -15,6 +16,8 @@ import {
     DelayEmployeeOptionType
 } from '@/services/delayService';
 import { getUserFromToken } from '@/utils/auth';
+
+const CURRENT_BE_YEAR = new Date().getFullYear() + 543;
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
@@ -27,29 +30,61 @@ function DelayRetirementContent() {
     const token = getToken();
     const currentUser = getUserFromToken(token);
     
-    const [selectedYear, setSelectedYear] = useState<string>('2568');
+    const [selectedYear, setSelectedYear] = useState<string>(String(CURRENT_BE_YEAR));
     const [searchText, setSearchText] = useState('');
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [editingKey, setEditingKey] = useState<string | null>(null);
     const [tableLoading, setTableLoading] = useState(false);
     const [tableData, setTableData] = useState<DelayRetirementDataType[]>([]);
     const [employeeOptions, setEmployeeOptions] = useState<DelayEmployeeOptionType[]>([]);
-    const delayYearOptions = useMemo(() => {
-        const baseYear = Number.parseInt(selectedYear, 10);
-        if (Number.isNaN(baseYear)) return [];
-
-        return Array.from({ length: 5 }, (_, index) => {
-            const year = String(baseYear + index);
+    const [retireYearOptions, setRetireYearOptions] = useState<Array<{ value: string; label: string }>>([]);
+    const fallbackRetireYearOptions = useMemo(() => {
+        return Array.from({ length: 6 }, (_, index) => {
+            const year = String(CURRENT_BE_YEAR - 1 + index);
             return { value: year, label: year };
         });
-    }, [selectedYear]);
+    }, []);
+
+    const fetchRetireYearOptions = useCallback(async () => {
+        try {
+            const response = await getDelayRetireYears(token);
+            const fromApi = (response?.success && Array.isArray(response.data))
+                ? response.data
+                    .map((year) => Number.parseInt(String(year), 10))
+                    .filter((year) => Number.isFinite(year))
+                    .sort((a, b) => a - b)
+                    .map((year) => {
+                        const text = String(year);
+                        return { value: text, label: text };
+                    })
+                : [];
+
+            const options = fromApi.length > 0 ? fromApi : fallbackRetireYearOptions;
+            setRetireYearOptions(options);
+            setSelectedYear((prev) => {
+                if (options.some((item) => item.value === prev)) return prev;
+                const current = String(CURRENT_BE_YEAR);
+                if (options.some((item) => item.value === current)) return current;
+                return options[0]?.value || current;
+            });
+        } catch (error) {
+            console.error('Fetch retire year options failed:', error);
+            setRetireYearOptions(fallbackRetireYearOptions);
+            setSelectedYear((prev) => prev || String(CURRENT_BE_YEAR));
+        }
+    }, [fallbackRetireYearOptions, token]);
+    const selectedEmployeeIdSet = useMemo(
+        () => new Set(employeeOptions.map((item) => item.value)),
+        [employeeOptions]
+    );
 
     const fetchData = useCallback(async () => {
+        if (!selectedYear) return;
         setTableLoading(true);
         try {
             const [dataRes, empRes] = await Promise.all([
-                getDelayRetirementData(token, selectedYear),
-                getEmployeeOptions(token)
+                getDelayRetirementData(token),
+                getEmployeeOptions(token, selectedYear)
             ]);
 
             if (dataRes?.success && Array.isArray(dataRes.data)) {
@@ -73,16 +108,21 @@ function DelayRetirementContent() {
     }, [notification, selectedYear, token]);
 
     useEffect(() => {
+        void fetchRetireYearOptions();
+    }, [fetchRetireYearOptions]);
+
+    useEffect(() => {
+        if (!selectedYear) return;
         void fetchData();
-    }, [fetchData]);
+    }, [fetchData, selectedYear]);
 
     const filteredData = useMemo(() => {
         return tableData.filter(item => {
-            const matchesYear = item.DelayYear === selectedYear;
+            const matchesRetireYear = selectedEmployeeIdSet.has(item.EmployeeID);
             const matchesSearch = item.EmployeeID.includes(searchText) || item.EmployeeName.includes(searchText) || item.PosName.includes(searchText);
-            return matchesYear && matchesSearch;
+            return matchesRetireYear && matchesSearch;
         });
-    }, [tableData, selectedYear, searchText]);
+    }, [tableData, selectedEmployeeIdSet, searchText]);
 
     const handleDelete = async (delayId: string) => {
         try {
@@ -110,7 +150,7 @@ function DelayRetirementContent() {
         setEditingKey(null);
         setIsModalVisible(true);
         form.resetFields();
-        form.setFieldsValue({ DelayYear: selectedYear });
+        form.setFieldsValue({ DelayYear: '' });
     };
 
     const handleSave = async () => {
@@ -121,7 +161,7 @@ function DelayRetirementContent() {
             const payload = {
                 EmployeeID: values.EmployeeID,
                 PosName: selectedEmp?.position || values.PosName || '',
-                DelayYear: values.DelayYear,
+                DelayYear: String(values.DelayYear || '').trim(),
                 DelayStatus: 1,
                 UserID: currentUser?.employeeID || 'SYSTEM'
             };
@@ -155,6 +195,21 @@ function DelayRetirementContent() {
         { title: 'ตำแหน่ง', dataIndex: 'PosName', key: 'PosName', width: 420, ellipsis: true, render: (text) => <span className="block truncate text-slate-600 font-medium">{text || '-'}</span> },
         { title: 'ปีที่ทด', dataIndex: 'DelayYear', key: 'DelayYear', align: 'center', width: 110 },
         {
+            title: 'ประเภท',
+            key: 'delayType',
+            align: 'center',
+            width: 170,
+            render: (_, record) => {
+                const retireYear = Number.parseInt(selectedYear, 10);
+                const delayYear = Number.parseInt(String(record.DelayYear || ''), 10);
+
+                if (Number.isNaN(retireYear) || Number.isNaN(delayYear)) return '-';
+                if (delayYear < retireYear) return 'Early Retire';
+                if (delayYear > retireYear) return 'ทำงานต่อ';
+                return 'เกษียณตามปีปกติ';
+            }
+        },
+        {
             title: 'จัดการ', key: 'action', align: 'center', width: 120,
             render: (_, record) => (
                 <Space size="small">
@@ -179,7 +234,7 @@ function DelayRetirementContent() {
                     <div className="flex flex-wrap items-end gap-6">
                         <div className="flex flex-col gap-1">
                             <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">เลือกปีเกษียณ</label>
-                            <Select value={selectedYear} onChange={setSelectedYear} className="w-32" size="large" options={[{ value: '2568', label: '2568' }, { value: '2569', label: '2569' }, { value: '2570', label: '2570' }, { value: '2571', label: '2571' }]} />
+                            <Select value={selectedYear} onChange={setSelectedYear} className="w-32" size="large" options={retireYearOptions} />
                         </div>
                         <div className="flex flex-col gap-1">
                             <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">ค้นหาพนักงาน / ตำแหน่ง</label>
@@ -198,7 +253,7 @@ function DelayRetirementContent() {
                 pagination={{ pageSize: 10 }}
                 bordered
                 tableLayout="fixed"
-                scroll={{ x: 1060 }}
+                scroll={{ x: 1230 }}
                 rowClassName="hover:bg-blue-50/20 transition-colors"
                 className="shadow-sm rounded-xl overflow-hidden border border-slate-100"
             />
@@ -216,8 +271,37 @@ function DelayRetirementContent() {
                         <Form.Item name="PosName" label={<span className="font-bold text-slate-600 uppercase text-xs tracking-wider">ตำแหน่ง</span>}>
                             <Input disabled className="bg-slate-50 text-slate-900 font-medium h-11" />
                         </Form.Item>
-                        <Form.Item name="DelayYear" label={<span className="font-bold text-slate-600 uppercase text-xs tracking-wider">ปีที่ทด</span>} rules={[{ required: true, message: 'กรุณาเลือกปีที่ทด' }]}>
-                            <Select placeholder="เลือกปีที่ทด" size="large" options={delayYearOptions} />
+                        <Form.Item
+                            name="DelayYear"
+                            label={<span className="font-bold text-slate-600 uppercase text-xs tracking-wider">ปีที่ทด</span>}
+                            rules={[
+                                { required: true, message: 'กรุณากรอกปีที่ทด' },
+                                {
+                                    validator: (_, value) => {
+                                        const textValue = String(value || '').trim();
+                                        const retireYear = Number.parseInt(selectedYear, 10);
+                                        const delayYear = Number.parseInt(textValue, 10);
+
+                                        if (!textValue) return Promise.resolve();
+                                        if (!/^\d{4}$/.test(textValue)) {
+                                            return Promise.reject(new Error('กรุณากรอกปีที่ทดเป็นตัวเลข 4 หลัก'));
+                                        }
+
+                                        if (Number.isNaN(retireYear) || Number.isNaN(delayYear) || delayYear !== retireYear) {
+                                            return Promise.resolve();
+                                        }
+
+                                        return Promise.reject(new Error(`ปีที่ทดห้ามเท่าปีเกษียณ (${selectedYear})`));
+                                    }
+                                }
+                            ]}
+                        >
+                            <Input
+                                placeholder="กรอกปีที่ทด (เช่น 2569)"
+                                size="large"
+                                maxLength={4}
+                                inputMode="numeric"
+                            />
                         </Form.Item>
                     </Form>
                 </div>

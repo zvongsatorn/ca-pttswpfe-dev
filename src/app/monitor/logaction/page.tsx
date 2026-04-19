@@ -39,6 +39,7 @@ const USER_GROUP_ROLE_BY_NO: Record<string, string> = {
     '06': 'HRVERIFY ผู้บริหาร',
     '07': 'HRADMIN',
     '08': 'OTHER',
+    '99': 'OTHER',
 };
 const USER_GROUP_COLOR_BY_NO: Record<string, string> = {
     '01': 'red',
@@ -98,12 +99,29 @@ const parseActionDateTime = (value: unknown): Dayjs | null => {
     const text = toText(value);
     if (!text) return null;
 
+    // SQL datetime values serialized as ISO UTC (e.g. "...Z") should be treated as
+    // clock time for this screen to avoid unintended timezone shifting.
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/i.test(text)) {
+        const withoutUtcSuffix = text.replace(/Z$/i, '');
+        const localIsoCandidates = [
+            dayjs(withoutUtcSuffix, 'YYYY-MM-DDTHH:mm:ss.SSS', true),
+            dayjs(withoutUtcSuffix, 'YYYY-MM-DDTHH:mm:ss', true),
+        ];
+
+        for (const candidate of localIsoCandidates) {
+            if (candidate.isValid()) {
+                return candidate;
+            }
+        }
+    }
+
     const candidates = [
-        dayjs(text),
         dayjs(text, 'YYYY-MM-DD HH:mm:ss', true),
         dayjs(text, 'YYYY-MM-DDTHH:mm:ss', true),
+        dayjs(text, 'YYYY-MM-DDTHH:mm:ss.SSS', true),
         dayjs(text, 'DD/MM/YYYY HH:mm:ss', true),
         dayjs(text, 'DD/MM/YYYY', true),
+        dayjs(text),
     ];
 
     for (const candidate of candidates) {
@@ -154,9 +172,9 @@ const mapLogActionRow = (row: LogActionApiRow, index: number): LogActionDataType
     const parsedActionDateTime = parseActionDateTime(
         readRowValue(row, ['ActionDate', 'actionDate', 'Actiondate'])
     );
-    const userGroupNo = toText(readRowValue(row, ['UserGroupNo', 'userGroupNo']));
-    const userGroupName = toText(readRowValue(row, ['UserGroupName', 'userGroupName']));
-    const fallbackRole = toText(readRowValue(row, ['Role', 'role']));
+    const userGroupNo = toText(readRowValue(row, ['UserGroupNo', 'userGroupNo', 'UserRole', 'userRole']));
+    const userGroupName = toText(readRowValue(row, ['UserGroupName', 'userGroupName', 'UserRoleName', 'userRoleName']));
+    const fallbackRole = toText(readRowValue(row, ['Role', 'role', 'UserRoleName', 'userRoleName', 'UserRole', 'userRole']));
     const resolvedRole = userGroupName || USER_GROUP_ROLE_BY_NO[userGroupNo] || fallbackRole;
     const resolvedUserGroupNo = userGroupNo || inferUserGroupNoFromRole(resolvedRole);
 
@@ -253,8 +271,18 @@ export default function LogActionPage() {
             });
 
             const mappedRows = (rows as LogActionApiRow[]).map((row, index) => mapLogActionRow(row, index));
+            const employeeFilter = searchEmployeeId.toLowerCase().trim();
+            const nameFilter = searchName.toLowerCase().trim();
+            const roleFilter = searchRole.trim();
+            const actionFilter = searchAction.trim();
+            const rowsForExport = mappedRows.filter((row) => (
+                row.employeeId.toLowerCase().includes(employeeFilter) &&
+                row.name.toLowerCase().includes(nameFilter) &&
+                (!roleFilter || row.role === roleFilter) &&
+                (!actionFilter || row.action === actionFilter)
+            ));
 
-            if (mappedRows.length === 0) {
+            if (rowsForExport.length === 0) {
                 messageApi.info('ไม่พบข้อมูลสำหรับ Export');
                 return;
             }
@@ -274,7 +302,7 @@ export default function LogActionPage() {
                 { header: 'Note', key: 'note', width: 40 },
             ];
 
-            mappedRows.forEach((row, index) => {
+            rowsForExport.forEach((row, index) => {
                 worksheet.addRow({
                     no: index + 1,
                     actionDate: row.actionDate,
@@ -574,7 +602,7 @@ export default function LogActionPage() {
                             onClick={handleSearch}
                             loading={loading}
                         >
-                            ตกลง
+                            เรียกดูข้อมูล
                         </Button>
 
                         <Button

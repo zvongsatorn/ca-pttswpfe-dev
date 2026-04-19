@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
-import { Table, Button, Select, Tabs, Modal, Input, InputNumber, Progress, Typography, Space, Popconfirm, Card, App, Tag } from 'antd';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { Table, Button, Select, Tabs, Modal, Input, InputNumber, Progress, Typography, Space, Popconfirm, Card, App, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Trash2, Download, Upload, FileText, Plus, Info, FileSpreadsheet, FilePieChart, MessageSquare, Clipboard } from 'lucide-react';
 import { FilePdfOutlined, SearchOutlined } from '@ant-design/icons';
@@ -12,7 +12,7 @@ import { getUserFromToken } from '@/utils/auth';
 import { getPIR, getPIROrg, getFileAttach, getRemark, uploadFilePIR, deleteFileAttach, exportExcel, insertPIR, deletePIR, copyPIR, insertRemark, deleteRemark } from '@/services/pirService';
 import { fetchAllUnits } from '@/services/userRightService';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface PIRType { ImproveRateID: number; Year: number; Rate: number; CreateBy: string; }
 interface FileType { ImproveRateUploadID: number; FileName: string; FileUpload: string; }
@@ -39,7 +39,7 @@ function PIRContent() {
     const [rates, setRates] = useState<PIRType[]>([]);
     const [loadingRates, setLoadingRates] = useState(false);
     const [isAddRateModal, setIsAddRateModal] = useState(false);
-    const [addRateForm, setAddRateForm] = useState({ year: currentYearTH, rate: 0 });
+    const [addRateForm, setAddRateForm] = useState<{ year: number; rate: number | null }>({ year: currentYearTH, rate: null });
 
     // Tab 2: Files
     const [files, setFiles] = useState<FileType[]>([]);
@@ -57,6 +57,7 @@ function PIRContent() {
     const [importing, setImporting] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [selectedImportFile, setSelectedImportFile] = useState<File | null>(null);
+    const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
     // Unit Summary Modal
     const [isPIROrgModal, setIsPIROrgModal] = useState(false);
@@ -97,8 +98,25 @@ function PIRContent() {
     const handleAddRate = async () => {
         const yearAD = (addRateForm.year - 543).toString();
         const effYearAD = (parseInt(effectiveYear) - 543).toString();
+        const effectiveYearBE = parseInt(effectiveYear);
+        const isCurrentOrPastYear = addRateForm.year <= effectiveYearBE;
+        const normalizedRate = addRateForm.rate === null ? null : Number(addRateForm.rate);
+        const isDuplicateYear = rates.some((item) => Number(item.Year) === Number(yearAD));
+
+        if (isDuplicateYear) {
+            messageApi.warning(`มีข้อมูลปี ${addRateForm.year} อยู่แล้ว กรุณาเลือกปีอื่น`);
+            return;
+        }
+
+        if (!isCurrentOrPastYear && (normalizedRate === null || Number.isNaN(normalizedRate))) {
+            messageApi.warning('ปีที่มากกว่า Effective Year กรุณาระบุเปอร์เซ็นต์ Productivity Improvement Rate');
+            return;
+        }
+
+        const rateToSubmit = normalizedRate === null || Number.isNaN(normalizedRate) ? 0 : normalizedRate;
+
         try {
-            const res = await insertPIR({ effectiveYear: effYearAD, year: yearAD, rate: addRateForm.rate, orgUnitNo, createBy: currentUser?.employeeID || 'SYSTEM', import: 0 }, token);
+            const res = await insertPIR({ effectiveYear: effYearAD, year: yearAD, rate: rateToSubmit, orgUnitNo, createBy: currentUser?.employeeID || 'SYSTEM', import: 0 }, token);
             if (res?.success) { notification.success({ title: 'สำเร็จ', description: 'เพิ่มข้อมูล Rate เรียบร้อยแล้ว' }); setIsAddRateModal(false); handleFetchAll(); }
             else { notification.error({ title: 'ผิดพลาด', description: res?.message }); }
         } catch { notification.error({ title: 'ข้อผิดพลาด', description: 'ไม่สามารถเพิ่มข้อมูลได้' }); }
@@ -165,17 +183,51 @@ function PIRContent() {
         setExporting(true);
         try {
             const effYearAD = (parseInt(effectiveYear) - 543).toString();
-            const res = await exportExcel({ effectiveYear: effYearAD, orgUnitNo, employeeId: currentUser?.employeeID }, token);
-            if (res?.success && res.data.length > 0) {
+            const resolveExportContext = () => {
+                let employeeId = currentUser?.employeeID || 'SYSTEM';
+                let userGroupNo = '';
+
+                if (typeof window !== 'undefined') {
+                    const selectedGroup = localStorage.getItem('selected_usergroup') || '';
+                    const userDataStr = localStorage.getItem('user_data');
+                    if (userDataStr) {
+                        try {
+                            const userData = JSON.parse(userDataStr) as { employeeID?: string; roleId?: string; userGroupNo?: string };
+                            employeeId = userData.employeeID || employeeId;
+                            userGroupNo = selectedGroup || userData.userGroupNo || userData.roleId || '';
+                        } catch {
+                            userGroupNo = selectedGroup || '';
+                        }
+                    } else {
+                        userGroupNo = selectedGroup || '';
+                    }
+                }
+
+                if (!userGroupNo) {
+                    userGroupNo = currentUser?.userGroups?.[0]?.userGroupNo || currentUser?.role || '';
+                }
+
+                return { employeeId, userGroupNo };
+            };
+
+            const { employeeId, userGroupNo } = resolveExportContext();
+            const buildAndSaveWorkbook = async (rows: Record<string, string | number>[]) => {
                 const workbook = new ExcelJS.Workbook();
                 const worksheet = workbook.addWorksheet('PIR Data');
-                worksheet.columns = Object.keys(res.data[0]).map(key => ({ header: key, key, width: 20 }));
-                worksheet.addRows(res.data);
+                worksheet.columns = Object.keys(rows[0]).map((key) => ({ header: key, key, width: 20 }));
+                worksheet.addRows(rows);
                 worksheet.getRow(1).eachCell((cell) => { cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } }; });
                 const buffer = await workbook.xlsx.writeBuffer();
                 await saveExcelFile(buffer, `PIR_Export_${effectiveYear}.xlsx`);
+            };
+
+            const res = await exportExcel({ effectiveYear: effYearAD, orgUnitNo, employeeId, userGroupNo }, token);
+            if (res?.success && Array.isArray(res.data) && res.data.length > 0) {
+                await buildAndSaveWorkbook(res.data as Record<string, string | number>[]);
                 notification.success({ title: 'สำเร็จ', description: 'Export ข้อมูลเรียบร้อยแล้ว' });
-            } else { messageApi.info('ไม่พบข้อมูลสำหรับ Export'); }
+            } else {
+                messageApi.info(res?.message || 'ไม่พบข้อมูลสำหรับ Export');
+            }
         } catch { messageApi.error('Export ล้มเหลว'); }
         finally { setExporting(false); }
     };
@@ -184,32 +236,101 @@ function PIRContent() {
         if (!selectedImportFile) return;
         setImporting(true);
         try {
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-                const buffer = event.target?.result as ArrayBuffer;
-                const workbook = new ExcelJS.Workbook();
-                await workbook.xlsx.load(buffer);
-                const worksheet = workbook.worksheets[0];
-                const rows: Record<string, string | number>[] = [];
-                let headers: (string | number)[] = [];
-                worksheet.eachRow((row, rowNum) => {
-                    const rowValues = row.values as (string | number)[];
-                    if (rowNum === 1) headers = rowValues;
-                    else { const rowData: Record<string, string | number> = {}; headers.forEach((h, i) => { if (h) rowData[h.toString().toUpperCase()] = rowValues[i]; }); rows.push(rowData); }
-                });
-                let count = 0;
-                for (const row of rows) {
-                    if (!row.EFFECTIVEYEAR || !row.YEAR || row.RATE === undefined) continue;
-                    let eff = parseInt(String(row.EFFECTIVEYEAR)); if (eff > 2500) eff -= 543;
-                    let yr = parseInt(String(row.YEAR)); if (yr > 2500) yr -= 543;
-                    await insertPIR({ effectiveYear: eff.toString(), year: yr.toString(), rate: parseFloat(String(row.RATE)), orgUnitNo: String(row.ORGUNITNO || ''), createBy: currentUser?.employeeID || 'SYSTEM', import: 1 }, token);
-                    count++;
+            const buffer = await selectedImportFile.arrayBuffer();
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.load(buffer);
+            const worksheet = workbook.worksheets[0];
+            const rows: Record<string, string | number>[] = [];
+            let headers: (string | number)[] = [];
+
+            worksheet.eachRow((row, rowNum) => {
+                const rowValues = row.values as (string | number)[];
+                if (rowNum === 1) {
+                    headers = rowValues;
+                    return;
                 }
-                notification.success({ title: 'นำเข้ารายการสำเร็จ', description: `นำเข้าข้อมูลจำนวน ${count} รายการเรียบร้อยแล้ว` });
-                handleFetchAll(); setSelectedImportFile(null); setImporting(false);
-            };
-            reader.readAsArrayBuffer(selectedImportFile);
-        } catch { messageApi.error('Import ล้มเหลว'); setImporting(false); }
+                const rowData: Record<string, string | number> = {};
+                headers.forEach((h, i) => {
+                    if (h) rowData[h.toString().toUpperCase()] = rowValues[i];
+                });
+                rows.push(rowData);
+            });
+
+            let inserted = 0;
+            let duplicate = 0;
+            let skipped = 0;
+            let failed = 0;
+            const errorSamples: string[] = [];
+
+            for (let index = 0; index < rows.length; index++) {
+                const row = rows[index];
+                if (!row.EFFECTIVEYEAR || !row.YEAR || row.RATE === undefined || row.RATE === null || String(row.RATE).trim() === '') {
+                    skipped++;
+                    continue;
+                }
+
+                let eff = parseInt(String(row.EFFECTIVEYEAR), 10);
+                let yr = parseInt(String(row.YEAR), 10);
+                const rate = parseFloat(String(row.RATE));
+
+                if (Number.isNaN(eff) || Number.isNaN(yr) || Number.isNaN(rate)) {
+                    skipped++;
+                    continue;
+                }
+
+                if (eff > 2500) eff -= 543;
+                if (yr > 2500) yr -= 543;
+
+                const res = await insertPIR(
+                    {
+                        effectiveYear: eff.toString(),
+                        year: yr.toString(),
+                        rate,
+                        orgUnitNo: String(row.ORGUNITNO || ''),
+                        createBy: currentUser?.employeeID || 'SYSTEM',
+                        import: 0
+                    },
+                    token
+                );
+
+                if (res?.success) {
+                    inserted++;
+                } else if (res?.duplicate) {
+                    duplicate++;
+                } else {
+                    failed++;
+                    if (errorSamples.length < 3) {
+                        errorSamples.push(`แถว ${index + 2}: ${res?.message || 'ไม่สามารถบันทึกได้'}`);
+                    }
+                }
+            }
+
+            if (inserted > 0) {
+                notification.success({
+                    title: 'นำเข้ารายการสำเร็จ',
+                    description: `เพิ่มใหม่ ${inserted} รายการ | ซ้ำ ${duplicate} | ข้าม ${skipped} | ผิดพลาด ${failed}`
+                });
+                handleFetchAll();
+            } else if (duplicate > 0 || skipped > 0 || failed > 0) {
+                notification.warning({
+                    title: 'ไม่พบรายการใหม่ที่นำเข้าได้',
+                    description: `ซ้ำ ${duplicate} | ข้าม ${skipped} | ผิดพลาด ${failed}`
+                });
+            } else {
+                notification.info({ title: 'ไม่พบข้อมูลสำหรับนำเข้า' });
+            }
+
+            if (errorSamples.length > 0) {
+                messageApi.warning(errorSamples.join(' | '));
+            }
+
+            setSelectedImportFile(null);
+            if (importFileInputRef.current) importFileInputRef.current.value = '';
+        } catch {
+            messageApi.error('Import ล้มเหลว');
+        } finally {
+            setImporting(false);
+        }
     };
 
     const handleDownloadTemplate = () => {
@@ -257,7 +378,11 @@ function PIRContent() {
         { title: '', key: 'action', align: 'center', width: 60, render: (_, record) => (record.CreateBy === currentUser?.employeeID) ? <Popconfirm title="ลบหมายเหตุนี้?" onConfirm={() => handleDeleteRemark(record.ImproveRateRemarkID)} okText="ลบ" cancelText="ยกเลิก"><Button type="text" danger icon={<Trash2 size={16} />} /></Popconfirm> : null }
     ];
 
-    const yearOptions = Array.from({ length: 12 }, (_, i) => { const y = currentYearTH + 5 - i; return { value: y.toString(), label: y.toString() }; });
+    const effectiveYearBE = parseInt(effectiveYear) || currentYearTH;
+    const yearOptions = Array.from({ length: 16 }, (_, i) => {
+        const y = effectiveYearBE + 5 - i;
+        return { value: y.toString(), label: y.toString() };
+    });
 
     return (
         <div className="w-full bg-slate-50 min-h-screen p-6 pir-modern">
@@ -276,7 +401,17 @@ function PIRContent() {
                         <Select placeholder="ค้นหาหรือเลือกหน่วยงาน..." allowClear showSearch value={orgUnitNo} onChange={setOrgUnitNo} options={unitOptions} size="large" className="w-[700px]!" />
                     </div>
                     <Space size="middle">
-                        <Button type="primary" size="large" onClick={handleShowOrgSummary} loading={loadingOrgList} icon={<SearchOutlined />} className="bg-blue-600 h-10 px-8 rounded-lg font-bold shadow-md shadow-blue-100">ดูหน่วยงาน</Button>
+                        <Tooltip title="ดูหน่วยงาน">
+                            <Button
+                                type="text"
+                                size="large"
+                                onClick={handleShowOrgSummary}
+                                loading={loadingOrgList}
+                                icon={<SearchOutlined style={{ color: '#f59e0b', fontSize: 20 }} />}
+                                className="h-10 w-10 rounded-lg border border-amber-200 text-amber-500 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-600 flex items-center justify-center"
+                                aria-label="ดูหน่วยงาน"
+                            />
+                        </Tooltip>
                         <Button type="default" size="large" onClick={handleCopyData} icon={<Clipboard size={18} />} className="h-10 px-6 rounded-lg font-bold border-emerald-500 text-emerald-600 hover:text-emerald-700 transition-all flex items-center gap-2">สำเนาปีก่อน</Button>
                     </Space>
                 </div>
@@ -289,7 +424,17 @@ function PIRContent() {
                             <Table columns={rateColumns} dataSource={rates} rowKey="ImproveRateID" loading={loadingRates} pagination={false} className="modern-table w-[600px]" bordered />
                         </div>
                         <div className="flex flex-col pt-1">
-                            <Button type="primary" icon={<Plus size={18} />} onClick={() => setIsAddRateModal(true)} className="bg-blue-600 rounded-lg h-10 px-6 shadow-md shadow-blue-100 font-bold flex items-center gap-2 whitespace-nowrap">เพิ่มรายการ</Button>
+                            <Button
+                                type="primary"
+                                icon={<Plus size={18} />}
+                                onClick={() => {
+                                    setAddRateForm((prev) => ({ ...prev, year: parseInt(effectiveYear) || currentYearTH }));
+                                    setIsAddRateModal(true);
+                                }}
+                                className="bg-blue-600 rounded-lg h-10 px-6 shadow-md shadow-blue-100 font-bold flex items-center gap-2 whitespace-nowrap"
+                            >
+                                เพิ่มรายการ
+                            </Button>
                         </div>
                     </div>
                 )},
@@ -313,7 +458,7 @@ function PIRContent() {
                         <Card className="shadow-sm border-slate-200 bg-slate-50/50" title="เพิ่มการบันทึกหมายเหตุ" styles={{ body: { padding: '16px 20px' } }}>
                             <Input.TextArea rows={8} placeholder="ระบุข้อความหมายเหตุที่ต้องการบันทึก..." maxLength={300} value={newRemark} onChange={(e) => setNewRemark(e.target.value)} className="rounded-lg mb-4" />
                             <div className="flex justify-between items-center">
-                                <Text type="secondary" className="text-[12px]">คงเหลือ {300 - newRemark.length} อักขระ</Text>
+                                <Text type="secondary" className="text-[12px]">Remaining {300 - newRemark.length} characters</Text>
                                 <Button type="primary" icon={<Plus size={18} />} onClick={handleSaveRemark} disabled={!newRemark} className="bg-emerald-600 h-11 px-10 rounded-lg font-bold shadow-md shadow-emerald-50 text-white border-none transition-all hover:scale-105">บันทึกข้อมูล</Button>
                             </div>
                         </Card>
@@ -323,15 +468,21 @@ function PIRContent() {
                 { key: '4', label: <div className="flex items-center gap-2"><FileSpreadsheet size={18} /> นำเข้า / ส่งออก</div>, children: (
                     <div className="py-12 flex flex-col items-center justify-center bg-white border border-dashed border-slate-300 rounded-2xl min-h-[400px]">
                         <div className="bg-blue-50 p-4 rounded-full mb-6 text-blue-600"><FileSpreadsheet size={48} /></div>
-                        <Title level={3} className="mb-2">Excel Data Interchange</Title>
-                        <Text type="secondary" className="mb-10 text-center max-w-md">จัดการข้อมูล PIR ปริมาณมากผ่านระบบ Excel ไฟล์สำหรับการนำเข้าและส่งออกข้อมูลอย่างรวดเร็ว</Text>
+
                         <div className="flex flex-wrap gap-4 justify-center items-center">
                             <Button type="primary" onClick={handleExport} loading={exporting} size="large" icon={<Download size={20} />} className="bg-blue-600 h-14 px-10 rounded-2xl font-bold flex items-center gap-3 shadow-lg shadow-blue-100">EXPORT DATA</Button>
                             <Button type="default" onClick={handleDownloadTemplate} size="large" icon={<Download size={20} />} className="h-14 px-8 rounded-2xl font-bold border-slate-200">DOWNLOAD TEMPLATE</Button>
                         </div>
                         <div className="mt-12 w-full max-w-sm p-6 bg-slate-50 border border-slate-200 rounded-2xl">
                             <div className="flex items-center gap-2 text-slate-700 font-bold mb-4 uppercase text-xs tracking-widest"><Upload size={16} /> อัปโหลดไฟล์เพื่อนำเข้า</div>
-                            <input type="file" accept=".xlsx" className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" onChange={(e) => setSelectedImportFile(e.target.files?.[0] || null)} />
+                            <input
+                                ref={importFileInputRef}
+                                type="file"
+                                accept=".xlsx"
+                                className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+                                onClick={(e) => { (e.currentTarget as HTMLInputElement).value = ''; }}
+                                onChange={(e) => setSelectedImportFile(e.target.files?.[0] || null)}
+                            />
                             {selectedImportFile && <Button type="primary" block className="mt-6 bg-emerald-600 h-12 rounded-xl font-bold text-white border-none shadow-md shadow-emerald-50" onClick={handleImport} loading={importing}>CONFIRM UPLOAD & IMPORT</Button>}
                         </div>
                         {importing && <Progress percent={100} status="active" strokeColor="#10b981" className="max-w-sm mt-4 px-6" />}
@@ -353,7 +504,11 @@ function PIRContent() {
             <Modal title={<div className="flex items-center gap-2 border-b pb-3 mb-4"><Plus className="text-blue-600" /> <span className="font-bold">Add Productivity Rate</span></div>} open={isAddRateModal} onOk={handleAddRate} onCancel={() => setIsAddRateModal(false)} okText="บันทึกรายการ" cancelText="ยกเลิก" okButtonProps={{ className: 'bg-blue-600 rounded-lg px-8' }}>
                 <div className="flex flex-col gap-6 py-4">
                     <div className="flex flex-col gap-1"><label className="text-slate-500 text-xs font-bold uppercase">ปี (Year)</label><Select value={addRateForm.year.toString()} onChange={(v) => setAddRateForm({ ...addRateForm, year: parseInt(v) })} options={yearOptions} size="large" className="w-full" /></div>
-                    <div className="flex flex-col gap-1"><label className="text-slate-500 text-xs font-bold uppercase">Productivity Improvement Rate (%)</label><InputNumber min={0} style={{ width: '100%' }} size="large" value={addRateForm.rate} onChange={(val) => setAddRateForm({ ...addRateForm, rate: val || 0 })} className="rounded-lg" /></div>
+                    <div className="flex flex-col gap-1">
+                        <label className="text-slate-500 text-xs font-bold uppercase">Productivity Improvement Rate (%)</label>
+                        <InputNumber min={0} style={{ width: '100%' }} size="large" value={addRateForm.rate} onChange={(val) => setAddRateForm({ ...addRateForm, rate: val === null ? null : Number(val) })} placeholder={addRateForm.year <= parseInt(effectiveYear) ? 'เว้นว่างได้ (ระบบจะใช้ 0%)' : 'กรอกเปอร์เซ็นต์'} className="rounded-lg" />
+                        {addRateForm.year <= parseInt(effectiveYear) && <Text type="secondary" className="text-[11px]">ปีปัจจุบันและปีย้อนหลัง (เทียบ Effective Year) สามารถเว้นเปอร์เซ็นต์ได้</Text>}
+                    </div>
                 </div>
             </Modal>
 

@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Main from '@/components/layout/main';
-import { Table, Button, Tooltip, message, Modal, Select, DatePicker } from 'antd';
+import { Table, Button, Tooltip, Modal, Select, DatePicker, App as AntdApp } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { FileTextOutlined, SendOutlined, CloseCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import { MonitorCheck } from 'lucide-react';
@@ -37,6 +37,15 @@ interface SapLogDataType {
     levelGroupNo: string;
     logType: string;
     logMessage: string;
+}
+
+interface SendToSapResult {
+    resultCode: string;
+    fileReady: boolean;
+    ftpEnabled: boolean;
+    ftpSent: boolean;
+    downloadPath: string;
+    message: string;
 }
 
 const MONTHS = [
@@ -88,6 +97,20 @@ const FILTER_DATE_CLASS =
 const toText = (value: unknown): string => {
     if (value === null || value === undefined) return '';
     return String(value).trim();
+};
+
+const resolveEmployeeId = (): string => {
+    if (typeof window === 'undefined') return 'SYSTEM';
+
+    const userDataRaw = localStorage.getItem('user_data');
+    if (!userDataRaw) return 'SYSTEM';
+
+    try {
+        const userData = JSON.parse(userDataRaw) as { employeeID?: string };
+        return toText(userData.employeeID) || 'SYSTEM';
+    } catch {
+        return 'SYSTEM';
+    }
 };
 
 const toNumber = (value: unknown): number => {
@@ -257,10 +280,12 @@ const mapSapStatus = (status: number): string => {
     }
 };
 
-export default function SapMonitorPage() {
+function SapMonitorPageContent() {
+    const { message: messageApi, modal } = AntdApp.useApp();
     const [loading, setLoading] = useState(false);
     const [logLoading, setLogLoading] = useState(false);
     const [token, setToken] = useState('');
+    const [sendingRowKey, setSendingRowKey] = useState('');
 
     const [selectedMonth, setSelectedMonth] = useState<string>(() => `${new Date().getMonth() + 1}`.padStart(2, '0'));
     const [selectedYear, setSelectedYear] = useState<string>(() => (new Date().getFullYear() + 543).toString());
@@ -280,6 +305,12 @@ export default function SapMonitorPage() {
         if (typeof window === 'undefined') return;
         setToken(localStorage.getItem('auth_token') || '');
         setYears(getYears());
+    }, []);
+
+    const downloadSapFile = useCallback((downloadPath?: string) => {
+        const targetPath = toText(downloadPath) || '/api/transactions/hrcenter/sap-file';
+        const separator = targetPath.includes('?') ? '&' : '?';
+        window.open(`${targetPath}${separator}t=${Date.now()}`, '_blank', 'noopener,noreferrer');
     }, []);
 
     const loadGrid = useCallback(async () => {
@@ -320,12 +351,12 @@ export default function SapMonitorPage() {
 
             setData(mapped);
         } catch {
-            message.error('ไม่สามารถโหลดข้อมูล SAP Transfer Monitor ได้');
+            messageApi.error('ไม่สามารถโหลดข้อมูล SAP Transfer Monitor ได้');
             setData([]);
         } finally {
             setLoading(false);
         }
-    }, [selectedMonth, selectedYear, token]);
+    }, [selectedMonth, selectedYear, token, messageApi]);
 
     useEffect(() => {
         void loadGrid();
@@ -334,7 +365,7 @@ export default function SapMonitorPage() {
     const openLogModal = useCallback(async (record: SapMonitorDataType) => {
         const effectiveDate = record.effective_date_query;
         if (!effectiveDate) {
-            message.warning('ไม่พบ Effective Date ของรายการนี้');
+            messageApi.warning('ไม่พบ Effective Date ของรายการนี้');
             return;
         }
 
@@ -354,16 +385,91 @@ export default function SapMonitorPage() {
 
             setLogData(mapped);
         } catch {
-            message.error('ไม่สามารถโหลด Log Interface ได้');
+            messageApi.error('ไม่สามารถโหลด Log Interface ได้');
             setLogData([]);
         } finally {
             setLogLoading(false);
         }
-    }, [token]);
+    }, [token, messageApi]);
 
-    const handleSend = useCallback(() => {
-        message.info('ยังไม่เปิดใช้งานการ Send to SAP จากหน้าจอนี้');
-    }, []);
+    const executeSend = useCallback(async (record: SapMonitorDataType) => {
+        if (sendingRowKey) return;
+        setSendingRowKey(record.key);
+
+        try {
+            let monthValue = selectedMonth;
+            let yearBE = selectedYear;
+
+            const recordDate = dayjs(record.effective_date_iso);
+            if (recordDate.isValid()) {
+                monthValue = recordDate.format('MM');
+                yearBE = (recordDate.year() + 543).toString();
+            }
+
+            const monthLabel = MONTHS.find((item) => item.value === monthValue)?.label || MONTHS[0].label;
+
+            const response = await fetch('/api/transactions/hrcenter/send-to-sap', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    effectiveMonth: monthLabel,
+                    effectiveYear: yearBE,
+                    employeeId: resolveEmployeeId(),
+                    orgUnits: [],
+                }),
+            });
+
+            const resultJson = await response.json().catch(() => null) as { data?: SendToSapResult; message?: string } | null;
+            const result = resultJson?.data;
+
+            if (!response.ok || !result) {
+                messageApi.error(resultJson?.message || 'ไม่สามารถนำส่งข้อมูลเข้า SAP ได้');
+                return;
+            }
+
+            if (result.resultCode === '-1') {
+                messageApi.warning(result.message || 'มีหน่วยงานที่ค่ากรอบติดลบ โปรดตรวจสอบก่อนนำส่งเข้าบันทึกที่ระบบ SAP');
+            } else if (result.resultCode === '0') {
+                messageApi.error(result.message || 'นำส่งเข้าบันทึกที่ระบบ SAP ไม่สำเร็จ');
+            } else if (result.resultCode === '2') {
+                messageApi.warning(result.message || 'ส่งไฟล์ FTP ไม่สำเร็จ แต่สามารถดาวน์โหลดไฟล์ได้');
+            } else {
+                messageApi.success(result.message || 'นำส่งเข้าบันทึกที่ระบบ SAP เสร็จสิ้น');
+            }
+
+            if ((result.resultCode === '1' || result.resultCode === '2') && result.fileReady) {
+                modal.confirm({
+                    title: 'ไฟล์ SAP พร้อมใช้งาน',
+                    content: 'ต้องการดาวน์โหลดไฟล์เพื่อนำไปใช้งานตอนนี้หรือไม่?',
+                    okText: 'ดาวน์โหลดไฟล์',
+                    cancelText: 'ภายหลัง',
+                    onOk: () => {
+                        downloadSapFile(result.downloadPath);
+                    },
+                });
+            }
+
+            await loadGrid();
+        } catch (error) {
+            console.error('Error sending SAP data:', error);
+            messageApi.error('เกิดข้อผิดพลาดระหว่างนำส่งข้อมูลเข้า SAP');
+        } finally {
+            setSendingRowKey('');
+        }
+    }, [sendingRowKey, selectedMonth, selectedYear, messageApi, modal, loadGrid, downloadSapFile]);
+
+    const handleSend = useCallback((record: SapMonitorDataType) => {
+        modal.confirm({
+            title: 'ต้องการนำส่งเข้าบันทึกที่ระบบ SAP ใช่หรือไม่?',
+            okText: 'ตกลง',
+            cancelText: 'ยกเลิก',
+            onOk: async () => {
+                await executeSend(record);
+            },
+        });
+    }, [modal, executeSend]);
 
     const filteredData = useMemo(() => {
         return data.filter((item) => {
@@ -514,7 +620,9 @@ export default function SapMonitorPage() {
                         type="primary"
                         size="small"
                         icon={<SendOutlined />}
-                        onClick={() => handleSend()}
+                        loading={sendingRowKey === record.key}
+                        disabled={Boolean(sendingRowKey) && sendingRowKey !== record.key}
+                        onClick={() => handleSend(record)}
                         className="bg-blue-500 hover:bg-blue-600"
                     >
                         Send
@@ -634,22 +742,30 @@ export default function SapMonitorPage() {
                 </div>
             </div>
 
-            <Modal
-                title={`Log Interface (Effective Date: ${selectedLogDate || '-'})`}
-                open={isLogModalOpen}
-                onCancel={() => setIsLogModalOpen(false)}
-                footer={null}
-                width={900}
-            >
-                <Table
-                    columns={logColumns}
-                    dataSource={logData}
-                    loading={logLoading}
-                    pagination={false}
-                    scroll={{ x: 760, y: 400 }}
-                    size="middle"
-                />
-            </Modal>
+                <Modal
+                    title={`Log Interface (Effective Date: ${selectedLogDate || '-'})`}
+                    open={isLogModalOpen}
+                    onCancel={() => setIsLogModalOpen(false)}
+                    footer={null}
+                    width={900}
+                >
+                    <Table
+                        columns={logColumns}
+                        dataSource={logData}
+                        loading={logLoading}
+                        pagination={false}
+                        scroll={{ x: 760, y: 400 }}
+                        size="middle"
+                    />
+                </Modal>
         </Main>
+    );
+}
+
+export default function SapMonitorPage() {
+    return (
+        <AntdApp>
+            <SapMonitorPageContent />
+        </AntdApp>
     );
 }

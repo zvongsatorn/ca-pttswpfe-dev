@@ -57,11 +57,18 @@ export const getDelayRetirementData = async (token?: string, delayYear?: string)
     return fetchWithAuth<DelayRetirementDataType[]>(`/api/delay${suffix}`, token);
 };
 
-export const getEmployeeOptions = async (token?: string, keyword?: string) => {
+export const getEmployeeOptions = async (token?: string, delayYear?: string | number, keyword?: string) => {
     const query = new URLSearchParams();
+    if (delayYear !== undefined && delayYear !== null && String(delayYear).trim() !== '') {
+        query.set('year', String(delayYear).trim());
+    }
     if (keyword && keyword.trim()) query.set('q', keyword.trim());
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return fetchWithAuth<DelayEmployeeOptionType[]>(`/api/delay/employees${suffix}`, token);
+};
+
+export const getDelayRetireYears = async (token?: string) => {
+    return fetchWithAuth<number[]>('/api/delay/retire-years', token);
 };
 
 export const createDelayRetirement = async (payload: DelayUpsertPayload, token?: string) => {

@@ -10,11 +10,28 @@ async function fetchWithAuth(url: string, token?: string, options: RequestInit =
         },
     });
 
-    if (!res.ok) {
-        console.error(`Fetch failed: ${url}`, res.statusText);
-        return null;
+    const contentType = res.headers.get('content-type') || '';
+    let payload: any = null;
+    try {
+        payload = contentType.includes('application/json') ? await res.json() : await res.text();
+    } catch {
+        payload = null;
     }
-    return res.json();
+
+    if (!res.ok) {
+        const errorMessage =
+            (payload && typeof payload === 'object' && 'message' in payload ? String(payload.message) : '') ||
+            (typeof payload === 'string' ? payload : '') ||
+            res.statusText;
+        console.error(`Fetch failed: ${url}`, errorMessage);
+        return {
+            success: false,
+            message: errorMessage,
+            status: res.status,
+            ...(payload && typeof payload === 'object' ? payload : {})
+        };
+    }
+    return payload;
 }
 
 // --- Tab 1: PIR ---
@@ -23,7 +40,7 @@ export const getPIR = async (effectiveYear: string, orgUnitNo?: string, token?: 
     return await fetchWithAuth(`/api/pir${query}`, token);
 };
 
-export const insertPIR = async (data: { effectiveYear: string, year: string, rate: number, orgUnitNo: string, createBy: string, import?: number }, token?: string) => {
+export const insertPIR = async (data: { effectiveYear: string, year: string, rate: number | null, orgUnitNo: string, createBy: string, import?: number }, token?: string) => {
     return await fetchWithAuth('/api/pir', token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
