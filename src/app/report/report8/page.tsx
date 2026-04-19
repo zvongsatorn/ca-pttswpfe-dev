@@ -170,7 +170,7 @@ const isSameSelection = (a: string[], b: string[]) =>
     a.length === b.length && a.every((item, index) => item === b[index]);
 
 const syncSelected = (prev: string[], options: FilterOption[]) => {
-    const next = prev.filter((item) => options.some((opt) => opt.value === item)).slice(0, 1);
+    const next = prev.filter((item) => options.some((opt) => opt.value === item));
     return isSameSelection(prev, next) ? prev : next;
 };
 
@@ -185,7 +185,7 @@ const toLineOption = (row: Report8FilterItem): FilterOption | null => {
     const value = toText(row.OrgUnitNo);
     const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
     if (!value || !label) return null;
-    return { value, label };
+    return { value, label: `${value} - ${label}` };
 };
 
 const generateLevelColumns = (
@@ -228,6 +228,15 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = '
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const containerRef = useRef<HTMLDivElement>(null);
+    const fixedCheckboxStyle: React.CSSProperties = {
+        width: 16,
+        height: 16,
+        minWidth: 16,
+        minHeight: 16,
+        maxWidth: 16,
+        maxHeight: 16,
+        boxSizing: 'border-box',
+    };
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -274,7 +283,7 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = '
                 <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
             </div>
             {isOpen && (
-                <div className="absolute left-0 top-full mt-1 w-72 bg-white rounded-lg shadow-xl border border-gray-200 z-[260] overflow-hidden">
+                <div className="absolute left-0 top-full mt-1 w-72 bg-white rounded-lg shadow-xl border border-gray-200 z-[400] overflow-hidden">
                     <div className="p-2 border-b border-gray-100">
                         <div className="relative">
                             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -290,18 +299,24 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = '
                     <div className="max-h-60 overflow-y-auto p-1">
                         {filteredOptions.length > 0 && (
                             <div className="flex items-center px-2 py-2 hover:bg-blue-50 rounded cursor-pointer mb-1 border-b border-gray-50" onClick={handleSelectAll}>
-                                <div className={`w-4 h-4 rounded border mr-2 flex items-center justify-center ${selectedValues.length === options.length && options.length > 0 ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
-                                    {selectedValues.length === options.length && options.length > 0 && <Check className="h-3 w-3 text-white" />}
+                                <div
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center ${selectedValues.length === options.length && options.length > 0 ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}
+                                >
+                                    {selectedValues.length === options.length && options.length > 0 && <Check className="h-3 w-3 shrink-0 text-white" />}
                                 </div>
                                 <span className="text-sm font-semibold text-blue-700">เลือกทั้งหมด</span>
                             </div>
                         )}
                         {filteredOptions.map((option) => (
                             <div key={option.value} className="flex items-center px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer" onClick={() => toggleOption(option.value)}>
-                                <div className={`w-4 h-4 rounded border mr-2 flex items-center justify-center transition-colors ${selectedValues.includes(option.value) ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
-                                    {selectedValues.includes(option.value) && <Check className="h-3 w-3 text-white" />}
+                                <div
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center transition-colors ${selectedValues.includes(option.value) ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}
+                                >
+                                    {selectedValues.includes(option.value) && <Check className="h-3 w-3 shrink-0 text-white" />}
                                 </div>
-                                <span className="text-sm text-gray-700 truncate" title={option.label}>{option.label}</span>
+                                <span className="text-sm text-gray-700 truncate min-w-0 flex-1" title={option.label}>{option.label}</span>
                             </div>
                         ))}
                     </div>
@@ -425,8 +440,8 @@ export default function Report8Page() {
         setCurrentSearchDate(nextDate);
         setHasSearched(true);
 
-        const bgNo = selectedBusinessUnits[0] || '';
-        const division = selectedLinesOfWork[0] || '';
+        const bgNo = selectedBusinessUnits.join(',');
+        const division = selectedLinesOfWork.join(',');
         await fetchData(nextDate, bgNo, division);
     };
 
@@ -474,7 +489,7 @@ export default function Report8Page() {
         };
     }, [hasSearched, isFullscreen, checkedList, tableData.length]);
 
-    const selectedBusinessUnit = selectedBusinessUnits[0] || '';
+    const selectedBusinessUnit = selectedBusinessUnits.length === 1 ? selectedBusinessUnits[0] : '';
 
     useEffect(() => {
         const controller = new AbortController();
@@ -489,13 +504,11 @@ export default function Report8Page() {
     }, [filterDate, selectedBusinessUnit, fetchFilterOptions]);
 
     const onBusinessChange = (values: string[]) => {
-        const next = values.slice(-1);
-        setSelectedBusinessUnits(next);
-        setSelectedLinesOfWork([]);
+        setSelectedBusinessUnits(values);
     };
 
     const onLineChange = (values: string[]) => {
-        setSelectedLinesOfWork(values.slice(-1));
+        setSelectedLinesOfWork(values);
     };
 
     const handleExportExcel = async () => {
@@ -830,7 +843,7 @@ export default function Report8Page() {
 
                 <div
                     className={`bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4 ${
-                        isFullscreen ? 'shrink-0' : 'sticky top-0 z-10'
+                        isFullscreen ? 'shrink-0' : 'sticky top-0 z-[300]'
                     }`}
                 >
                     <Form

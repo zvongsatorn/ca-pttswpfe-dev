@@ -88,6 +88,19 @@ interface Report2ApiResponse {
     message?: string;
 }
 
+interface Report2FilterItem {
+    BGNo?: string;
+    BGName?: string;
+}
+
+interface Report2FilterResponse {
+    status: number;
+    data?: {
+        businessUnits: Report2FilterItem[];
+    };
+    message?: string;
+}
+
 interface SearchFormValues {
     startMonth?: Dayjs;
     endMonth?: Dayjs;
@@ -166,6 +179,15 @@ function MultiSelectFilter({
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const containerRef = useRef<HTMLDivElement>(null);
+    const fixedCheckboxStyle: React.CSSProperties = {
+        width: 16,
+        height: 16,
+        minWidth: 16,
+        minHeight: 16,
+        maxWidth: 16,
+        maxHeight: 16,
+        boxSizing: 'border-box',
+    };
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -236,14 +258,15 @@ function MultiSelectFilter({
                                 onClick={handleSelectAll}
                             >
                                 <div
-                                    className={`w-4 h-4 rounded border mr-2 flex items-center justify-center ${
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center ${
                                         selectedValues.length === options.length && options.length > 0
                                             ? 'bg-blue-600 border-blue-600'
                                             : 'border-gray-300'
                                     }`}
                                 >
                                     {selectedValues.length === options.length && options.length > 0 && (
-                                        <Check className="h-3 w-3 text-white" />
+                                        <Check className="h-3 w-3 shrink-0 text-white" />
                                     )}
                                 </div>
                                 <span className="text-sm font-semibold text-blue-700">เลือกทั้งหมด</span>
@@ -257,15 +280,16 @@ function MultiSelectFilter({
                                 onClick={() => toggleOption(option)}
                             >
                                 <div
-                                    className={`w-4 h-4 rounded border mr-2 flex items-center justify-center transition-colors ${
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center transition-colors ${
                                         selectedValues.includes(option)
                                             ? 'bg-blue-600 border-blue-600'
                                             : 'border-gray-300'
                                     }`}
                                 >
-                                    {selectedValues.includes(option) && <Check className="h-3 w-3 text-white" />}
+                                    {selectedValues.includes(option) && <Check className="h-3 w-3 shrink-0 text-white" />}
                                 </div>
-                                <span className="text-sm text-gray-700 truncate" title={option}>
+                                <span className="text-sm text-gray-700 truncate min-w-0 flex-1" title={option}>
                                     {option}
                                 </span>
                             </div>
@@ -291,6 +315,11 @@ const toNumberOrNull = (value: unknown): number | null => {
     if (value === null || value === undefined || value === '') return null;
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
+};
+
+const toText = (value: unknown): string => {
+    if (value === null || value === undefined) return '';
+    return String(value).trim();
 };
 
 const normalizeYearToAD = (yearRaw: number): number => (yearRaw > 2400 ? yearRaw - 543 : yearRaw);
@@ -626,6 +655,7 @@ export default function Report2Page() {
 
     const [startMonth, setStartMonth] = useState<Dayjs>(dayjs());
     const [endMonth, setEndMonth] = useState<Dayjs>(dayjs());
+    const [filterEffectiveMonth, setFilterEffectiveMonth] = useState<Dayjs>(dayjs());
 
     const [allData, setAllData] = useState<DataType[]>([]);
     const [hasSearched, setHasSearched] = useState(false);
@@ -680,6 +710,49 @@ export default function Report2Page() {
         return treeRows;
     }, [data]);
 
+    const fetchFilterOptions = useCallback(async (effectiveDate: Dayjs) => {
+        const { employeeId, userGroupNo } = resolveUserContext();
+        if (!employeeId || employeeId === 'SYSTEM' || !userGroupNo) {
+            setBusinessUnitOptions([]);
+            setSelectedUnits((prev) => (prev.length > 0 ? [] : prev));
+            return;
+        }
+
+        try {
+            const query = new URLSearchParams({
+                effectiveDate: effectiveDate.format('YYYY-MM-DD'),
+                employeeId,
+                userGroupNo,
+            });
+
+            const res = await fetch(`/api/report/report3/filters?${query.toString()}`);
+            const payload = (await res.json()) as Report2FilterResponse;
+
+            if (!res.ok || payload.status !== 200 || !payload.data) {
+                throw new Error(payload.message || 'ไม่สามารถดึงตัวเลือกหน่วยธุรกิจได้');
+            }
+
+            const nextOptions = Array.from(
+                new Set(
+                    payload.data.businessUnits
+                        .map((item) => toText(item.BGName))
+                        .filter((name) => name.length > 0)
+                )
+            ).sort((a, b) => a.localeCompare(b, 'th'));
+
+            setBusinessUnitOptions(nextOptions);
+            setSelectedUnits((prev) => prev.filter((unit) => nextOptions.includes(unit)));
+        } catch (error) {
+            console.error('Failed to fetch report2 filter options:', error);
+            setBusinessUnitOptions([]);
+            setSelectedUnits((prev) => (prev.length > 0 ? [] : prev));
+        }
+    }, []);
+
+    useEffect(() => {
+        void fetchFilterOptions(filterEffectiveMonth.startOf('month'));
+    }, [filterEffectiveMonth, fetchFilterOptions]);
+
     const fetchReportData = useCallback(async (start: Dayjs, end: Dayjs, requestedUnits: string[] = []) => {
         const { employeeId, userGroupNo } = resolveUserContext();
         if (!employeeId || employeeId === 'SYSTEM' || !userGroupNo) {
@@ -707,17 +780,11 @@ export default function Report2Page() {
 
             const transformed = transformRows(payload.data, monthKeys);
             setAllData(transformed.rows);
-            setBusinessUnitOptions(transformed.unitOptions);
-            const validRequestedUnits = requestedUnits.filter((unit) => transformed.unitOptions.includes(unit));
-            const nextAppliedUnits = validRequestedUnits.length > 0 ? validRequestedUnits : transformed.unitOptions;
-            setSelectedUnits(nextAppliedUnits);
-            setAppliedUnits(nextAppliedUnits);
+            setAppliedUnits(requestedUnits);
             setHasSearched(true);
         } catch (error) {
             console.error('Failed to fetch report2 data:', error);
             setAllData([]);
-            setBusinessUnitOptions([]);
-            setSelectedUnits([]);
             setAppliedUnits([]);
             setHasSearched(true);
             alert('ไม่สามารถดึงข้อมูลรายงานได้');
@@ -737,7 +804,12 @@ export default function Report2Page() {
 
         setStartMonth(nextStart);
         setEndMonth(nextEnd);
+        setFilterEffectiveMonth(nextStart);
         await fetchReportData(nextStart, nextEnd, selectedUnits);
+    };
+
+    const onStartMonthChange = (date: Dayjs | null) => {
+        if (date) setFilterEffectiveMonth(date);
     };
 
     const onCheckboxChange = (list: CheckboxValueType[]) => {
@@ -1749,7 +1821,7 @@ export default function Report2Page() {
                         className="flex items-center gap-2"
                     >
                         <Form.Item label="ตั้งแต่" name="startMonth" className="m-0">
-                            <DatePicker picker="month" format="MMMM YYYY" allowClear={false} />
+                            <DatePicker picker="month" format="MMMM YYYY" allowClear={false} onChange={onStartMonthChange} />
                         </Form.Item>
                         <Form.Item label="ถึง" name="endMonth" className="m-0">
                             <DatePicker picker="month" format="MMMM YYYY" allowClear={false} />

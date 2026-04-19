@@ -301,7 +301,7 @@ const isSameSelection = (a: string[], b: string[]) =>
     a.length === b.length && a.every((item, index) => item === b[index]);
 
 const syncSelected = (prev: string[], options: FilterOption[]) => {
-    const next = prev.filter((item) => options.some((opt) => opt.value === item)).slice(0, 1);
+    const next = prev.filter((item) => options.some((opt) => opt.value === item));
     return isSameSelection(prev, next) ? prev : next;
 };
 
@@ -316,14 +316,14 @@ const toLineOption = (row: Report3FilterItem): FilterOption | null => {
     const value = toText(row.OrgUnitNo);
     const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
     if (!value || !label) return null;
-    return { value, label };
+    return { value, label: `${value} - ${label}` };
 };
 
 const toUnitOption = (row: Report3FilterItem): FilterOption | null => {
     const value = toText(row.OrgUnitNo);
     const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
     if (!value || !label) return null;
-    return { value, label };
+    return { value, label: `${value} - ${label}` };
 };
 
 const transformRows = (rawRows: Report3RawRow[]): Report3DataType[] => {

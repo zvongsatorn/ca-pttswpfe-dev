@@ -28,6 +28,15 @@ export default function MultiSelectFilter({
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const containerRef = useRef<HTMLDivElement>(null);
+    const fixedCheckboxStyle: React.CSSProperties = {
+        width: 16,
+        height: 16,
+        minWidth: 16,
+        minHeight: 16,
+        maxWidth: 16,
+        maxHeight: 16,
+        boxSizing: 'border-box',
+    };
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -101,14 +110,15 @@ export default function MultiSelectFilter({
                                 onClick={handleSelectAll}
                             >
                                 <div
-                                    className={`w-4 h-4 rounded border mr-2 flex items-center justify-center ${
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center ${
                                         selectedValues.length === options.length && options.length > 0
                                             ? 'bg-blue-600 border-blue-600'
                                             : 'border-gray-300'
                                     }`}
                                 >
                                     {selectedValues.length === options.length && options.length > 0 && (
-                                        <Check className="h-3 w-3 text-white" />
+                                        <Check className="h-3 w-3 shrink-0 text-white" />
                                     )}
                                 </div>
                                 <span className="text-sm font-semibold text-blue-700">เลือกทั้งหมด</span>
@@ -122,17 +132,18 @@ export default function MultiSelectFilter({
                                 onClick={() => toggleOption(option.value)}
                             >
                                 <div
-                                    className={`w-4 h-4 rounded border mr-2 flex items-center justify-center transition-colors ${
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center transition-colors ${
                                         selectedValues.includes(option.value)
                                             ? 'bg-blue-600 border-blue-600'
                                             : 'border-gray-300'
                                     }`}
                                 >
                                     {selectedValues.includes(option.value) && (
-                                        <Check className="h-3 w-3 text-white" />
+                                        <Check className="h-3 w-3 shrink-0 text-white" />
                                     )}
                                 </div>
-                                <span className="text-sm text-gray-700 truncate" title={option.label}>
+                                <span className="text-sm text-gray-700 truncate min-w-0 flex-1" title={option.label}>
                                     {option.label}
                                 </span>
                             </div>

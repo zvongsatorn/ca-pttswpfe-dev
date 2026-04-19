@@ -238,7 +238,7 @@ const isSameSelection = (a: string[], b: string[]) =>
     a.length === b.length && a.every((item, index) => item === b[index]);
 
 const syncSelected = (prev: string[], options: FilterOption[]) => {
-    const next = prev.filter((item) => options.some((opt) => opt.value === item)).slice(0, 1);
+    const next = prev.filter((item) => options.some((opt) => opt.value === item));
     return isSameSelection(prev, next) ? prev : next;
 };
 
@@ -253,14 +253,14 @@ const toLineOption = (row: Report4FilterItem): FilterOption | null => {
     const value = toText(row.OrgUnitNo);
     const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
     if (!value || !label) return null;
-    return { value, label };
+    return { value, label: `${value} - ${label}` };
 };
 
 const toUnitOption = (row: Report4FilterItem): FilterOption | null => {
     const value = toText(row.OrgUnitNo);
     const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
     if (!value || !label) return null;
-    return { value, label };
+    return { value, label: `${value} - ${label}` };
 };
 
 const transformRows = (rows: Report4RawRow[]): Report4DataType[] => {
@@ -398,6 +398,15 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = '
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const containerRef = useRef<HTMLDivElement>(null);
+    const fixedCheckboxStyle: React.CSSProperties = {
+        width: 16,
+        height: 16,
+        minWidth: 16,
+        minHeight: 16,
+        maxWidth: 16,
+        maxHeight: 16,
+        boxSizing: 'border-box',
+    };
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -452,18 +461,24 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = '
                     <div className="max-h-60 overflow-y-auto p-1">
                         {filteredOptions.length > 0 && (
                             <div className="flex items-center px-2 py-2 hover:bg-blue-50 rounded cursor-pointer mb-1 border-b border-gray-50" onClick={handleSelectAll}>
-                                <div className={`w-4 h-4 rounded border mr-2 flex items-center justify-center ${selectedValues.length === options.length && options.length > 0 ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
-                                    {selectedValues.length === options.length && options.length > 0 && <Check className="h-3 w-3 text-white" />}
+                                <div
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center ${selectedValues.length === options.length && options.length > 0 ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}
+                                >
+                                    {selectedValues.length === options.length && options.length > 0 && <Check className="h-3 w-3 shrink-0 text-white" />}
                                 </div>
                                 <span className="text-sm font-semibold text-blue-700">เลือกทั้งหมด</span>
                             </div>
                         )}
                         {filteredOptions.map((option) => (
                             <div key={option.value} className="flex items-center px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer" onClick={() => toggleOption(option.value)}>
-                                <div className={`w-4 h-4 rounded border mr-2 flex items-center justify-center transition-colors ${selectedValues.includes(option.value) ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
-                                    {selectedValues.includes(option.value) && <Check className="h-3 w-3 text-white" />}
+                                <div
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center transition-colors ${selectedValues.includes(option.value) ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}
+                                >
+                                    {selectedValues.includes(option.value) && <Check className="h-3 w-3 shrink-0 text-white" />}
                                 </div>
-                                <span className="text-sm text-gray-700 truncate" title={option.label}>{option.label}</span>
+                                <span className="text-sm text-gray-700 truncate min-w-0 flex-1" title={option.label}>{option.label}</span>
                             </div>
                         ))}
                     </div>
@@ -613,9 +628,9 @@ export default function Report4Page() {
         setAppliedDatasets([...selectedDatasets]);
         setAppliedCheckedList([...checkedList]);
         setPageCurrent(1);
-        const bgNo = selectedBusinessUnits[0] || '';
-        const division = selectedLinesOfWork[0] || '';
-        const orgUnitNo = selectedOrgUnits[0] || '';
+        const bgNo = selectedBusinessUnits.join(',');
+        const division = selectedLinesOfWork.join(',');
+        const orgUnitNo = selectedOrgUnits.join(',');
         await fetchReportData(searchDate, bgNo, division, orgUnitNo);
     };
 
@@ -710,8 +725,8 @@ export default function Report4Page() {
         [getHorizontalScrollElement, scheduleHorizontalStateUpdate]
     );
 
-    const selectedBusinessUnit = selectedBusinessUnits[0] || '';
-    const selectedLineOfWork = selectedLinesOfWork[0] || '';
+    const selectedBusinessUnit = selectedBusinessUnits.length === 1 ? selectedBusinessUnits[0] : '';
+    const selectedLineOfWork = selectedLinesOfWork.length === 1 ? selectedLinesOfWork[0] : '';
 
     useEffect(() => {
         // Use only searched date; changing date input alone must not refresh options/data.
@@ -727,15 +742,15 @@ export default function Report4Page() {
     }, [currentSearchDate, selectedBusinessUnit, selectedLineOfWork, fetchFilterOptions]);
 
     const onBusinessChange = (values: string[]) => {
-        setSelectedBusinessUnits(values.slice(-1));
+        setSelectedBusinessUnits(values);
     };
 
     const onLineChange = (values: string[]) => {
-        setSelectedLinesOfWork(values.slice(-1));
+        setSelectedLinesOfWork(values);
     };
 
     const onUnitChange = (values: string[]) => {
-        setSelectedOrgUnits(values.slice(-1));
+        setSelectedOrgUnits(values);
     };
 
     const effectiveCheckedList = useMemo(() => {

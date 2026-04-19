@@ -60,6 +60,8 @@ interface Report5DataType {
     unit_short: string;
     unit_code: string;
     unit_name: string;
+    line_of_work_code: string;
+    business_unit_code: string;
     date: string;
     frame_21: number;
     frame_18_20: number;
@@ -117,6 +119,35 @@ const toNumber = (value: unknown): number => {
 const toText = (value: unknown): string => {
     if (value === undefined || value === null) return '';
     return String(value).trim();
+};
+
+const normalizeFilterKey = (value: unknown): string => toText(value).toLowerCase();
+
+const buildSelectedMatchSet = (selectedValues: string[], options: FilterOption[]): Set<string> => {
+    const optionByValue = new Map(options.map((opt) => [normalizeFilterKey(opt.value), opt]));
+    const matchSet = new Set<string>();
+
+    selectedValues.forEach((rawValue) => {
+        const normalizedValue = normalizeFilterKey(rawValue);
+        if (!normalizedValue) return;
+
+        matchSet.add(normalizedValue);
+
+        const option = optionByValue.get(normalizedValue);
+        if (!option) return;
+
+        const normalizedLabel = normalizeFilterKey(option.label);
+        if (normalizedLabel) matchSet.add(normalizedLabel);
+
+        const separatorIndex = option.label.indexOf(' - ');
+        if (separatorIndex > -1) {
+            const labelWithoutCode = option.label.slice(separatorIndex + 3);
+            const normalizedWithoutCode = normalizeFilterKey(labelWithoutCode);
+            if (normalizedWithoutCode) matchSet.add(normalizedWithoutCode);
+        }
+    });
+
+    return matchSet;
 };
 
 const toDisplayDate = (value: unknown): string => {
@@ -193,7 +224,7 @@ const isSameSelection = (a: string[], b: string[]) =>
     a.length === b.length && a.every((item, index) => item === b[index]);
 
 const syncSelected = (prev: string[], options: FilterOption[]) => {
-    const next = prev.filter((item) => options.some((opt) => opt.value === item)).slice(0, 1);
+    const next = prev.filter((item) => options.some((opt) => opt.value === item));
     return isSameSelection(prev, next) ? prev : next;
 };
 
@@ -208,14 +239,14 @@ const toLineOption = (row: Report5FilterItem): FilterOption | null => {
     const value = toText(row.OrgUnitNo);
     const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
     if (!value || !label) return null;
-    return { value, label };
+    return { value, label: `${value} - ${label}` };
 };
 
 const toUnitOption = (row: Report5FilterItem): FilterOption | null => {
     const value = toText(row.OrgUnitNo);
     const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
     if (!value || !label) return null;
-    return { value, label };
+    return { value, label: `${value} - ${label}` };
 };
 
 const toDateSortKeyFromDisplayDate = (value: string): number => {
@@ -302,7 +333,9 @@ const transformRows = (rows: Report5RawRow[]): Report5DataType[] => {
     let lastUnitShort = '';
     let lastUnitCode = '';
     let lastUnitName = '';
+    let lastLineCode = '';
     let lastLineOfWork = '';
+    let lastBusinessCode = '';
     let lastBusinessUnit = '';
     let lastDataset = 'ปกติ';
 
@@ -331,7 +364,9 @@ const transformRows = (rows: Report5RawRow[]): Report5DataType[] => {
         const unitShortRaw = toText(row.unit_short ?? row.UnitAbbr ?? row.DisplayName);
         const unitCodeRaw = toText(row.unit_code ?? row.OrgUnitNo);
         const unitNameRaw = toText(row.unit_name ?? row.UnitName ?? row.UnitAbbr ?? row.DisplayName);
+        const lineCodeRaw = toText(row.line_of_work_code ?? row.ParentOrgUnitNo ?? row.parent_org_unit_no);
         const lineRaw = toText(row.line_of_work ?? row.ParentOrgUnitNo ?? row.GrandName2 ?? row.GrandName ?? row.GrandParent ?? row.SecUnitDummy);
+        const businessCodeRaw = toText(row.business_unit_code ?? row.BGNo ?? row.bg_no);
         const businessRaw = toText(row.business_unit ?? row.BGName ?? row.BGNo);
         const operatorRaw = toText(row.operator ?? row.CreateByName);
         const datasetSource = row.dataset ?? row.typecal ?? row.TypeCal;
@@ -340,7 +375,9 @@ const transformRows = (rows: Report5RawRow[]): Report5DataType[] => {
         const unit_short = unitShortRaw || lastUnitShort;
         const unit_code = unitCodeRaw || lastUnitCode;
         const unit_name = unitNameRaw || lastUnitName;
+        const line_of_work_code = lineCodeRaw || lastLineCode;
         const line_of_work = lineRaw || lastLineOfWork;
+        const business_unit_code = businessCodeRaw || lastBusinessCode;
         const business_unit = businessRaw || lastBusinessUnit;
         const operator = operatorRaw;
         const dataset = hasDatasetSource ? resolveDataset(datasetSource) : lastDataset;
@@ -348,7 +385,9 @@ const transformRows = (rows: Report5RawRow[]): Report5DataType[] => {
         if (unitShortRaw) lastUnitShort = unitShortRaw;
         if (unitCodeRaw) lastUnitCode = unitCodeRaw;
         if (unitNameRaw) lastUnitName = unitNameRaw;
+        if (lineCodeRaw) lastLineCode = lineCodeRaw;
         if (lineRaw) lastLineOfWork = lineRaw;
+        if (businessCodeRaw) lastBusinessCode = businessCodeRaw;
         if (businessRaw) lastBusinessUnit = businessRaw;
         if (hasDatasetSource) lastDataset = dataset;
 
@@ -369,6 +408,8 @@ const transformRows = (rows: Report5RawRow[]): Report5DataType[] => {
             unit_short,
             unit_code,
             unit_name,
+            line_of_work_code,
+            business_unit_code,
             date: toDisplayDate(row.date ?? row.EffectiveDate ?? row.effectivedate),
             frame_21: frame21,
             frame_18_20: frame1820,
@@ -411,6 +452,15 @@ function MultiSelectFilter({
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const containerRef = useRef<HTMLDivElement>(null);
+    const fixedCheckboxStyle: React.CSSProperties = {
+        width: 16,
+        height: 16,
+        minWidth: 16,
+        minHeight: 16,
+        maxWidth: 16,
+        maxHeight: 16,
+        boxSizing: 'border-box',
+    };
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -485,8 +535,11 @@ function MultiSelectFilter({
                                 className="flex items-center px-2 py-2 hover:bg-blue-50 rounded cursor-pointer mb-1 border-b border-gray-50"
                                 onClick={handleSelectAll}
                             >
-                                <div className={`w-4 h-4 rounded border mr-2 flex items-center justify-center ${selectedValues.length === options.length && options.length > 0 ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
-                                    {selectedValues.length === options.length && options.length > 0 && <Check className="h-3 w-3 text-white" />}
+                                <div
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center ${selectedValues.length === options.length && options.length > 0 ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}
+                                >
+                                    {selectedValues.length === options.length && options.length > 0 && <Check className="h-3 w-3 shrink-0 text-white" />}
                                 </div>
                                 <span className="text-sm font-semibold text-blue-700">เลือกทั้งหมด</span>
                             </div>
@@ -498,10 +551,13 @@ function MultiSelectFilter({
                                 className="flex items-center px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer"
                                 onClick={() => toggleOption(option.value)}
                             >
-                                <div className={`w-4 h-4 rounded border mr-2 flex items-center justify-center transition-colors ${selectedValues.includes(option.value) ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
-                                    {selectedValues.includes(option.value) && <Check className="h-3 w-3 text-white" />}
+                                <div
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center transition-colors ${selectedValues.includes(option.value) ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}
+                                >
+                                    {selectedValues.includes(option.value) && <Check className="h-3 w-3 shrink-0 text-white" />}
                                 </div>
-                                <span className="text-sm text-gray-700 truncate" title={option.label}>{option.label}</span>
+                                <span className="text-sm text-gray-700 truncate min-w-0 flex-1" title={option.label}>{option.label}</span>
                             </div>
                         ))}
                     </div>
@@ -667,8 +723,8 @@ export default function Report5Page() {
         await fetchReportData(
             nextStart,
             nextEnd,
-            selectedLinesOfWork[0] || '',
-            selectedOrgUnits[0] || ''
+            '',
+            selectedOrgUnits.join(',')
         );
     };
 
@@ -715,8 +771,8 @@ export default function Report5Page() {
         };
     }, [hasSearched, isFullscreen, checkedList.length, allData.length]);
 
-    const selectedBusinessUnit = selectedBusinessUnits[0] || '';
-    const selectedLineOfWork = selectedLinesOfWork[0] || '';
+    const selectedBusinessUnit = selectedBusinessUnits.length === 1 ? selectedBusinessUnits[0] : '';
+    const selectedLineOfWork = selectedLinesOfWork.length === 1 ? selectedLinesOfWork[0] : '';
 
     useEffect(() => {
         const controller = new AbortController();
@@ -735,18 +791,41 @@ export default function Report5Page() {
     }, [appliedCheckedList]);
 
     const filteredData = useMemo(() => {
-        const canFilterBusiness = appliedBusinessUnits.length > 0 && allData.some((item) => item.business_unit);
-        const canFilterLine = appliedLinesOfWork.length > 0 && allData.some((item) => item.line_of_work);
-        const canFilterOrg = appliedOrgUnits.length > 0 && allData.some((item) => item.unit_code);
+        const businessMatchSet = buildSelectedMatchSet(appliedBusinessUnits, businessUnitOptions);
+        const lineMatchSet = buildSelectedMatchSet(appliedLinesOfWork, lineOfWorkOptions);
+        const orgMatchSet = buildSelectedMatchSet(appliedOrgUnits, orgUnitOptions);
+
+        const canFilterBusiness =
+            businessMatchSet.size > 0 &&
+            allData.some((item) => normalizeFilterKey(item.business_unit_code) || normalizeFilterKey(item.business_unit));
+        const canFilterLine =
+            lineMatchSet.size > 0 &&
+            allData.some((item) => normalizeFilterKey(item.line_of_work_code) || normalizeFilterKey(item.line_of_work));
+        const canFilterOrg = orgMatchSet.size > 0 && allData.some((item) => normalizeFilterKey(item.unit_code));
 
         return allData.filter((item) => {
-            const businessOk = !canFilterBusiness || appliedBusinessUnits.includes(item.business_unit);
-            const lineOk = !canFilterLine || appliedLinesOfWork.includes(item.line_of_work);
-            const orgOk = !canFilterOrg || appliedOrgUnits.includes(item.unit_code);
+            const businessOk =
+                !canFilterBusiness ||
+                businessMatchSet.has(normalizeFilterKey(item.business_unit_code)) ||
+                businessMatchSet.has(normalizeFilterKey(item.business_unit));
+            const lineOk =
+                !canFilterLine ||
+                lineMatchSet.has(normalizeFilterKey(item.line_of_work_code)) ||
+                lineMatchSet.has(normalizeFilterKey(item.line_of_work));
+            const orgOk = !canFilterOrg || orgMatchSet.has(normalizeFilterKey(item.unit_code));
             const datasetOk = appliedDatasets.includes(item.dataset);
             return businessOk && lineOk && orgOk && datasetOk;
         });
-    }, [allData, appliedBusinessUnits, appliedLinesOfWork, appliedOrgUnits, appliedDatasets]);
+    }, [
+        allData,
+        appliedBusinessUnits,
+        appliedLinesOfWork,
+        appliedOrgUnits,
+        appliedDatasets,
+        businessUnitOptions,
+        lineOfWorkOptions,
+        orgUnitOptions
+    ]);
 
     const tableDataWithSummary = useMemo(() => {
         if (!filteredData.length) return [];
@@ -756,6 +835,8 @@ export default function Report5Page() {
             unit_short: '',
             unit_code: '',
             unit_name: 'รวมทั้งสิ้น (Grand Total)',
+            line_of_work_code: '',
+            business_unit_code: '',
             date: '',
             frame_21: 0,
             frame_18_20: 0,
@@ -1135,7 +1216,6 @@ export default function Report5Page() {
                                 selectedValues={selectedBusinessUnits}
                                 onChange={setSelectedBusinessUnits}
                                 width="w-40"
-                                singleSelect
                             />
                         </div>
 
@@ -1147,7 +1227,6 @@ export default function Report5Page() {
                                 selectedValues={selectedLinesOfWork}
                                 onChange={setSelectedLinesOfWork}
                                 width="w-40"
-                                singleSelect
                             />
                         </div>
 
@@ -1159,7 +1238,6 @@ export default function Report5Page() {
                                 selectedValues={selectedOrgUnits}
                                 onChange={setSelectedOrgUnits}
                                 width="w-48"
-                                singleSelect
                             />
                         </div>
 

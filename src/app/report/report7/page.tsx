@@ -257,7 +257,7 @@ const isSameSelection = (a: string[], b: string[]) =>
     a.length === b.length && a.every((item, index) => item === b[index]);
 
 const syncSelected = (prev: string[], options: FilterOption[]) => {
-    const next = prev.filter((item) => options.some((opt) => opt.value === item)).slice(0, 1);
+    const next = prev.filter((item) => options.some((opt) => opt.value === item));
     return isSameSelection(prev, next) ? prev : next;
 };
 
@@ -272,7 +272,7 @@ const toLineOption = (row: Report7FilterItem): FilterOption | null => {
     const value = toText(row.OrgUnitNo);
     const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
     if (!value || !label) return null;
-    return { value, label };
+    return { value, label: `${value} - ${label}` };
 };
 
 const transformRows = (rows: Report7ApiRow[]): Report7DataType[] => {
@@ -430,6 +430,15 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = '
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const containerRef = useRef<HTMLDivElement>(null);
+    const fixedCheckboxStyle: React.CSSProperties = {
+        width: 16,
+        height: 16,
+        minWidth: 16,
+        minHeight: 16,
+        maxWidth: 16,
+        maxHeight: 16,
+        boxSizing: 'border-box',
+    };
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -487,18 +496,24 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = '
                                 className="flex items-center px-2 py-2 hover:bg-blue-50 rounded cursor-pointer mb-1 border-b border-gray-50"
                                 onClick={handleSelectAll}
                             >
-                                <div className={`w-4 h-4 rounded border mr-2 flex items-center justify-center ${selectedValues.length === options.length && options.length > 0 ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
-                                    {selectedValues.length === options.length && options.length > 0 && <Check className="h-3 w-3 text-white" />}
+                                <div
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center ${selectedValues.length === options.length && options.length > 0 ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}
+                                >
+                                    {selectedValues.length === options.length && options.length > 0 && <Check className="h-3 w-3 shrink-0 text-white" />}
                                 </div>
                                 <span className="text-sm font-semibold text-blue-700">เลือกทั้งหมด</span>
                             </div>
                         )}
                         {filteredOptions.map((option) => (
                             <div key={option.value} className="flex items-center px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer" onClick={() => toggleOption(option.value)}>
-                                <div className={`w-4 h-4 rounded border mr-2 flex items-center justify-center transition-colors ${selectedValues.includes(option.value) ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
-                                    {selectedValues.includes(option.value) && <Check className="h-3 w-3 text-white" />}
+                                <div
+                                    style={fixedCheckboxStyle}
+                                    className={`shrink-0 rounded border mr-2 flex items-center justify-center transition-colors ${selectedValues.includes(option.value) ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}
+                                >
+                                    {selectedValues.includes(option.value) && <Check className="h-3 w-3 shrink-0 text-white" />}
                                 </div>
-                                <span className="text-sm text-gray-700 truncate" title={option.label}>{option.label}</span>
+                                <span className="text-sm text-gray-700 truncate min-w-0 flex-1" title={option.label}>{option.label}</span>
                             </div>
                         ))}
                     </div>
@@ -627,8 +642,8 @@ export default function Report7Page() {
         const date = values.date || filterDate;
         setCurrentSearchDate(date);
 
-        const bgNo = selectedBusinessUnits[0] || '';
-        const division = selectedLinesOfWork[0] || '';
+        const bgNo = selectedBusinessUnits.join(',');
+        const division = selectedLinesOfWork.join(',');
 
         await fetchReportData(date, bgNo, division);
     };
@@ -675,7 +690,7 @@ export default function Report7Page() {
         };
     }, [hasSearched, isFullscreen, selectedDisplayGroups, allData.length]);
 
-    const selectedBusinessUnit = selectedBusinessUnits[0] || '';
+    const selectedBusinessUnit = selectedBusinessUnits.length === 1 ? selectedBusinessUnits[0] : '';
 
     useEffect(() => {
         const controller = new AbortController();
@@ -690,13 +705,11 @@ export default function Report7Page() {
     }, [filterDate, selectedBusinessUnit, fetchFilterOptions]);
 
     const onBusinessChange = (values: string[]) => {
-        const next = values.slice(-1);
-        setSelectedBusinessUnits(next);
-        setSelectedLinesOfWork([]);
+        setSelectedBusinessUnits(values);
     };
 
     const onLineChange = (values: string[]) => {
-        setSelectedLinesOfWork(values.slice(-1));
+        setSelectedLinesOfWork(values);
     };
 
     const onDisplayGroupsChange = (list: Array<string | number>) => {
