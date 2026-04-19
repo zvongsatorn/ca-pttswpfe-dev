@@ -1570,6 +1570,16 @@ export default function Report2Page() {
     const { transposedColumns, transposedData } = useMemo(() => {
         const visible = (key: string) => isColumnVisible(key, checkedList, selectedDatasets);
         const metricDefs = report2MetricRows.filter((item) => visible(item.key));
+        const normalizeTransposeColumnTitle = (rawTitle: string): string => {
+            const text = String(rawTitle || '').trim();
+            if (
+                text.includes('อัตราเฉพาะตัว') ||
+                text.includes('ไม่เป็นอัตราเฉพาะตัว')
+            ) {
+                return text.replace(/^\s*-\s*/, '').trim();
+            }
+            return text;
+        };
         const getTransposeMonthCellClass = (record: DataType): string => {
             const rowType = String(record.transpose_row_type || '');
             if (rowType === 'month') {
@@ -1653,7 +1663,7 @@ export default function Report2Page() {
                     key: `transpose-group-${groupIndex}`,
                     onHeaderCell: () => ({ className: 'bg-blue-200! text-blue-900! font-bold text-center' }),
                     children: group.leaves.map((leaf) =>
-                        makeLeafColumn(String(leaf.unit), `biz_${leaf.key}`)
+                        makeLeafColumn(normalizeTransposeColumnTitle(String(leaf.unit)), `biz_${leaf.key}`)
                     ),
                 });
                 return;
@@ -1661,7 +1671,7 @@ export default function Report2Page() {
 
             const leaf = group.leaves[0];
             columns.push(
-                makeLeafColumn(group.title, `biz_${leaf.key}`)
+                makeLeafColumn(normalizeTransposeColumnTitle(group.title), `biz_${leaf.key}`)
             );
         });
 

@@ -889,10 +889,11 @@ function UserRightContent() {
         if (!activeUnit || !selectedUserGroup) return;
 
         modal.confirm({
-            title: 'Confirm Remove Access',
+            title: 'ยืนยันการลบสิทธิ์',
             icon: <InfoCircleOutlined className="text-red-500" />,
-            content: 'Are you sure you want to remove this employee\'s management rights for this unit?',
-            okText: 'Remove',
+            content: 'คุณต้องการลบสิทธิ์การจัดการของพนักงานคนนี้ออกจากหน่วยงานนี้ใช่หรือไม่?',
+            okText: 'ลบสิทธิ์',
+            cancelText: 'ยกเลิก',
             okType: 'danger',
             onOk: async () => {
                 try {
@@ -902,7 +903,7 @@ function UserRightContent() {
                         EmployeeID: empId,
                         UpdateBy: currentUser?.employeeID || ''
                     });
-                    message.success('Removed successfully');
+                    message.success('ลบสิทธิ์เรียบร้อยแล้ว');
                     await handleFetch();
                     // Update detail modal
                     const orgData: OrgDataInGroup[] = await fetchOrgUnitsInGroup(selectedUserGroup, token);
@@ -910,7 +911,7 @@ function UserRightContent() {
                     setActiveUsers(unitData?.users || []);
                 } catch (e: unknown) {
                     const error = e as Error;
-                    message.error(error.message || 'Failed to remove');
+                    message.error(error.message || 'ไม่สามารถลบสิทธิ์ได้');
                 }
             }
         });
