@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Select, Button, Table } from 'antd';
 import { FileExcelOutlined } from '@ant-design/icons';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, LabelList } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, LabelList } from 'recharts';
 import dayjs from 'dayjs';
 import 'dayjs/locale/th';
 import buddhistEra from 'dayjs/plugin/buddhistEra';
@@ -418,56 +418,77 @@ export default function DashboardPage() {
     };
 
     const memoizedChart = React.useMemo(() => {
+        const legendItems = [
+            ...(isShowingContractOut
+                ? [
+                    { key: 'contractOut', label: 'Contract out', color: '#80a29b' },
+                    { key: 'contractSub', label: 'Contract สัญญาย่อย', color: '#5a727b' },
+                ]
+                : []),
+            { key: 'frame', label: 'กรอบอัตรา', color: '#3e2d43' },
+            { key: 'recruit', label: 'ค้างสรรหา', color: '#db6458' },
+            { key: 'employee', label: 'จำนวนพนักงาน', color: '#0682bb' },
+            { key: 'vacancy', label: 'อัตราว่าง', color: '#d3908e' },
+        ];
+
         return (
-            <div className="overflow-x-auto overflow-y-hidden">
-                <div style={{ width: Math.max(800, displayData.length * 40) }}>
-                    <ResponsiveContainer width="100%" height={500}>
-                        <BarChart
-                            data={displayData}
-                            margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
-                            barGap={5}
-                            barCategoryGap="30%"
-                            style={{ fontFamily: 'var(--font-thai), var(--font-eng), sans-serif' }}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                            <XAxis
-                                dataKey="name"
-                                angle={-45}
-                                textAnchor="end"
-                                interval={0}
-                                tick={{ fontSize: 12 }}
-                                height={80}
-                            />
-                            <YAxis />
-                            <RechartsTooltip content={<CustomTooltip />} />
-                            <Legend verticalAlign="top" height={36} />
+            <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pl-2">
+                    {legendItems.map((item) => (
+                        <div key={item.key} className="inline-flex items-center gap-2 whitespace-nowrap text-gray-600">
+                            <span className="inline-block w-3 h-3 rounded-[2px]" style={{ backgroundColor: item.color }} />
+                            <span className="text-base">{item.label}</span>
+                        </div>
+                    ))}
+                </div>
+                <div className="overflow-x-auto overflow-y-hidden">
+                    <div style={{ width: Math.max(800, displayData.length * 40) }}>
+                        <ResponsiveContainer width="100%" height={500}>
+                            <BarChart
+                                data={displayData}
+                                margin={{ top: 8, right: 30, left: 20, bottom: 80 }}
+                                barGap={5}
+                                barCategoryGap="30%"
+                                style={{ fontFamily: 'var(--font-thai), var(--font-eng), sans-serif' }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                <XAxis
+                                    dataKey="name"
+                                    angle={-45}
+                                    textAnchor="end"
+                                    interval={0}
+                                    tick={{ fontSize: 12 }}
+                                    height={80}
+                                />
+                                <YAxis />
+                                <RechartsTooltip content={<CustomTooltip />} />
 
-                            {isShowingContractOut && (
-                                <>
-                                    <Bar barSize={10} dataKey="contractOut" name="Contract out" fill="#80a29b" radius={[4, 4, 0, 0]}>
-                                        <LabelList dataKey="contractOut" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
-                                    </Bar>
-                                    <Bar barSize={10} dataKey="contractSub" name="Contract สัญญาย่อย" fill="#5a727b" radius={[4, 4, 0, 0]}>
-                                        <LabelList dataKey="contractSub" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
-                                    </Bar>
-                                </>
-                            )}
+                                {isShowingContractOut && (
+                                    <>
+                                        <Bar barSize={10} dataKey="contractOut" name="Contract out" fill="#80a29b" radius={[4, 4, 0, 0]}>
+                                            <LabelList dataKey="contractOut" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
+                                        </Bar>
+                                        <Bar barSize={10} dataKey="contractSub" name="Contract สัญญาย่อย" fill="#5a727b" radius={[4, 4, 0, 0]}>
+                                            <LabelList dataKey="contractSub" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
+                                        </Bar>
+                                    </>
+                                )}
 
-                            <Bar barSize={10} dataKey="frame" name="กรอบอัตรา" fill="#3e2d43" radius={[4, 4, 0, 0]}>
-                                <LabelList dataKey="frame" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
-                            </Bar>
-                            <Bar barSize={10} dataKey="employee" name="จำนวนพนักงาน" fill="#0682bb" radius={[4, 4, 0, 0]}>
-                                <LabelList dataKey="employee" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
-                            </Bar>
-                            <Bar barSize={10} dataKey="recruit" name="ค้างสรรหา" fill="#db6458" radius={[4, 4, 0, 0]}>
-                                <LabelList dataKey="recruit" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
-                            </Bar>
-                            <Bar barSize={10} dataKey="vacancy" name="อัตราว่าง" fill="#d3908e" radius={[4, 4, 0, 0]}>
-                                <LabelList dataKey="vacancy" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
-                            </Bar>
-
-                        </BarChart>
-                    </ResponsiveContainer>
+                                <Bar barSize={10} dataKey="frame" name="กรอบอัตรา" fill="#3e2d43" radius={[4, 4, 0, 0]}>
+                                    <LabelList dataKey="frame" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
+                                </Bar>
+                                <Bar barSize={10} dataKey="employee" name="จำนวนพนักงาน" fill="#0682bb" radius={[4, 4, 0, 0]}>
+                                    <LabelList dataKey="employee" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
+                                </Bar>
+                                <Bar barSize={10} dataKey="recruit" name="ค้างสรรหา" fill="#db6458" radius={[4, 4, 0, 0]}>
+                                    <LabelList dataKey="recruit" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
+                                </Bar>
+                                <Bar barSize={10} dataKey="vacancy" name="อัตราว่าง" fill="#d3908e" radius={[4, 4, 0, 0]}>
+                                    <LabelList dataKey="vacancy" position="top" fontSize={10} formatter={(val: string | number | boolean | null | undefined) => (val && Number(val) > 0) ? (val as string | number) : ''} />
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
                 </div>
             </div>
         );
