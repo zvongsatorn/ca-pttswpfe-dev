@@ -4,7 +4,6 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import ReactFlow, { 
     Background, 
     Controls, 
-    MiniMap, 
     useNodesState, 
     useEdgesState,
     ConnectionLineType,
@@ -372,12 +371,6 @@ const FlowInner = ({
             >
                 <Background color="#f1f5f9" gap={20} />
                 <Controls className="bg-white border-none shadow-lg rounded-xl overflow-hidden" />
-                <MiniMap 
-                    className="border border-slate-100 rounded-2xl shadow-xl"
-                    nodeColor={(n: Node<OrgTreeNodeData>) => n.data?.isHighlighted ? '#f97316' : '#3b82f6'}
-                    maskColor="rgba(248, 250, 252, 0.7)"
-                    style={{ height: 120 }}
-                />
             </ReactFlow>
 
             {/* Reverting to Floating Summary Tool on the Left side as requested */}
