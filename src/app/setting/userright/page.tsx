@@ -40,11 +40,14 @@ import {
     UserOutlined,
     EyeOutlined,
     DeleteOutlined,
-    PlusOutlined
+    PlusOutlined,
+    FileExcelOutlined
 } from '@ant-design/icons';
 const { Title, Text } = Typography;
+import ExcelJS from 'exceljs';
 import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
+import { saveExcelFile } from '@/utils/fileDownload';
 import { 
     fetchOrgUnitsInGroup,
     fetchUserGroups,
@@ -516,6 +519,7 @@ function UserRightContent() {
     // UI State
     const [isChartVisible, setIsChartVisible] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [exporting, setExporting] = useState(false);
     const [isAssignmentModalOpen, setIsAssignmentModalOpen] = useState(false);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     
@@ -535,6 +539,37 @@ function UserRightContent() {
 
     const [isSummaryOpen, setIsSummaryOpen] = useState(false);
     const { setCenter } = useReactFlow();
+    const [headerUserGroupNo, setHeaderUserGroupNo] = useState<string>('');
+    const normalizeUserGroupNo = useCallback((groupNo: string | undefined | null) => {
+        const raw = String(groupNo ?? '').trim();
+        if (!raw) return '';
+        return /^\d+$/.test(raw) ? raw.padStart(2, '0') : raw;
+    }, []);
+
+    const isHRPolicyRole = useMemo(() => {
+        return headerUserGroupNo === '04';
+    }, [headerUserGroupNo]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        const syncHeaderGroup = () => {
+            setHeaderUserGroupNo(normalizeUserGroupNo(localStorage.getItem('selected_usergroup')));
+        };
+
+        const onUserGroupChanged = (event: Event) => {
+            const customEvent = event as CustomEvent<{ id?: string; userGroupNo?: string }>;
+            const eventGroupNo = customEvent.detail?.id || customEvent.detail?.userGroupNo;
+            setHeaderUserGroupNo(normalizeUserGroupNo(eventGroupNo || localStorage.getItem('selected_usergroup')));
+        };
+
+        syncHeaderGroup();
+        window.addEventListener('user-group-changed', onUserGroupChanged as EventListener);
+
+        return () => {
+            window.removeEventListener('user-group-changed', onUserGroupChanged as EventListener);
+        };
+    }, [normalizeUserGroupNo]);
 
     const getGroupTheme = useCallback((groupNo: string | undefined | null): GroupTheme => {
         const defaultTheme: GroupTheme = { 
@@ -912,6 +947,106 @@ function UserRightContent() {
 
     const handleSearch = handleFetch;
 
+    const handleExportRawRights = async () => {
+        if (!isHRPolicyRole) {
+            message.warning('ปุ่มนี้ใช้ได้เฉพาะกลุ่มผู้ใช้งาน HRPolicy (UserGroupNo 04) จาก Header');
+            return;
+        }
+        const exportUserGroupNo = normalizeUserGroupNo(selectedUserGroup);
+        if (!exportUserGroupNo) {
+            message.warning('กรุณาเลือกกลุ่มผู้ใช้งาน');
+            return;
+        }
+
+        setExporting(true);
+        try {
+            const rawData: OrgDataInGroup[] = (fetchedOrgData && fetchedOrgData.length > 0 && normalizeUserGroupNo(selectedUserGroup) === exportUserGroupNo)
+                ? fetchedOrgData
+                : await fetchOrgUnitsInGroup(exportUserGroupNo, token);
+
+            if (!Array.isArray(rawData) || rawData.length === 0) {
+                message.warning('ไม่พบข้อมูลสิทธิ์สำหรับการ Export');
+                return;
+            }
+
+            const selectedGroupName = initialData.groups.find(
+                (g: UserGroup) => normalizeUserGroupNo(g.userGroupNo) === exportUserGroupNo
+            )?.userGroupName || '';
+            const unitNameById = new Map(
+                initialData.unitOptions.map((u) => [String(u.value), String(u.label)])
+            );
+
+            const rows: Array<{
+                userGroupName: string;
+                orgUnitNo: string;
+                orgUnitName: string;
+                employeeId: string;
+                employeeName: string;
+            }> = [];
+
+            rawData.forEach((unit: OrgDataInGroup) => {
+                const orgUnitNo = String(unit.OrgUnitID || '').trim();
+                const orgUnitName = unitNameById.get(orgUnitNo) || '';
+                const users = Array.isArray(unit.users) ? unit.users : [];
+
+                if (users.length === 0) {
+                    rows.push({
+                        userGroupName: selectedGroupName,
+                        orgUnitNo,
+                        orgUnitName,
+                        employeeId: '',
+                        employeeName: ''
+                    });
+                    return;
+                }
+
+                users.forEach((user: RawEmployee) => {
+                    rows.push({
+                        userGroupName: selectedGroupName,
+                        orgUnitNo,
+                        orgUnitName,
+                        employeeId: user.employeeID || user.EmployeeID || '',
+                        employeeName: user.nameAll || user.NameAll || ''
+                    });
+                });
+            });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Raw User Rights');
+            worksheet.columns = [
+                { header: 'ชื่อกลุ่มผู้ใช้งาน', key: 'userGroupName', width: 28 },
+                { header: 'รหัสหน่วยงาน', key: 'orgUnitNo', width: 16 },
+                { header: 'ชื่อหน่วยงาน', key: 'orgUnitName', width: 38 },
+                { header: 'รหัสพนักงาน', key: 'employeeId', width: 16 },
+                { header: 'ชื่อพนักงาน', key: 'employeeName', width: 30 }
+            ];
+
+            rows.forEach((row) => worksheet.addRow(row));
+
+            const headerRow = worksheet.getRow(1);
+            headerRow.eachCell((cell) => {
+                cell.font = { bold: true };
+            });
+            worksheet.autoFilter = {
+                from: 'A1',
+                to: 'E1'
+            };
+            worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+            const now = new Date();
+            const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+            const fileName = `UserRights_${exportUserGroupNo}_${stamp}.xlsx`;
+            const buffer = await workbook.xlsx.writeBuffer();
+            await saveExcelFile(buffer, fileName);
+            message.success(`Export สำเร็จ ${rows.length.toLocaleString()} รายการ`);
+        } catch (e: unknown) {
+            const error = e as Error;
+            message.error(error.message || 'Export ไม่สำเร็จ');
+        } finally {
+            setExporting(false);
+        }
+    };
+
     const handleAddUser = async (values: { employeeId: string; unitId: string }) => {
         if (!selectedUserGroup) return;
         
@@ -947,7 +1082,7 @@ function UserRightContent() {
                         </div>
 
                         {/* Search & Group - Center */}
-                        <div className="flex items-center gap-3 bg-white/10 backdrop-blur-lg p-2 rounded-3xl border border-white/20 shadow-inner flex-1 justify-center max-w-sm">
+                        <div className="flex items-center gap-3 bg-white/10 backdrop-blur-lg p-2 rounded-3xl border border-white/20 shadow-inner flex-1 justify-center max-w-[42rem]">
                             <div className="flex flex-col gap-0.5 px-3 shrink-0">
                            
                                 <Select 
@@ -969,6 +1104,18 @@ function UserRightContent() {
                             >
                                 เรียกดู
                             </Button>
+                            {isHRPolicyRole && !!normalizeUserGroupNo(selectedUserGroup) && (
+                                <Tooltip title="Export Excel">
+                                    <Button
+                                        size="large"
+                                        icon={<FileExcelOutlined className="text-[20px]! text-emerald-600!" />}
+                                        onClick={handleExportRawRights}
+                                        loading={exporting}
+                                        className="h-12 w-12 rounded-2xl bg-white text-emerald-600 border border-emerald-300 font-bold hover:bg-emerald-50! hover:text-emerald-700! transition-all shadow-lg shadow-black/10 flex items-center justify-center"
+                                        aria-label="Export Raw Data Excel"
+                                    />
+                                </Tooltip>
+                            )}
                         </div>
 
                         {/* Filters - Right (Revealed after search) */}
