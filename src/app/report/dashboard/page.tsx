@@ -151,7 +151,9 @@ const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
 
 export default function DashboardPage() {
     const [filterDate, setFilterDate] = useState(dayjs());
-    const [employeeType, setEmployeeType] = useState('0'); // 0: พนง. ทั้งหมด, 1: พนง.ปตท., 2: Secondment
+    // Legacy mapping on backend subtracts 1 from this value:
+    // 1 => all, 2 => พนง. ปตท., 3 => Secondment
+    const [employeeType, setEmployeeType] = useState('1');
     const [filterType, setFilterType] = useState('ALL'); // 'ALL', 'BU', 'LINE', 'UNIT'
     const [units, setUnits] = useState<string[]>([]);
     const [appliedUnits, setAppliedUnits] = useState<string[]>([]);
@@ -296,8 +298,6 @@ export default function DashboardPage() {
 
             // employeeType correlates to isSecondment setting 
             const isSecondmentId = parseInt(employeeType); 
-            // Leveltype handling: Always แสดง Contract out
-            const levelType = 2;
             const monthStr = (filterDate.month() + 1).toString().padStart(2, '0');
             // Assuming the picker keeps Buddhist Era correctly
             const yearStr = (filterDate.year() > 2500 ? filterDate.year() - 543 : filterDate.year()).toString();
@@ -308,7 +308,6 @@ export default function DashboardPage() {
                 employeeId,
                 userGroupNo,
                 isSecondment: isSecondmentId.toString(),
-                levelType: levelType.toString(),
                 division: ''
             });
 
@@ -387,7 +386,6 @@ export default function DashboardPage() {
             const { employeeId, userGroupNo } = resolveUserContext();
 
             const isSecondmentId = parseInt(employeeType); 
-            const levelType = 2; // Always แสดง Contract out
             const monthStr = (filterDate.month() + 1).toString().padStart(2, '0');
             const yearStr = (filterDate.year() > 2500 ? filterDate.year() - 543 : filterDate.year()).toString();
 
@@ -399,7 +397,6 @@ export default function DashboardPage() {
                 employeeId,
                 userGroupNo,
                 isSecondment: isSecondmentId.toString(),
-                levelType: levelType.toString(),
                 division: divisionForQuery
             });
 
@@ -527,9 +524,9 @@ export default function DashboardPage() {
                                 value={employeeType}
                                 onChange={setEmployeeType}
                                 options={[
-                                    { value: '0', label: 'พนง. ทั้งหมด' },
-                                    { value: '1', label: 'พนง. ปตท.' },
-                                    { value: '2', label: 'Secondment' }
+                                    { value: '1', label: 'พนง. ทั้งหมด' },
+                                    { value: '2', label: 'พนง. ปตท.' },
+                                    { value: '3', label: 'Secondment' }
                                 ]}
                                 className="w-40"
                             />
