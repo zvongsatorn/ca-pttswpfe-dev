@@ -848,7 +848,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                                                     <TableCell className="border-l border-slate-100"></TableCell>
                                                     <TableCell className="border-l border-slate-100"></TableCell>
                                                     <TableCell className="border-l border-slate-100">{sk.definition}</TableCell>
-                                                    <TableCell className="text-right border-l border-slate-100">{sk.coefficient}</TableCell>
+                                                    <TableCell className="text-center border-l border-slate-100">{sk.coefficient}</TableCell>
                                                     <TableCell className="border-l border-slate-100"></TableCell>
                                                     {allYears.map(y => (
                                                         <TableCell key={y} className={`text-right border-l border-slate-100 ${getYearColor(y)}`}>

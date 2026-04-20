@@ -1061,7 +1061,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                             <TableCell className="border-l border-slate-100"></TableCell>
                                                             <TableCell className="border-l border-slate-100"></TableCell>
                                                             <TableCell className="border-l border-slate-100 px-2">{sk.definition}</TableCell>
-                                                            <TableCell className="text-right border-l border-slate-100 font-medium text-purple-700 px-1">
+                                                            <TableCell className="text-center border-l border-slate-100 font-medium text-purple-700 px-1">
                                                                 {(Number(sk.coefficient) || 0).toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})}
                                                             </TableCell>
                                                             <TableCell className="border-l border-slate-100"></TableCell>

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import MultiSelectFilter from '@/components/filters/MultiSelectFilter';
 import {
   ChevronDown,
   ChevronRight,
@@ -111,8 +112,8 @@ export interface ApproverUser {
 export default function ReturnPage() {
   // --- STATE ---
   const [selectedStatus, setSelectedStatus] = useState<string>('borrowed');
-  const [selectedBusinessUnit, setSelectedBusinessUnit] = useState('');
-  const [selectedFromDept, setSelectedFromDept] = useState('');
+  const [selectedBusinessUnits, setSelectedBusinessUnits] = useState<string[]>([]);
+  const [selectedFromDepts, setSelectedFromDepts] = useState<string[]>([]);
   
   // Table column filters
   const [filterInbox, setFilterInbox] = useState('');
@@ -134,6 +135,29 @@ export default function ReturnPage() {
       if (normalized) return normalized;
     }
     return '';
+  };
+  const toCodeNameLabel = (id: string, name: string) => {
+    const normalizedId = String(id || '').trim();
+    const normalizedName = String(name || '').trim();
+    if (!normalizedId) return normalizedName;
+    if (!normalizedName) return normalizedId;
+    if (normalizedName.startsWith(normalizedId)) return normalizedName;
+    return `${normalizedId} ${normalizedName}`;
+  };
+
+  const resolveEmployeeId = () => {
+    const userDataStr = localStorage.getItem('user_data');
+    if (userDataStr) {
+      try {
+        const userData = JSON.parse(userDataStr) as { employeeID?: string; EmployeeID?: string };
+        const employeeId = String(userData.employeeID || userData.EmployeeID || '').trim();
+        if (employeeId) return employeeId;
+      } catch {
+        // ignore parse failure and fallback
+      }
+    }
+
+    return String(localStorage.getItem('employeeId') || '').trim();
   };
 
   const getBusinessUnitOptionsFromRecord = (record: BorrowRecord) => {
@@ -179,7 +203,13 @@ export default function ReturnPage() {
 
   const fetchBorrowRecords = async () => {
     try {
-      const employeeId = localStorage.getItem('employeeId') || '';
+      const employeeId = resolveEmployeeId();
+      if (!employeeId) {
+        setBorrowRecords([]);
+        setBusinessUnits([]);
+        setDepartments([]);
+        return;
+      }
       const res = await fetch(`/api/transactions/borrow-records?employeeId=${employeeId}`);
       if (res.ok) {
         const result = await res.json();
@@ -569,11 +599,15 @@ export default function ReturnPage() {
     if (selectedStatus === 'fully_returned' && !isFullyReturned) return false;
     
     // Dropdown filters
-    if (selectedBusinessUnit) {
+    if (selectedBusinessUnits.length > 0) {
       const recordBuIds = getBusinessUnitOptionsFromRecord(record).map((item) => item.id);
-      if (!recordBuIds.includes(selectedBusinessUnit)) return false;
+      const hasSelectedBusinessUnit = recordBuIds.some((buId) => selectedBusinessUnits.includes(buId));
+      if (!hasSelectedBusinessUnit) return false;
     }
-    if (selectedFromDept && record.UnitTransfer !== selectedFromDept && record.UnitReceive !== selectedFromDept) return false;
+    if (selectedFromDepts.length > 0) {
+      const hasSelectedDept = selectedFromDepts.includes(record.UnitTransfer) || selectedFromDepts.includes(record.UnitReceive);
+      if (!hasSelectedDept) return false;
+    }
     
     // Table column filters
     if (filterInbox && !record.DocumentNo.toLowerCase().includes(filterInbox.toLowerCase())) return false;
@@ -626,29 +660,25 @@ export default function ReturnPage() {
           {/* หน่วยธุรกิจ */}
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-700 whitespace-nowrap">หน่วยธุรกิจ :</label>
-            <div className="relative">
-              <select
-                value={selectedBusinessUnit}
-                onChange={(e) => setSelectedBusinessUnit(e.target.value)}
-                className="w-56 pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow appearance-none bg-white"
-              >
-                <option value="">ทั้งหมด</option>
-                {businessUnits.map((bu) => <option key={bu.id} value={bu.id}>{bu.name}</option>)}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-            </div>
+            <MultiSelectFilter
+              label="เลือกหน่วยธุรกิจ"
+              options={businessUnits.map((bu) => ({ value: bu.id, label: toCodeNameLabel(bu.id, bu.name) }))}
+              selectedValues={selectedBusinessUnits}
+              onChange={setSelectedBusinessUnits}
+              width="w-56"
+            />
           </div>
 
           {/* หน่วยงานให้ยืม */}
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-700 whitespace-nowrap">หน่วยงาน :</label>
-            <div className="relative">
-              <select value={selectedFromDept} onChange={(e) => setSelectedFromDept(e.target.value)} className="w-56 pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow appearance-none bg-white">
-                <option value="">ทั้งหมด</option>
-                {departments.map((dep) => <option key={dep.id} value={dep.id}>{dep.name}</option>)}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-            </div>
+            <MultiSelectFilter
+              label="เลือกหน่วยงาน"
+              options={departments.map((dep) => ({ value: dep.id, label: toCodeNameLabel(dep.id, dep.name) }))}
+              selectedValues={selectedFromDepts}
+              onChange={setSelectedFromDepts}
+              width="w-56"
+            />
           </div>
 
           
