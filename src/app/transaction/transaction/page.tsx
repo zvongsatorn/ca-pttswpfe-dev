@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle, Trash2, X, Save, Menu, LogOut, ChevronDown, ChevronUp, Check, ChevronsUpDown, AlertCircle, ArrowRight, UserCircle, FileText, User, ShieldCheck, Users, LucideIcon, Info
 } from 'lucide-react';
-import { useState, useEffect, useRef, useSyncExternalStore } from 'react'; // Added useSyncExternalStore
+import { useState, useEffect, useRef, useSyncExternalStore, useMemo } from 'react'; // Added useSyncExternalStore
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
@@ -109,6 +109,20 @@ interface SavedTransaction {
   createdAt: Date;
 }
 
+interface UnitOption {
+  id: string;
+  name: string;
+  unitText?: string;
+  IsAssistant?: number;
+  IsUnder?: number;
+  IsSecondment?: number;
+  parentOrgUnitNo?: string | null;
+  ParentOrgUnitNo?: string | null;
+  OrgUnitNo?: string;
+  UnitName?: string;
+  UnitAbbr?: string;
+}
+
 type ApproverFlowKey = 'TYPE2' | 'OTHERS';
 
 const uniqueSavedTransactions = (transactions: SavedTransaction[]): SavedTransaction[] => {
@@ -181,6 +195,26 @@ const parseCalendarDate = (value: unknown): Date | null => {
   }
 
   return null;
+};
+
+const normalizeUnitOption = (u: Record<string, unknown>): UnitOption => ({
+  id: String(u.id || u.OrgUnitNo || '').trim(),
+  name: String(u.name || u.unitText || u.UnitText || u.UnitName || u.OrgUnitNo || '').trim(),
+  unitText: String(u.unitText || u.UnitText || '').trim() || undefined,
+  IsAssistant: Number(u.IsAssistant ?? 0) || 0,
+  IsUnder: Number(u.IsUnder ?? 0) || 0,
+  IsSecondment: Number(u.IsSecondment ?? 0) || 0,
+  parentOrgUnitNo: u.parentOrgUnitNo ? String(u.parentOrgUnitNo).trim() : (u.ParentOrgUnitNo ? String(u.ParentOrgUnitNo).trim() : null),
+  ParentOrgUnitNo: u.ParentOrgUnitNo ? String(u.ParentOrgUnitNo).trim() : (u.parentOrgUnitNo ? String(u.parentOrgUnitNo).trim() : null),
+  OrgUnitNo: u.OrgUnitNo ? String(u.OrgUnitNo).trim() : undefined,
+  UnitName: u.UnitName ? String(u.UnitName).trim() : undefined,
+  UnitAbbr: u.UnitAbbr ? String(u.UnitAbbr).trim() : undefined
+});
+
+const normalizeUserGroupNo = (value: string): string => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  return /^\d+$/.test(trimmed) ? trimmed.padStart(2, '0') : trimmed;
 };
 
 const extractCalendarType = (row: Record<string, unknown>): number | null => {
@@ -386,7 +420,7 @@ export default function TransactionPage() {
     { id: 5 as TransactionTypeEnum, label: 'บันทึก Remark หน่วยงาน', color: 'gray' },
   ];
 
-  const [units, setUnits] = useState<{ id: string; name: string; unitText?: string; IsAssistant?: number; IsUnder?: number; IsSecondment?: number }[]>(() => {
+  const [units, setUnits] = useState<UnitOption[]>(() => {
     if (typeof window === 'undefined') {
       return [];
     }
@@ -410,15 +444,16 @@ export default function TransactionPage() {
   ];
 
   const [levels, setLevels] = useState<{ id: string; name: string }[]>([]);
-  const [allUnits, setAllUnits] = useState<{ id: string; name: string; unitText?: string }[]>([]);
+  const [allUnits, setAllUnits] = useState<UnitOption[]>([]);
+  const [transferUnitsByReceive, setTransferUnitsByReceive] = useState<UnitOption[]>([]);
 
 
   useEffect(() => {
     // Listen for custom event from Header when user switches group
     const handleUnitsChanged = (event: Event) => {
       const customEvent = event as CustomEvent;
-      if (customEvent.detail) {
-        setUnits(customEvent.detail);
+      if (customEvent.detail && Array.isArray(customEvent.detail)) {
+        setUnits(customEvent.detail.map((u: Record<string, unknown>) => normalizeUnitOption(u)));
         // Clear active selection if the previous selection is no longer valid
         setDetailFormData(prev => ({
           ...prev,
@@ -434,7 +469,7 @@ export default function TransactionPage() {
     if (userDataStr) {
       try {
         const userData = JSON.parse(userDataStr);
-        const defaultGroup = localStorage.getItem('selected_usergroup') || '02';
+        const defaultGroup = normalizeUserGroupNo(localStorage.getItem('selected_usergroup') || '02') || '02';
         const employeeId = userData.employeeID || '00000000';
         const token = localStorage.getItem('auth_token');
         
@@ -446,14 +481,7 @@ export default function TransactionPage() {
           .then(res => res.json())
           .then(data => {
             if ((data.status === 200 || data.success) && data.data) {
-              const fetchedUnits = data.data.map((u: { id?: string; OrgUnitNo?: string; unitText?: string; name?: string; UnitText?: string; UnitName?: string; IsAssistant?: number; IsUnder?: number; IsSecondment?: number }) => ({
-                  id: u.id || u.OrgUnitNo,
-                  name: u.unitText || u.name || u.UnitText || u.UnitName,
-                  unitText: u.unitText || u.UnitText,
-                  IsAssistant: u.IsAssistant ?? 0,
-                  IsUnder: u.IsUnder ?? 0,
-                  IsSecondment: u.IsSecondment ?? 0
-              }));
+              const fetchedUnits = data.data.map((u: Record<string, unknown>) => normalizeUnitOption(u));
               setUnits(fetchedUnits);
               sessionStorage.setItem('user_units_cache', JSON.stringify(fetchedUnits));
             }
@@ -701,12 +729,131 @@ export default function TransactionPage() {
         .then(res => res.json())
         .then(data => {
           if (data.success && data.data) {
-            setAllUnits(data.data);
+            setAllUnits(data.data.map((u: Record<string, unknown>) => normalizeUnitOption(u)));
           }
         })
         .catch(err => console.error('Error fetching all units:', err));
     }
   }, [formData.effectiveMonth, formData.effectiveYear]);
+
+  const selectedReceiveUnit = useMemo(() => {
+    if (!formData.unitReceive) return null;
+    return units.find((u) => u.id === formData.unitReceive)
+      || allUnits.find((u) => u.id === formData.unitReceive)
+      || null;
+  }, [formData.unitReceive, units, allUnits]);
+
+  const selectedReceiveUnitFromAll = useMemo(() => {
+    if (!formData.unitReceive) return null;
+    return allUnits.find((u) => u.id === formData.unitReceive) || null;
+  }, [formData.unitReceive, allUnits]);
+
+  const selectedLineOrgUnitNo = useMemo(() => {
+    if (!selectedReceiveUnit && !selectedReceiveUnitFromAll) return '';
+    const parentFromSelected = String(
+      selectedReceiveUnit?.parentOrgUnitNo || selectedReceiveUnit?.ParentOrgUnitNo || ''
+    ).trim();
+    const parentFromAll = String(
+      selectedReceiveUnitFromAll?.parentOrgUnitNo || selectedReceiveUnitFromAll?.ParentOrgUnitNo || ''
+    ).trim();
+    const selectedUnitId = String(selectedReceiveUnit?.id || '').trim();
+    const selectedUnitIdFromAll = String(selectedReceiveUnitFromAll?.id || '').trim();
+    return String(
+      selectedUnitId
+      || selectedUnitIdFromAll
+      || parentFromSelected
+      || parentFromAll
+      || ''
+    ).trim();
+  }, [selectedReceiveUnit, selectedReceiveUnitFromAll]);
+
+  const transferDivisionCandidates = useMemo(() => {
+    const selectedUnitId = String(selectedReceiveUnit?.id || selectedReceiveUnitFromAll?.id || '').trim();
+    const parentFromSelected = String(selectedReceiveUnit?.parentOrgUnitNo || selectedReceiveUnit?.ParentOrgUnitNo || '').trim();
+    const parentFromAll = String(selectedReceiveUnitFromAll?.parentOrgUnitNo || selectedReceiveUnitFromAll?.ParentOrgUnitNo || '').trim();
+
+    return Array.from(new Set([selectedUnitId, parentFromSelected, parentFromAll].filter(Boolean)));
+  }, [selectedReceiveUnit, selectedReceiveUnitFromAll]);
+
+  useEffect(() => {
+    if (activeTab !== 1) {
+      setTransferUnitsByReceive([]);
+      return;
+    }
+
+    if (!formData.unitReceive || !selectedLineOrgUnitNo || !formData.effectiveMonth || !formData.effectiveYear) {
+      setTransferUnitsByReceive([]);
+      return;
+    }
+
+    const userDataStr = localStorage.getItem('user_data');
+    let employeeId = '';
+    let userGroupNo = '';
+
+    if (userDataStr) {
+      try {
+        const userData = JSON.parse(userDataStr) as { employeeID?: string; userGroupNo?: string; roleId?: string; userGroups?: { userGroupNo: string }[] };
+        employeeId = String(userData.employeeID || '').trim();
+        userGroupNo = normalizeUserGroupNo(String(localStorage.getItem('selected_usergroup') || '').trim());
+        if (!userGroupNo) userGroupNo = normalizeUserGroupNo(String(userData.userGroupNo || userData.roleId || '').trim());
+        if (!userGroupNo && Array.isArray(userData.userGroups) && userData.userGroups.length > 0) {
+          userGroupNo = normalizeUserGroupNo(String(userData.userGroups[0].userGroupNo || '').trim());
+        }
+      } catch {
+        // no-op
+      }
+    }
+
+    if (!employeeId || !userGroupNo) {
+      setTransferUnitsByReceive([]);
+      return;
+    }
+
+    const yearNum = parseInt(formData.effectiveYear, 10) - 543;
+    const monthIndex = months.indexOf(formData.effectiveMonth) + 1;
+    if (!Number.isInteger(yearNum) || monthIndex < 1) {
+      setTransferUnitsByReceive([]);
+      return;
+    }
+
+    const effectiveDate = `${yearNum}-${String(monthIndex).padStart(2, '0')}-01`;
+    const fetchTransferUnits = async () => {
+      try {
+        for (const divisionCandidate of transferDivisionCandidates) {
+          const query = new URLSearchParams({
+            effectiveDate,
+            division: divisionCandidate,
+            orgUnitReceive: formData.unitReceive,
+            userGroupNo,
+            employeeId,
+            selectType: '0'
+          });
+
+          const res = await fetch(`/api/units/transfer-by-receive?${query.toString()}`);
+          const data = await res.json();
+          if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+            setTransferUnitsByReceive(data.data.map((u: Record<string, unknown>) => normalizeUnitOption(u)));
+            return;
+          }
+        }
+        setTransferUnitsByReceive([]);
+      } catch (err) {
+        console.error('Error fetching transfer units by receive:', err);
+        setTransferUnitsByReceive([]);
+      }
+    };
+
+    fetchTransferUnits();
+  }, [activeTab, formData.unitReceive, formData.effectiveMonth, formData.effectiveYear, selectedLineOrgUnitNo, transferDivisionCandidates]);
+
+  useEffect(() => {
+    if (activeTab !== 1) return;
+    setDetailFormData((prev) => {
+      if (!prev.unitTransfer) return prev;
+      if (transferUnitsByReceive.some((unit) => unit.id === prev.unitTransfer)) return prev;
+      return { ...prev, unitTransfer: '' };
+    });
+  }, [activeTab, transferUnitsByReceive]);
 
 
   useEffect(() => {
@@ -797,20 +944,31 @@ export default function TransactionPage() {
     resolvedName ||
     units.find((l) => l.id === id)?.unitText ||
     units.find((l) => l.id === id)?.name ||
+    transferUnitsByReceive.find((u) => u.id === id)?.unitText ||
+    transferUnitsByReceive.find((u) => u.id === id)?.name ||
     allUnits.find((u) => u.id === id)?.unitText ||
     allUnits.find((u) => u.id === id)?.name ||
     id;
   const getTransactionTypeName = (type: TransactionTypeEnum) => transactionTypes.find((t) => t.id === type)?.label || '';
-  const getUnitReceiveOptionList = () =>
-    units.filter((unit) => {
+  const getUnitReceiveOptionList = () => {
+    const filtered = units.filter((unit) => {
+      // Keep secondment constraint for Secondment pool, but do not
+      // trim type-1 receive units by IsAssistant/IsUnder (show all by rights).
       if (formData.poolRsFlag === 2) {
         return unit.IsSecondment === 1;
       }
-      if (activeTab === 1) {
-        return unit.IsAssistant === 1 || unit.IsUnder === 1;
-      }
       return true;
     });
+
+    // Defensive dedupe by OrgUnit id to avoid duplicate display rows.
+    const seen = new Set<string>();
+    return filtered.filter((unit) => {
+      const key = String(unit.id || '').trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
 
   const getTitleColorClass = (type: TransactionTypeEnum) => {
     const item = transactionTypes.find((t) => t.id === type);
@@ -1760,6 +1918,9 @@ export default function TransactionPage() {
                     {/* (Transfer Deceased & Transfer Other Share Similar Fields) */}
                     {(activeTab === 1 || activeTab === 2) && (
                       <>
+                        {(() => {
+                          const transferUnitOptions = activeTab === 1 ? transferUnitsByReceive : allUnits;
+                          return (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">หน่วยงานที่โอน <span className="text-red-500">*</span></label>
                           <Popover open={openUnitTransfer} onOpenChange={setOpenUnitTransfer}>
@@ -1773,9 +1934,9 @@ export default function TransactionPage() {
                                 )}
                               >
                                 {detailFormData.unitTransfer
-                                  ? allUnits.find(
+                                  ? transferUnitOptions.find(
                                       (unit) => unit.id === detailFormData.unitTransfer
-                                    )?.unitText || allUnits.find((unit) => unit.id === detailFormData.unitTransfer)?.name
+                                    )?.unitText || transferUnitOptions.find((unit) => unit.id === detailFormData.unitTransfer)?.name
                                   : "เลือกหน่วยงาน..."}
                                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                               </Button>
@@ -1786,7 +1947,7 @@ export default function TransactionPage() {
                                 <CommandList>
                                   <CommandEmpty>ไม่พบหน่วยงาน</CommandEmpty>
                                   <CommandGroup>
-                                    {(activeTab === 1 ? getUnitReceiveOptionList() : allUnits)
+                                    {transferUnitOptions
                                       .filter((unit) => unit.id !== formData.unitReceive)
                                       .map((unit) => (
                                       <CommandItem
@@ -1812,6 +1973,8 @@ export default function TransactionPage() {
                             </PopoverContent>
                           </Popover>
                         </div>
+                          );
+                        })()}
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">ระดับตำแหน่ง <span className="text-red-500">*</span></label>
                           <select value={detailFormData.levelGroupTo} onChange={(e) => setDetailFormData({ ...detailFormData, levelGroupTo: e.target.value })}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import ReactFlow, { 
     Background, 
     Controls, 
@@ -155,6 +155,22 @@ interface BGCombo {
     BGName: string;
 }
 
+function dedupeEmployeesById(users: RawEmployee[]): RawEmployee[] {
+    const seen = new Set<string>();
+    const deduped: RawEmployee[] = [];
+
+    for (const user of users || []) {
+        const employeeId = String(user.employeeID || user.EmployeeID || '').trim();
+        if (!employeeId) continue;
+        const key = employeeId.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deduped.push(user);
+    }
+
+    return deduped;
+}
+
 function getToken(): string {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem('auth_token') || '';
@@ -166,12 +182,13 @@ function getAuthHeader(): Record<string, string> {
 }
 
 async function addUserToUnit(data: { UserGroupNo: string, EmployeeID: string, OrgUnitNo: string, CreateBy: string }) {
-    const res = await fetch(`${API_BASE_URL}/api/user-rights/add-user-to-unit`, {
+    // Legacy behavior: add selected unit together with its descendant units.
+    const res = await fetch(`${API_BASE_URL}/api/user-rights/add-belong-units`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify(data),
     });
-    if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed to add user to unit'); }
+    if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed to add user rights'); }
     return res.json();
 }
 
@@ -522,6 +539,8 @@ function UserRightContent() {
     const [exporting, setExporting] = useState(false);
     const [isAssignmentModalOpen, setIsAssignmentModalOpen] = useState(false);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+    const [isSavingAssignment, setIsSavingAssignment] = useState(false);
+    const isSavingAssignmentRef = useRef(false);
     
     // Selection State
     const [selectedUserGroup, setSelectedUserGroup] = useState<string | undefined>(undefined);
@@ -786,17 +805,18 @@ function UserRightContent() {
             const xPos = startX + (subtreeWidth * HORIZONTAL_SPACING) / 2;
             
             const unitData = (usersInGroup || []).find(u => u.OrgUnitID === nodeId);
-            const users: RawEmployee[] = unitData?.users || [];
+            const users: RawEmployee[] = dedupeEmployeesById(unitData?.users || []);
             
             // Collect summary users ONLY for visible matching nodes
             if (node.__isVisible) {
                 users.forEach(u => {
-                    const empId = u.employeeID || u.EmployeeID;
-                    if (empId) {
-                        if (!summaryMap.has(empId)) {
-                            summaryMap.set(empId, { ...u, unitCount: 1, firstUnitId: nodeId, unitIds: [nodeId] } as SummaryUser);
+                    const empIdRaw = String(u.employeeID || u.EmployeeID || '').trim();
+                    const empKey = empIdRaw.toLowerCase();
+                    if (empIdRaw) {
+                        if (!summaryMap.has(empKey)) {
+                            summaryMap.set(empKey, { ...u, unitCount: 1, firstUnitId: nodeId, unitIds: [nodeId] } as SummaryUser);
                         } else {
-                            const existing = summaryMap.get(empId)!;
+                            const existing = summaryMap.get(empKey)!;
                             existing.unitCount += 1;
                             existing.unitIds.push(nodeId);
                         }
@@ -936,7 +956,7 @@ function UserRightContent() {
                     // Update detail modal
                     const orgData: OrgDataInGroup[] = await fetchOrgUnitsInGroup(selectedUserGroup, token);
                     const unitData = orgData.find((u: OrgDataInGroup) => u.OrgUnitID === activeUnit.code);
-                    setActiveUsers(unitData?.users || []);
+                    setActiveUsers(dedupeEmployeesById(unitData?.users || []));
                 } catch (e: unknown) {
                     const error = e as Error;
                     message.error(error.message || 'ไม่สามารถลบสิทธิ์ได้');
@@ -1049,7 +1069,10 @@ function UserRightContent() {
 
     const handleAddUser = async (values: { employeeId: string; unitId: string }) => {
         if (!selectedUserGroup) return;
+        if (isSavingAssignmentRef.current) return;
         
+        isSavingAssignmentRef.current = true;
+        setIsSavingAssignment(true);
         try {
             await addUserToUnit({
                 UserGroupNo: selectedUserGroup,
@@ -1064,6 +1087,9 @@ function UserRightContent() {
         } catch (e: unknown) {
             const error = e as Error;
             message.error(error.message || 'Failed to assign');
+        } finally {
+            isSavingAssignmentRef.current = false;
+            setIsSavingAssignment(false);
         }
     };
 
@@ -1213,12 +1239,12 @@ function UserRightContent() {
                 >
                     <div className="py-4 flex flex-col gap-3">
                         {activeUsers.map((user: RawEmployee, idx: number) => (
-                            <div key={idx} className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                            <div key={`${String(user.employeeID || user.EmployeeID || '').toLowerCase()}-${idx}`} className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-100">
                                 <div className="flex items-center gap-3">
                                     <Avatar className="bg-blue-100 text-blue-600 shrink-0" icon={<UserOutlined />} />
                                     <div className="flex flex-col">
-                                        <span className="font-bold text-slate-700">{user.NameAll}</span>
-                                        <span className="text-slate-400 text-xs">Employee ID: {user.EmployeeID}</span>
+                                        <span className="font-bold text-slate-700">{user.NameAll || user.nameAll || '-'}</span>
+                                        <span className="text-slate-400 text-xs">Employee ID: {user.EmployeeID || user.employeeID || '-'}</span>
                                     </div>
                                 </div>
                                 <Button 
@@ -1237,10 +1263,16 @@ function UserRightContent() {
                 <Modal
                     title={<span className="font-extrabold text-blue-800 text-xl">เพิ่มสิทธิ์พนักงาน</span>}
                     open={isAssignmentModalOpen}
-                    onCancel={() => setIsAssignmentModalOpen(false)}
+                    onCancel={() => {
+                        if (isSavingAssignment) return;
+                        setIsAssignmentModalOpen(false);
+                    }}
                     footer={null}
                     width={550}
                     className="assignment-modal"
+                    closable={!isSavingAssignment}
+                    maskClosable={!isSavingAssignment}
+                    keyboard={!isSavingAssignment}
                 >
                     <Form form={form} layout="vertical" onFinish={handleAddUser} className="pt-4">
                         <Form.Item name="unitId" label="หน่วยงาน">
@@ -1252,12 +1284,13 @@ function UserRightContent() {
                                 showSearch
                                 placeholder="ค้นหารายชื่อพนักงาน..."
                                 className="custom-select-v2 h-12"
+                                disabled={isSavingAssignment}
                             />
                         </Form.Item>
                         <Divider />
                         <div className="flex gap-4">
-                            <Button type="primary" block htmlType="submit" className="h-[52px] rounded-2xl bg-emerald-500 font-bold border-none shadow-xl shadow-emerald-100">บันทึกสิทธิ์</Button>
-                            <Button block onClick={() => setIsAssignmentModalOpen(false)} className="h-[52px] rounded-2xl font-bold bg-slate-100 border-none text-slate-400">ยกเลิก</Button>
+                            <Button type="primary" block htmlType="submit" loading={isSavingAssignment} disabled={isSavingAssignment} className="h-[52px] rounded-2xl bg-emerald-500 font-bold border-none shadow-xl shadow-emerald-100">บันทึกสิทธิ์</Button>
+                            <Button block disabled={isSavingAssignment} onClick={() => setIsAssignmentModalOpen(false)} className="h-[52px] rounded-2xl font-bold bg-slate-100 border-none text-slate-400">ยกเลิก</Button>
                         </div>
                     </Form>
                 </Modal>

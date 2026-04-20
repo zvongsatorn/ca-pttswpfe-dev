@@ -256,12 +256,8 @@ function UserOtherContent() {
                     >
                         <Input 
                             prefix={<IdcardOutlined className="text-gray-400" />} 
-                            placeholder="เช่น 99999999" 
+                            placeholder="เช่น 99999999"
                             disabled={isEditMode}
-                            onChange={(e) => {
-                                const val = e.target.value.replace(/[^0-9]/g, '');
-                                form.setFieldsValue({ employeeId: val });
-                            }}
                         />
                     </Form.Item>
                     <Form.Item

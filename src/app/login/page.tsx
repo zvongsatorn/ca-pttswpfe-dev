@@ -196,10 +196,9 @@ export default function LoginForm() {
   };
 
   const handleLogin = async () => {
-    // ตรวจสอบว่ากรอกข้อมูลครบหรือไม่
     if (!formData.username || !formData.password) {
       toast.error('กรุณากรอกข้อมูลให้ครบถ้วน', {
-        description: 'โปรดกรอกชื่อผู้ใช้และรหัสผ่าน',
+        description: 'โปรดกรอก EmployeeID และ Password',
         duration: 3000,
       });
       return;
@@ -269,9 +268,12 @@ export default function LoginForm() {
           });
         }, 1500);
       } else {
+        const errorData = await response.json().catch(() => ({}));
+        const backendMessage = typeof errorData?.message === 'string' ? errorData.message : '';
+
         // กรณี login ไม่ผ่าน
         toast.error('เข้าสู่ระบบไม่สำเร็จ', {
-          description: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
+          description: backendMessage || 'ไม่พบผู้ใช้งานใน MP_User',
           duration: 4000,
         });
         setIsLoading(false);
@@ -417,18 +419,19 @@ export default function LoginForm() {
                     htmlFor="username"
                     className="text-slate-600 font-medium text-sm english-text"
                   >
-                    Admin Username
+                    EmployeeID
                   </Label>
                   <div className="relative">
                     <User className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400" />
                     <Input
                       id="username"
                       type="text"
-                      placeholder="Enter admin username"
+                      placeholder="Enter EmployeeID"
                       value={formData.username}
                       onChange={(e) =>
                         setFormData({ ...formData, username: e.target.value })
                       }
+                      onKeyDown={handleKeyDown}
                       className="pl-10 h-11 text-sm bg-white border-slate-200 focus:border-slate-400 focus:ring-slate-400/20 rounded-lg"
                     />
                   </div>

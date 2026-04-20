@@ -676,6 +676,7 @@ export default function Report5Page() {
         try {
             const query = new URLSearchParams({
                 fromDate: from.format('YYYY-MM-01'),
+                // Include the full end month in the query range.
                 toDate: to.endOf('month').format('YYYY-MM-DD'),
                 employeeId,
                 userGroupNo,

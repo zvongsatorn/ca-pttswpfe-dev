@@ -114,6 +114,14 @@ interface ReusableFileOption {
   createDate?: string | null;
 }
 
+interface UnitOption {
+  id: string;
+  unitText: string;
+  name?: string;
+  parentOrgUnitNo?: string | null;
+  ParentOrgUnitNo?: string | null;
+}
+
 const NO_REUSABLE_FILE_VALUE = '__NONE__';
 
 const statusOptions = [
@@ -137,7 +145,9 @@ export default function MKDHistoryPage() {
   const [selectedOrgUnit, setSelectedOrgUnit] = useState('');
   const [records, setRecords] = useState<MKDRecord[]>([]);
   const [loading, setLoading] = useState(false);
-  const [availableUnits, setAvailableUnits] = useState<{id: string; unitText: string; name?: string}[]>([]);
+  const [availableUnits, setAvailableUnits] = useState<UnitOption[]>([]);
+  const [availableUnitsByRole, setAvailableUnitsByRole] = useState<UnitOption[]>([]);
+  const [isUnitsByRoleLoading, setIsUnitsByRoleLoading] = useState(false);
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
   const [isMainComboboxOpen, setIsMainComboboxOpen] = useState(false);
   const [selectedMainUnit, setSelectedMainUnit] = useState('');
@@ -173,9 +183,127 @@ export default function MKDHistoryPage() {
   const [flowData, setFlowData] = useState<{ Seqno: number; Fullname: string; posname?: string; StatusName?: string; ApproveHistStatus?: number; ApproveHistDateBD?: string; Remark?: string; }[]>([]);
   const [flowLoading, setFlowLoading] = useState(false);
 
-  useEffect(() => {
-    fetchUnits();
+  const normalizeUserGroupNo = useCallback((value: string): string => {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    return /^\d+$/.test(trimmed) ? trimmed.padStart(2, '0') : trimmed;
   }, []);
+
+  const getCurrentUserContext = useCallback(() => {
+    let employeeId = '';
+    let userGroupNo = '';
+
+    const userDataStr = localStorage.getItem('user_data');
+    if (!userDataStr) {
+      return { employeeId, userGroupNo };
+    }
+
+    try {
+      const userData = JSON.parse(userDataStr);
+      employeeId = userData.employeeID || userData.EmployeeID || '';
+
+      userGroupNo = localStorage.getItem('selected_usergroup') || '';
+      if (!userGroupNo) {
+        userGroupNo = userData.userGroupNo || userData.roleId || '';
+      }
+      if (!userGroupNo && userData.userGroups && userData.userGroups.length > 0) {
+        userGroupNo = userData.userGroups[0].userGroupNo || '';
+      }
+    } catch {
+      // no-op
+    }
+
+    return {
+      employeeId,
+      userGroupNo: normalizeUserGroupNo(userGroupNo),
+    };
+  }, [normalizeUserGroupNo]);
+
+  const getParentOrgUnitNo = useCallback((unit?: UnitOption | null): string => {
+    if (!unit) return '';
+    return String(unit.parentOrgUnitNo || unit.ParentOrgUnitNo || '').trim();
+  }, []);
+
+  const lineOptions = useMemo<UnitOption[]>(() => {
+    if (availableUnitsByRole.length === 0) return [];
+
+    const allUnitsById = new Map<string, UnitOption>();
+    availableUnits.forEach((unit) => {
+      if (unit.id) allUnitsById.set(String(unit.id).trim(), unit);
+    });
+
+    const lineIds = new Set<string>();
+    availableUnitsByRole.forEach((unit) => {
+      const unitId = String(unit.id || '').trim();
+      const fromRole = getParentOrgUnitNo(unit);
+      const fromAll = getParentOrgUnitNo(allUnitsById.get(unitId));
+      const lineId = fromRole || fromAll || unitId;
+      if (lineId) lineIds.add(lineId);
+    });
+
+    return Array.from(lineIds)
+      .map((lineId) => {
+        const lineUnit = allUnitsById.get(lineId);
+        return {
+          id: lineId,
+          unitText: lineUnit?.unitText || lineId,
+          name: lineUnit?.name || lineId,
+          parentOrgUnitNo: lineUnit?.parentOrgUnitNo || lineUnit?.ParentOrgUnitNo || null,
+          ParentOrgUnitNo: lineUnit?.ParentOrgUnitNo || lineUnit?.parentOrgUnitNo || null,
+        };
+      })
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  }, [availableUnits, availableUnitsByRole, getParentOrgUnitNo]);
+
+  const fetchUnits = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/units/all?effectiveDate=${new Date().toISOString().split('T')[0]}`);
+      const result = await res.json();
+      console.log('MKD Fetch Units Result:', result); // DEBUG LOG
+      if (result.success) {
+        setAvailableUnits(result.data);
+      }
+    } catch (err) {
+      console.error('Error fetching units', err);
+    }
+  }, []);
+
+  const fetchUnitsByRole = useCallback(async () => {
+    try {
+      setIsUnitsByRoleLoading(true);
+
+      const { employeeId, userGroupNo } = getCurrentUserContext();
+      if (!employeeId || !userGroupNo) {
+        setAvailableUnitsByRole([]);
+        return;
+      }
+
+      const query = new URLSearchParams({
+        empId: employeeId,
+        roleId: userGroupNo
+      });
+      const res = await fetch(`/api/units/by-role?${query.toString()}`);
+      const result = await res.json();
+
+      if (result.success && Array.isArray(result.data)) {
+        setAvailableUnitsByRole(result.data);
+        setSelectedOrgUnit((prev) =>
+          result.data.some((unit: UnitOption) => unit.id === prev) ? prev : ''
+        );
+      } else {
+        setAvailableUnitsByRole([]);
+        setSelectedOrgUnit('');
+        setSelectedMainUnit('');
+      }
+    } catch (err) {
+      console.error('Error fetching units by role', err);
+      setAvailableUnitsByRole([]);
+      setSelectedOrgUnit('');
+      setSelectedMainUnit('');
+    } finally {
+      setIsUnitsByRoleLoading(false);
+    }
+  }, [getCurrentUserContext]);
 
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -201,10 +329,15 @@ export default function MKDHistoryPage() {
 
 
   useEffect(() => {
+    fetchUnits();
+    fetchUnitsByRole();
+  }, [fetchUnits, fetchUnitsByRole]);
+
+  useEffect(() => {
     if (isNewModalOpen) {
-      fetchUnits();
+      fetchUnitsByRole();
     }
-  }, [isNewModalOpen]);
+  }, [isNewModalOpen, fetchUnitsByRole]);
 
   useEffect(() => {
     const fetchStartYear = async () => {
@@ -235,6 +368,12 @@ export default function MKDHistoryPage() {
     console.log('Available Units changed:', availableUnits);
   }, [availableUnits]);
 
+  useEffect(() => {
+    setSelectedMainUnit((prev) =>
+      !prev || lineOptions.some((line) => line.id === prev) ? prev : ''
+    );
+  }, [lineOptions]);
+
   // Listen for user group changes from Header
   const fetchHistory = useCallback(async () => {
     setLoading(true);
@@ -263,7 +402,8 @@ export default function MKDHistoryPage() {
 
       const query = new URLSearchParams({
         EffectiveYear: ceYear,
-        OrgUnitNo: selectedMainUnit, 
+        OrgUnitNo: '',
+        division: selectedMainUnit,
         EmployeeID: employeeId,
         UserGroupNo: userGroupNo,
         RequestType: '1'
@@ -633,23 +773,11 @@ export default function MKDHistoryPage() {
   useEffect(() => {
     const handleGroupChange = () => {
         fetchHistory();
+        fetchUnitsByRole();
     };
     window.addEventListener('user-group-changed', handleGroupChange);
     return () => window.removeEventListener('user-group-changed', handleGroupChange);
-  }, [fetchHistory]);
-
-  const fetchUnits = async () => {
-    try {
-        const res = await fetch(`/api/units/all?effectiveDate=${new Date().toISOString().split('T')[0]}`);
-        const result = await res.json();
-        console.log('MKD Fetch Units Result:', result); // DEBUG LOG
-        if (result.success) {
-            setAvailableUnits(result.data);
-        }
-    } catch(err) {
-        console.error('Error fetching units', err);
-    }
-  };
+  }, [fetchHistory, fetchUnitsByRole]);
 
   const handleSearch = () => {
     fetchHistory();
@@ -658,7 +786,9 @@ export default function MKDHistoryPage() {
   const handleCreateNew = async () => {
     if (selectedOrgUnit) {
       try {
-        const selectedUnitDetail = availableUnits.find(u => u.id === selectedOrgUnit);
+        const selectedUnitDetail =
+          availableUnitsByRole.find((u) => u.id === selectedOrgUnit)
+          || availableUnits.find((u) => u.id === selectedOrgUnit);
 
         // Map BE year to CE if needed
         const numericYear = parseInt(year);
@@ -766,17 +896,17 @@ const handleViewDashboard = (mkdId: string) => {
     <div className="relative w-80">
       <Popover open={isMainComboboxOpen} onOpenChange={setIsMainComboboxOpen}>
         <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            aria-expanded={isMainComboboxOpen}
-            className="w-full justify-between font-normal bg-white"
-          >
-            {selectedMainUnit
-              ? availableUnits.find((unit) => unit.id === selectedMainUnit)?.unitText || selectedMainUnit
-              : "เลือกสายงาน..."}
-            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-          </Button>
+	          <Button
+	            variant="outline"
+	            role="combobox"
+	            aria-expanded={isMainComboboxOpen}
+	            className="w-full justify-between font-normal bg-white"
+	          >
+	            {selectedMainUnit
+	              ? lineOptions.find((unit) => unit.id === selectedMainUnit)?.unitText || selectedMainUnit
+	              : (isUnitsByRoleLoading ? "กำลังโหลดสายงาน..." : "เลือกสายงาน...")}
+	            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+	          </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[400px] p-0" align="start">
           <Command>
@@ -799,10 +929,10 @@ const handleViewDashboard = (mkdId: string) => {
                   />
                   ทั้งหมด
                 </CommandItem>
-                {availableUnits.map((unit) => (
-                  <CommandItem
-                    key={unit.id}
-                    value={`${unit.id} ${unit.unitText}`}
+	                {lineOptions.map((unit) => (
+	                  <CommandItem
+	                    key={unit.id}
+	                    value={`${unit.id} ${unit.unitText}`}
                     onSelect={() => {
                       setSelectedMainUnit(unit.id);
                       setIsMainComboboxOpen(false);
@@ -1135,8 +1265,8 @@ const handleViewDashboard = (mkdId: string) => {
                   className="w-full justify-between font-normal"
                 >
                   {selectedOrgUnit
-                    ? availableUnits.find((unit) => unit.id === selectedOrgUnit)?.unitText
-                    : "ค้นหาหน่วยงาน..."}
+                    ? availableUnitsByRole.find((unit) => unit.id === selectedOrgUnit)?.unitText
+                    : (isUnitsByRoleLoading ? "กำลังโหลดหน่วยงาน..." : "ค้นหาหน่วยงาน...")}
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
@@ -1146,7 +1276,7 @@ const handleViewDashboard = (mkdId: string) => {
                   <CommandList>
                     <CommandEmpty>ไม่พบหน่วยงาน</CommandEmpty>
                     <CommandGroup>
-                      {availableUnits.map((unit) => (
+                      {availableUnitsByRole.map((unit) => (
                         <CommandItem
                           key={unit.id}
                           value={`${unit.id} ${unit.unitText}`}
@@ -1183,7 +1313,7 @@ const handleViewDashboard = (mkdId: string) => {
             <Button
               className="bg-green-600 hover:bg-green-700 text-white"
               onClick={handleCreateNew}
-              disabled={!selectedOrgUnit}
+              disabled={!selectedOrgUnit || isUnitsByRoleLoading}
             >
               CREATE
             </Button>
