@@ -197,7 +197,7 @@ interface Report3DataType {
     _hasTransaction?: boolean;
     _poolRsFlag?: number;
     _bgNo?: string;
-    [key: string]: string | number | undefined;
+    [key: string]: string | number | boolean | undefined;
 }
 
 const datasetValues = ['ปกติ', 'PoolRS', 'Sec Pool'];

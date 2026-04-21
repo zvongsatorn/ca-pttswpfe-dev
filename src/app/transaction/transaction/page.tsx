@@ -345,6 +345,17 @@ const normalizeBaseUrl = (value: string): string => {
   return trimmed;
 };
 
+const resolveFileUrl = (fileUpload: string): string => {
+  const normalized = String(fileUpload || '').trim();
+  if (!normalized) return '';
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+  if (normalized.startsWith('/api/')) return normalized.replace(/^\/api\//, '/');
+  if (normalized.startsWith('/uploads/')) return normalized;
+  if (normalized.startsWith('uploads/')) return `/${normalized}`;
+  if (normalized.includes('/')) return `/${normalized.replace(/^\/+/, '')}`;
+  return `/uploads/transactions/${normalized}`;
+};
+
 // Helper to generate years
 const getYears = () => {
   if (typeof window === 'undefined') return ['2568', '2569'];
@@ -2316,13 +2327,18 @@ export default function TransactionPage() {
                                   <p className="text-xs text-gray-500 mt-1">Max 15MB, PDF only</p>
                                 </div>
                               </div>
-                              {detailFormData.fileUrl && (
-                                <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 p-2 rounded-lg border border-blue-100 w-fit">
-                                  <a href={`/api/${detailFormData.fileUrl}`} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1">
-                                    <FileText className="w-4 h-4" /> ดูไฟล์ที่แนบไว้แล้ว ({detailFormData.fileUrl})
-                                  </a>
-                                </div>
-                              )}
+                              {detailFormData.fileUrl && (() => {
+                                const fileHref = resolveFileUrl(detailFormData.fileUrl);
+                                if (!fileHref) return null;
+
+                                return (
+                                  <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 p-2 rounded-lg border border-blue-100 w-fit">
+                                    <a href={fileHref} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1">
+                                      <FileText className="w-4 h-4" /> ดูไฟล์ที่แนบไว้แล้ว ({detailFormData.fileUrl})
+                                    </a>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           ) : (
                             <div className="flex gap-2 items-center">
@@ -2336,9 +2352,10 @@ export default function TransactionPage() {
                               </select>
                               {detailFormData.selectedFileId && (() => {
                                 const selectedFile = existingFiles.find(f => f.id.toString() === detailFormData.selectedFileId);
-                                return selectedFile?.fileUrl ? (
+                                const fileHref = selectedFile?.fileUrl ? resolveFileUrl(selectedFile.fileUrl) : '';
+                                return fileHref ? (
                                   <a
-                                    href={`/api/${selectedFile.fileUrl}`}
+                                    href={fileHref}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     title="ดูไฟล์"
