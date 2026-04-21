@@ -183,6 +183,8 @@ export default function ReturnPage() {
     return String(localStorage.getItem('employeeId') || '').trim();
   };
 
+  const isHrPolicyUserGroup = (userGroupNo?: string | null) => String(userGroupNo || '').trim() === '04';
+
   const getBusinessUnitOptionsFromRecord = (record: BorrowRecord) => {
     const options: { id: string; name: string }[] = [];
     const pushOption = (idRaw: unknown, nameRaw?: unknown) => {
@@ -415,8 +417,12 @@ export default function ReturnPage() {
   };
 
   const confirmRequest = async () => {
+    const { userGroupNo: currentUserGroupNo } = resolveUserContext();
+    const isHrPolicy = isHrPolicyUserGroup(currentUserGroupNo);
     const groups = getReturnsByDepartmentPair();
-    const missingGroups = Object.keys(groups).filter(key => !selectedApprovers[key] || selectedApprovers[key].length === 0);
+    const missingGroups = isHrPolicy
+      ? []
+      : Object.keys(groups).filter(key => !selectedApprovers[key] || selectedApprovers[key].length === 0);
 
     if (missingGroups.length > 0) {
       setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาเลือกผู้ตรวจสอบสำหรับทุกกลุ่ม', type: 'warning' });
@@ -521,39 +527,62 @@ export default function ReturnPage() {
         };
       }));
 
-      // 2. Submit document(s) grouped by parent borrow document
-      const groupedByParent = new Map<string, typeof savedDocs>();
-      savedDocs.forEach((doc) => {
-        const parentKey = String(doc.parentDocumentNo || '').trim();
-        const current = groupedByParent.get(parentKey) || [];
-        current.push(doc);
-        groupedByParent.set(parentKey, current);
-      });
-
-      for (const [parentDocumentNo, docs] of groupedByParent.entries()) {
-        const payload = {
-          documentType: 1, // Transaction Document
-          userGroupNo: userGroupNo || undefined,
-          items: docs.map((d) => ({ itemId: d.itemId, approvers: d.approvers })),
-          parentDocumentNo: parentDocumentNo || undefined,
-          createBy: employeeId
-        };
-
-        const submitRes = await fetch('/api/documents/submit', {
+      if (isHrPolicy) {
+        const transactionNos = savedDocs.map((doc) => String(doc.itemId || '').trim()).filter(Boolean);
+        const directApproveRes = await fetch('/api/transactions/direct-approve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({
+            transactionNos,
+            updateBy: employeeId || 'SYSTEM'
+          })
         });
 
-        if (!submitRes.ok) {
+        if (!directApproveRes.ok) {
           let errData: { message?: string; error?: string } | null = null;
           try {
-            errData = await submitRes.json();
+            errData = await directApproveRes.json();
           } catch {
-            throw new Error('Failed to submit documents');
+            throw new Error('Failed to auto-approve return transactions');
           }
-          const reason = errData?.error?.trim() || errData?.message?.trim() || 'Failed to submit documents';
-          throw new Error(parentDocumentNo ? `Parent ${parentDocumentNo}: ${reason}` : reason);
+          const reason = errData?.error?.trim() || errData?.message?.trim() || 'Failed to auto-approve return transactions';
+          throw new Error(reason);
+        }
+      } else {
+        // 2. Submit document(s) grouped by parent borrow document
+        const groupedByParent = new Map<string, typeof savedDocs>();
+        savedDocs.forEach((doc) => {
+          const parentKey = String(doc.parentDocumentNo || '').trim();
+          const current = groupedByParent.get(parentKey) || [];
+          current.push(doc);
+          groupedByParent.set(parentKey, current);
+        });
+
+        for (const [parentDocumentNo, docs] of groupedByParent.entries()) {
+          const payload = {
+            documentType: 1, // Transaction Document
+            userGroupNo: userGroupNo || undefined,
+            items: docs.map((d) => ({ itemId: d.itemId, approvers: d.approvers })),
+            parentDocumentNo: parentDocumentNo || undefined,
+            createBy: employeeId
+          };
+
+          const submitRes = await fetch('/api/documents/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!submitRes.ok) {
+            let errData: { message?: string; error?: string } | null = null;
+            try {
+              errData = await submitRes.json();
+            } catch {
+              throw new Error('Failed to submit documents');
+            }
+            const reason = errData?.error?.trim() || errData?.message?.trim() || 'Failed to submit documents';
+            throw new Error(parentDocumentNo ? `Parent ${parentDocumentNo}: ${reason}` : reason);
+          }
         }
       }
 
@@ -562,23 +591,33 @@ export default function ReturnPage() {
       selectedReturnsSnapshot.forEach((ret) => {
         fetchReturnHistory(ret.borrowId, ret.ParentDocumentNo);
       });
-      setAlertInfo({ show: true, title: 'สำเร็จ', message: 'ส่งขอการอนุมัติคืนเรียบร้อย!', type: 'success' });
+      setAlertInfo({
+        show: true,
+        title: 'สำเร็จ',
+        message: isHrPolicy ? 'อนุมัติรายการคืนเรียบร้อย!' : 'ส่งขอการอนุมัติคืนเรียบร้อย!',
+        type: 'success'
+      });
       setIsSubmitConfirmModalOpen(false);
       setIsRequestModalOpen(false);
       setSelectedReturns(new Map());
       setSelectedApprovers({});
     } catch (error) {
       console.error('Error submitting request:', error);
-      const errorMessage = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการส่งคำขออนุมัติ';
-      setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: `เกิดข้อผิดพลาดในการส่งคำขออนุมัติ: ${errorMessage}`, type: 'error' });
+      const errorMessage = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการดำเนินการ';
+      const messagePrefix = isHrPolicy ? 'เกิดข้อผิดพลาดในการอนุมัติรายการคืน' : 'เกิดข้อผิดพลาดในการส่งคำขออนุมัติ';
+      setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: `${messagePrefix}: ${errorMessage}`, type: 'error' });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleOpenSubmitConfirm = () => {
+    const { userGroupNo } = resolveUserContext();
+    const isHrPolicy = isHrPolicyUserGroup(userGroupNo);
     const groups = getReturnsByDepartmentPair();
-    const missingGroups = Object.keys(groups).filter(key => !selectedApprovers[key] || selectedApprovers[key].length === 0);
+    const missingGroups = isHrPolicy
+      ? []
+      : Object.keys(groups).filter(key => !selectedApprovers[key] || selectedApprovers[key].length === 0);
     if (missingGroups.length > 0) {
       setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาเลือกผู้ตรวจสอบสำหรับทุกกลุ่ม', type: 'warning' });
       return;
@@ -1070,8 +1109,14 @@ export default function ReturnPage() {
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">ยืนยันการส่งขออนุมัติ</h3>
-              <p className="text-sm text-gray-500 mt-1">ต้องการส่งคำขออนุมัติรายการคืนที่เลือกไว้ใช่หรือไม่</p>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {isHrPolicyUserGroup(resolveUserContext().userGroupNo) ? 'ยืนยันการอนุมัติทันที' : 'ยืนยันการส่งขออนุมัติ'}
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">
+                {isHrPolicyUserGroup(resolveUserContext().userGroupNo)
+                  ? 'ต้องการอนุมัติรายการคืนที่เลือกไว้ทันทีใช่หรือไม่'
+                  : 'ต้องการส่งคำขออนุมัติรายการคืนที่เลือกไว้ใช่หรือไม่'}
+              </p>
             </div>
             <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
               <Button
@@ -1087,7 +1132,9 @@ export default function ReturnPage() {
                 disabled={isSubmitting}
                 className="bg-purple-600 hover:bg-purple-700 text-white px-4 font-semibold"
               >
-                {isSubmitting ? 'กำลังส่ง...' : 'ยืนยัน'}
+                {isSubmitting
+                  ? (isHrPolicyUserGroup(resolveUserContext().userGroupNo) ? 'กำลังอนุมัติ...' : 'กำลังส่ง...')
+                  : 'ยืนยัน'}
               </Button>
             </div>
           </div>
