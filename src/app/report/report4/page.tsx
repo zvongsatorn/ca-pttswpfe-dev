@@ -203,43 +203,6 @@ const renderChange = (value: unknown) => {
     return <span className="text-red-600 font-bold">{num}</span>;
 };
 
-const summaryLabelPriority = ['unit_name', 'unit_short', 'unit_code', 'line_of_work', 'level', 'business_unit', 'remark', 'log'] as const;
-
-const getSummaryCellClass = (key: string) => {
-    const alignmentClass = (
-        key.startsWith('frame_') ||
-        key.startsWith('people_') ||
-        key.startsWith('total_') ||
-        key.startsWith('vacancy_') ||
-        key.startsWith('contact_out') ||
-        key === 'recruit_total' ||
-        key === 'line_of_work' ||
-        key === 'level'
-    )
-        ? 'text-center'
-        : 'text-left';
-
-    const baseClass = `font-bold text-gray-900 border-t-2! border-t-gray-300! ${alignmentClass}`;
-    if (key === 'recruit_total') return `${baseClass} bg-green-100!`;
-    if (key.startsWith('contact_out')) return `${baseClass} bg-purple-100!`;
-    if (key.startsWith('vacancy_')) return `${baseClass} bg-red-100!`;
-    if (
-        key.startsWith('frame_staff_') ||
-        key.startsWith('frame_sec_') ||
-        key.startsWith('total_frame_')
-    ) {
-        return `${baseClass} bg-blue-100!`;
-    }
-    if (
-        key.startsWith('people_normal_') ||
-        key.startsWith('people_sec_') ||
-        key.startsWith('total_people_')
-    ) {
-        return `${baseClass} bg-orange-100!`;
-    }
-    return `${baseClass} bg-gray-100!`;
-};
-
 const resolveUserContext = () => {
     let employeeId = 'SYSTEM';
     let userGroupNo = '';
@@ -802,7 +765,6 @@ export default function Report4Page() {
     }, [appliedCheckedList, appliedDatasets]);
 
     const filteredData = useMemo(() => allData, [allData]);
-
     const totalRow = useMemo<Report4DataType | null>(() => {
         if (!filteredData.length) return null;
 
@@ -810,7 +772,7 @@ export default function Report4Page() {
             key: 'TOTAL_SUMMARY',
             unit_short: '',
             unit_code: '',
-            unit_name: 'รวมทั้งสิ้น (Grand Total)',
+            unit_name: 'รวม',
             line_of_work: '',
             level: '',
             business_unit: '',
@@ -829,13 +791,17 @@ export default function Report4Page() {
 
         return summary;
     }, [filteredData]);
+    const tableData = useMemo(
+        () => (totalRow ? [...filteredData, totalRow] : filteredData),
+        [filteredData, totalRow]
+    );
 
     useEffect(() => {
-        const totalPages = Math.max(1, Math.ceil(filteredData.length / pageSize));
+        const totalPages = Math.max(1, Math.ceil(tableData.length / pageSize));
         if (pageCurrent > totalPages) {
             setPageCurrent(1);
         }
-    }, [filteredData.length, pageCurrent, pageSize]);
+    }, [tableData.length, pageCurrent, pageSize]);
 
     useEffect(() => {
         if (!hasSearched) {
@@ -1097,7 +1063,7 @@ export default function Report4Page() {
             };
         }));
 
-        const exportRows = totalRow ? [...filteredData, totalRow] : filteredData;
+        const exportRows = tableData;
 
         exportRows.forEach((item) => {
             const rowValues = dataKeys.map((key) => {
@@ -1143,94 +1109,51 @@ export default function Report4Page() {
                         }
                     }
                 });
-            } else {
-                row.eachCell((cell, colNumber) => {
-                    cell.border = {
-                        top: { style: 'thin' },
-                        left: { style: 'thin' },
-                        bottom: { style: 'thin' },
-                        right: { style: 'thin' }
-                    };
-                    cell.font = { name: 'Sarabun', size: 10 };
-
-                    const key = dataKeys[colNumber - 1];
-                    if (key) {
-                        if (key.includes('recruit')) {
-                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.greenSub } };
-                        } else if (
-                            /^(frame_staff|frame_sec)_total(_change)?$/.test(key) ||
-                            /^total_frame_total(_change)?$/.test(key)
-                        ) {
-                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.blueSub } };
-                        } else if (
-                            /^(people_normal|people_sec)_total(_change)?$/.test(key) ||
-                            /^total_people_total(_change)?$/.test(key)
-                        ) {
-                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.orangeSub } };
-                        } else if (/^vacancy_total(_change)?$/.test(key)) {
-                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.redSub } };
-                        }
-                    }
-
-                    if (key && key.includes('change')) {
-                        const val = item[key];
-                        if (typeof val === 'number') {
-                            if (val > 0) cell.font = { color: { argb: 'FF2563EB' }, name: 'Sarabun', size: 10, bold: true };
-                            else if (val < 0) cell.font = { color: { argb: 'FFDC2626' }, name: 'Sarabun', size: 10, bold: true };
-                        }
-                    }
-                });
+                return;
             }
+
+            row.eachCell((cell, colNumber) => {
+                cell.border = {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                };
+                cell.font = { name: 'Sarabun', size: 10 };
+
+                const key = dataKeys[colNumber - 1];
+                if (key) {
+                    if (key.includes('recruit')) {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.greenSub } };
+                    } else if (
+                        /^(frame_staff|frame_sec)_total(_change)?$/.test(key) ||
+                        /^total_frame_total(_change)?$/.test(key)
+                    ) {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.blueSub } };
+                    } else if (
+                        /^(people_normal|people_sec)_total(_change)?$/.test(key) ||
+                        /^total_people_total(_change)?$/.test(key)
+                    ) {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.orangeSub } };
+                    } else if (/^vacancy_total(_change)?$/.test(key)) {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.redSub } };
+                    }
+                }
+
+                if (key && key.includes('change')) {
+                    const val = item[key];
+                    if (typeof val === 'number') {
+                        if (val > 0) cell.font = { color: { argb: 'FF2563EB' }, name: 'Sarabun', size: 10, bold: true };
+                        else if (val < 0) cell.font = { color: { argb: 'FFDC2626' }, name: 'Sarabun', size: 10, bold: true };
+                    }
+                }
+            });
         });
 
         const buffer = await workbook.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         await saveExcelFile(blob, `รายงานสรุปกรอบอัตรากำลังประจำเดือนของหน่วยงาน (ตามประเภทกรอบอัตรา)_${currentSearchDate.format('YYYYMMDD')}.xlsx`);
     };
-
-    const visibleColumnKeys = useMemo(() => {
-        const isShow = (k: string) => effectiveCheckedList.includes(k);
-        const keys: string[] = [];
-
-        const basicCols = ['unit_short', 'unit_code', 'unit_name', 'line_of_work', 'level', 'business_unit'];
-        basicCols.forEach((key) => {
-            if (isShow(key)) keys.push(key);
-        });
-
-        const addLevelGroup = (prefix: string, showChange = true) => {
-            levelKeys.forEach((key) => {
-                keys.push(`${prefix}_${key}`);
-                if (showChange) keys.push(`${prefix}_${key}_change`);
-            });
-        };
-
-        const addTotalGroup = (prefix: string, showChange = true) => {
-            ['normal', 'pool', 'trad', 'newbiz', 'total'].forEach((key) => {
-                keys.push(`${prefix}_${key}`);
-                if (showChange) keys.push(`${prefix}_${key}_change`);
-            });
-        };
-
-        if (isShow('frame_staff')) addLevelGroup('frame_staff');
-        if (isShow('people_normal')) addLevelGroup('people_normal');
-        if (isShow('frame_sec')) addLevelGroup('frame_sec');
-        if (isShow('people_sec')) addLevelGroup('people_sec');
-        if (isShow('total_frame')) addTotalGroup('total_frame');
-        if (isShow('total_people')) addTotalGroup('total_people');
-        if (isShow('recruit')) keys.push('recruit_total');
-        if (isShow('vacancy')) addLevelGroup('vacancy', false);
-        if (isShow('contact_out')) keys.push('contact_out');
-        if (isShow('contact_out_sub')) keys.push('contact_out_sub');
-        if (isShow('remark')) keys.push('remark');
-        if (isShow('log')) keys.push('log');
-
-        return keys;
-    }, [effectiveCheckedList]);
-
-    const summaryLabelKey = useMemo(
-        () => summaryLabelPriority.find((key) => visibleColumnKeys.includes(key)) ?? null,
-        [visibleColumnKeys]
-    );
 
     const columns: ColumnsType<Report4DataType> = useMemo(() => {
         const isShow = (k: string) => effectiveCheckedList.includes(k);
@@ -1509,7 +1432,7 @@ export default function Report4Page() {
                             >
                                 <Table
                                     columns={columns}
-                                    dataSource={filteredData}
+                                    dataSource={tableData}
                                     loading={loading}
                                     bordered
                                     size="small"
@@ -1517,7 +1440,7 @@ export default function Report4Page() {
                                     pagination={{
                                         current: pageCurrent,
                                         pageSize,
-                                        total: filteredData.length,
+                                        total: tableData.length,
                                         showSizeChanger: true,
                                         pageSizeOptions: ['20', '50', '100', '200'],
                                         showTotal: (total, range) => `${range[0]}-${range[1]} จาก ${total} รายการ`,
@@ -1531,37 +1454,6 @@ export default function Report4Page() {
                                             setPageSize(size);
                                             setPageCurrent(1);
                                         },
-                                    }}
-                                    summary={() => {
-                                        if (!totalRow) return null;
-
-                                        return (
-                                            <Table.Summary fixed="bottom">
-                                                <Table.Summary.Row>
-                                                    {visibleColumnKeys.map((key, index) => {
-                                                        const isChangeKey = key.includes('_change');
-                                                        const isNumericKey = numericKeys.includes(key);
-                                                        let content: React.ReactNode = '';
-
-                                                        if (key === summaryLabelKey) {
-                                                            content = 'รวมทั้งสิ้น (Grand Total)';
-                                                        } else if (isNumericKey) {
-                                                            content = isChangeKey ? renderChange(totalRow[key]) : renderNumber(totalRow[key]);
-                                                        }
-
-                                                        return (
-                                                            <Table.Summary.Cell
-                                                                key={key}
-                                                                index={index}
-                                                                className={getSummaryCellClass(key)}
-                                                            >
-                                                                {content}
-                                                            </Table.Summary.Cell>
-                                                        );
-                                                    })}
-                                                </Table.Summary.Row>
-                                            </Table.Summary>
-                                        );
                                     }}
                                     sticky
                                     className="report4-table [&_.ant-table-cell]:text-[12px]! [&_.ant-table-cell]:py-1!"
