@@ -194,6 +194,7 @@ interface Report3DataType {
 
     remark?: string;
     log?: string;
+    _hasTransaction?: boolean;
     _poolRsFlag?: number;
     _bgNo?: string;
     [key: string]: string | number | undefined;
@@ -265,6 +266,12 @@ const renderNumber = (value: unknown) => {
     if (value === undefined || value === null || value === '') return 0;
     return value;
 };
+
+const hasTransactionHighlight = (record: Report3DataType) =>
+    record.key !== 'TOTAL_SUMMARY' && Boolean(record._hasTransaction);
+
+const getDefaultRowCellClass = (record: Report3DataType) =>
+    hasTransactionHighlight(record) ? 'bg-yellow-100! text-gray-900' : 'bg-white';
 
 const resolveUserContext = () => {
     let employeeId = 'SYSTEM';
@@ -417,6 +424,7 @@ const transformRows = (rawRows: Report3RawRow[]): Report3DataType[] => {
 
             remark: toText(row.note),
             log: toText(row.TransactionDesc),
+            _hasTransaction: toText(row.TransactionDesc).length > 0,
             _poolRsFlag: toNumber(row.PoolRsFlag),
             _bgNo: toText(row.BGNo),
         };
@@ -437,10 +445,13 @@ const generateColumns = (
         if (record.key === 'TOTAL_SUMMARY') {
             return { className: `${summaryColorClass} font-bold text-gray-900 border-t-2! border-t-gray-300!` };
         }
+        if (hasTransactionHighlight(record)) {
+            return { className: 'bg-yellow-100! text-gray-900 font-medium' };
+        }
         if (isTotalCol) {
             return { className: `${totalCellClass} font-semibold` };
         }
-        return { className: 'bg-white' };
+        return { className: getDefaultRowCellClass(record) };
     };
 
     levelKeys.forEach((key, index) => {
@@ -1284,7 +1295,9 @@ export default function Report3Page() {
         const getBasicCellProps = (record: Report3DataType) =>
             record.key === 'TOTAL_SUMMARY'
                 ? { className: 'bg-gray-100! font-bold text-gray-900 border-t-2! border-t-gray-300!' }
-                : { className: 'bg-white' };
+                : hasTransactionHighlight(record)
+                  ? { className: 'bg-yellow-100! text-gray-900 font-medium' }
+                  : { className: getDefaultRowCellClass(record) };
 
         return [
             ...(isShow('unit_short')
@@ -1505,7 +1518,9 @@ export default function Report3Page() {
                                         className:
                                             'bg-green-100! font-bold text-gray-900 border-t-2! border-t-gray-300!',
                                     }
-                                  : { className: 'bg-green-50!' },
+                                  : hasTransactionHighlight(record)
+                                    ? { className: 'bg-yellow-100! text-gray-900 font-medium' }
+                                    : { className: 'bg-green-50!' },
                       },
                   ]
                 : []),
@@ -1783,7 +1798,11 @@ export default function Report3Page() {
                                            [&_.ant-table-content::-webkit-scrollbar-thumb]:bg-gray-500
                                            [&_.ant-table-content::-webkit-scrollbar-track]:bg-gray-200"
                                     rowClassName={(record) =>
-                                        record.key === 'TOTAL_SUMMARY' ? 'font-bold' : 'bg-white'
+                                        record.key === 'TOTAL_SUMMARY'
+                                            ? 'font-bold'
+                                            : record._hasTransaction
+                                              ? 'report3-transaction-row'
+                                              : 'bg-white'
                                     }
                                 />
                             </div>

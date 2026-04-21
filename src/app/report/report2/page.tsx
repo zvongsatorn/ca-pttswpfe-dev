@@ -449,17 +449,26 @@ const transformRows = (rawRows: Report2RawRow[], monthKeys: string[]) => {
 
         metricMaps.forEach((metric) => {
             const value = toNumber(row[metric.valueField]);
-            target[`${metric.key}_${monthKey}`] = value;
+            const valueKey = `${metric.key}_${monthKey}`;
+            target[valueKey] = toNumber(target[valueKey]) + value;
 
             if (metric.diffField) {
                 const diffValue = toNumberOrNull(row[metric.diffField]);
                 if (diffValue !== null) {
-                    target[`${metric.key}_${monthKey}_diff`] = diffValue;
+                    const diffKey = `${metric.key}_${monthKey}_diff`;
+                    target[diffKey] = toNumber(target[diffKey]) + diffValue;
                 }
             }
         });
 
-        target[`remark_${monthKey}`] = row.remark || '';
+        const remarkKey = `remark_${monthKey}`;
+        const nextRemark = String(row.remark || '').trim();
+        const currentRemark = String(target[remarkKey] ?? '').trim();
+        if (nextRemark) {
+            target[remarkKey] = currentRemark && currentRemark !== nextRemark
+                ? `${currentRemark}\n${nextRemark}`
+                : (currentRemark || nextRemark);
+        }
     });
 
     const baseRows = orderedKeys.map((compositeKey) => {
