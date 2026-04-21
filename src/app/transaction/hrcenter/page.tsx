@@ -82,7 +82,7 @@ const normalizeUserGroupNo = (value: string | null | undefined): string => {
   return normalized;
 };
 const getSelectedUserGroupNo = () => {
-  if (typeof window === 'undefined') return '05';
+  if (typeof window === 'undefined') return '';
 
   const fromSelectedGroup = normalizeUserGroupNo(localStorage.getItem('selected_usergroup'));
   if (fromSelectedGroup) return fromSelectedGroup;
@@ -115,7 +115,7 @@ const getSelectedUserGroupNo = () => {
     }
   }
 
-  return '05';
+  return '';
 };
 
 const currentDate = new Date();
@@ -679,7 +679,12 @@ export default function HRCenterPage() {
           }
         }
         
-        const userGroupNo = normalizeUserGroupNo(selectedUserGroupNo) || '05';
+        const userGroupNo = normalizeUserGroupNo(selectedUserGroupNo);
+        if (!userGroupNo) {
+          console.warn('No user group selected. Skip fetching hrcenter/report data.');
+          if (isActive) setDepartmentData([]);
+          return;
+        }
 
         const monthIndex = months.indexOf(appliedMonth) + 1;
         const yearAD = Number(appliedYear) - 543;

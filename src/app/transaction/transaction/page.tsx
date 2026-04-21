@@ -125,6 +125,10 @@ interface UnitOption {
 
 type ApproverFlowKey = 'TYPE2' | 'OTHERS';
 
+const isTransactionTypeEnum = (value: number): value is TransactionTypeEnum => {
+  return value >= 1 && value <= 7;
+};
+
 const uniqueSavedTransactions = (transactions: SavedTransaction[]): SavedTransaction[] => {
   const deduped = new Map<string, SavedTransaction>();
   transactions.forEach((tx) => {
@@ -214,7 +218,78 @@ const normalizeUnitOption = (u: Record<string, unknown>): UnitOption => ({
 const normalizeUserGroupNo = (value: string): string => {
   const trimmed = String(value || '').trim();
   if (!trimmed) return '';
-  return /^\d+$/.test(trimmed) ? trimmed.padStart(2, '0') : trimmed;
+  return /^\d+$/.test(trimmed) ? trimmed.padStart(2, '0') : '';
+};
+
+const UNITS_CACHE_PREFIX = 'user_units_cache:';
+const LEGACY_UNITS_CACHE_KEY = 'user_units_cache';
+
+const buildUnitsCacheKey = (employeeId: string, userGroupNo: string): string => {
+  return `${UNITS_CACHE_PREFIX}${String(employeeId || '').trim()}:${normalizeUserGroupNo(userGroupNo)}`;
+};
+
+const clearUnitsCacheKeys = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = sessionStorage.key(i);
+      if (!key) continue;
+      if (key === LEGACY_UNITS_CACHE_KEY || key.startsWith(UNITS_CACHE_PREFIX)) {
+        sessionStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // no-op
+  }
+};
+
+const resolveUserContext = (): { employeeId: string; userGroupNo: string } => {
+  if (typeof window === 'undefined') {
+    return { employeeId: '', userGroupNo: '' };
+  }
+
+  const userDataStr = localStorage.getItem('user_data');
+  const selectedGroup = normalizeUserGroupNo(String(localStorage.getItem('selected_usergroup') || '').trim());
+  let employeeId = '';
+  let userGroupNo = '';
+
+  if (userDataStr) {
+    try {
+      const userData = JSON.parse(userDataStr) as {
+        employeeID?: string;
+        EmployeeID?: string;
+        userGroupNo?: string;
+        roleId?: string;
+        role?: string;
+        userGroups?: Array<{ userGroupNo?: string; userGroupRole?: string }>;
+      };
+
+      employeeId = String(userData.employeeID || userData.EmployeeID || '').trim();
+      const userGroups = Array.isArray(userData.userGroups) ? userData.userGroups : [];
+      const normalizedUserGroups = userGroups
+        .map((group) => normalizeUserGroupNo(String(group?.userGroupNo || '').trim()))
+        .filter(Boolean);
+
+      // Respect selected group only when it belongs to current user's group list.
+      if (selectedGroup && (normalizedUserGroups.length === 0 || normalizedUserGroups.includes(selectedGroup))) {
+        userGroupNo = selectedGroup;
+      }
+
+      if (!userGroupNo) {
+        const groupFromUser = String(
+          userData.userGroupNo ||
+          userData.roleId ||
+          userData.userGroups?.[0]?.userGroupNo ||
+          ''
+        ).trim();
+        userGroupNo = normalizeUserGroupNo(groupFromUser);
+      }
+    } catch {
+      // ignore parse failure and use fallback values
+    }
+  }
+
+  return { employeeId, userGroupNo };
 };
 
 const extractCalendarType = (row: Record<string, unknown>): number | null => {
@@ -233,6 +308,41 @@ const extractCalendarDate = (row: Record<string, unknown>): Date | null => {
     row.configDateLimit;
 
   return parseCalendarDate(raw);
+};
+
+type ApiBodyResult<T> = {
+  json: T | null;
+  text: string;
+};
+
+const readApiBody = async <T = Record<string, unknown>>(response: Response): Promise<ApiBodyResult<T>> => {
+  const raw = await response.text();
+  const text = raw.trim();
+  if (!text) {
+    return { json: null, text: '' };
+  }
+
+  try {
+    return { json: JSON.parse(text) as T, text };
+  } catch {
+    return { json: null, text };
+  }
+};
+
+const resolveApiErrorMessage = (
+  body: { message?: unknown; error?: unknown } | null,
+  fallback: string,
+  text = ''
+): string => {
+  const error = typeof body?.error === 'string' ? body.error.trim() : '';
+  const message = typeof body?.message === 'string' ? body.message.trim() : '';
+  return error || message || text || fallback;
+};
+
+const normalizeBaseUrl = (value: string): string => {
+  const trimmed = String(value || '').trim().replace(/\/+$/, '');
+  if (!trimmed) return '';
+  return trimmed;
 };
 
 // Helper to generate years
@@ -424,7 +534,11 @@ export default function TransactionPage() {
     if (typeof window === 'undefined') {
       return [];
     }
-    const cachedUnits = sessionStorage.getItem('user_units_cache');
+    const userContext = resolveUserContext();
+    if (!userContext.employeeId || !userContext.userGroupNo) return [];
+
+    const scopedCacheKey = buildUnitsCacheKey(userContext.employeeId, userContext.userGroupNo);
+    const cachedUnits = sessionStorage.getItem(scopedCacheKey);
     if (cachedUnits && cachedUnits !== 'undefined' && cachedUnits.trim() !== '') {
       try {
         return JSON.parse(cachedUnits);
@@ -434,14 +548,6 @@ export default function TransactionPage() {
     }
     return [];
   });
-
-  // We are keeping `departments` as a static array for `unitReceive` until we know if it also needs backend fetching.
-  // The user specifically asked for "หน่วยงานที่รับโอน" -> "หน่วยงาน/ฝ่าย"
-  const departments = [
-    { id: 'dep1', name: 'ฝ่ายทรัพยากรบุคคล (Dep 1)' },
-    { id: 'dep2', name: 'ฝ่ายบัญชี (Dep 2)' },
-    { id: 'dep3', name: 'ฝ่ายไอที (Dep 3)' },
-  ];
 
   const [levels, setLevels] = useState<{ id: string; name: string }[]>([]);
   const [allUnits, setAllUnits] = useState<UnitOption[]>([]);
@@ -453,7 +559,12 @@ export default function TransactionPage() {
     const handleUnitsChanged = (event: Event) => {
       const customEvent = event as CustomEvent;
       if (customEvent.detail && Array.isArray(customEvent.detail)) {
-        setUnits(customEvent.detail.map((u: Record<string, unknown>) => normalizeUnitOption(u)));
+        const normalizedUnits = customEvent.detail.map((u: Record<string, unknown>) => normalizeUnitOption(u));
+        setUnits(normalizedUnits);
+        const { employeeId, userGroupNo } = resolveUserContext();
+        if (employeeId && userGroupNo) {
+          sessionStorage.setItem(buildUnitsCacheKey(employeeId, userGroupNo), JSON.stringify(normalizedUnits));
+        }
         // Clear active selection if the previous selection is no longer valid
         setDetailFormData(prev => ({
           ...prev,
@@ -465,31 +576,61 @@ export default function TransactionPage() {
     window.addEventListener('user-units-changed', handleUnitsChanged);
     
     // Always fetch fresh units on mount to ensure IsAssistant/IsUnder fields are present
-    const userDataStr = localStorage.getItem('user_data');
-    if (userDataStr) {
-      try {
-        const userData = JSON.parse(userDataStr);
-        const defaultGroup = normalizeUserGroupNo(localStorage.getItem('selected_usergroup') || '02') || '02';
-        const employeeId = userData.employeeID || '00000000';
-        const token = localStorage.getItem('auth_token');
-        
-        fetch(`/api/units/by-role?roleId=${defaultGroup}&empId=${employeeId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        })
-          .then(res => res.json())
-          .then(data => {
-            if ((data.status === 200 || data.success) && data.data) {
+    const userContext = resolveUserContext();
+    const employeeId = userContext.employeeId;
+    const defaultGroup = userContext.userGroupNo || normalizeUserGroupNo(String(localStorage.getItem('selected_usergroup') || '').trim()) || '02';
+    if (employeeId) {
+      const token = localStorage.getItem('auth_token');
+      const query = `roleId=${encodeURIComponent(defaultGroup)}&empId=${encodeURIComponent(employeeId)}`;
+      const proxyUrl = `/api/units/by-role?${query}`;
+      const publicApiBase = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_URL || '');
+      const directUrl = publicApiBase ? `${publicApiBase}/api/units/by-role?${query}` : '';
+      const fetchTargets = Array.from(new Set([proxyUrl, directUrl].filter(Boolean)));
+
+      const fetchInitialUnits = async () => {
+        const errors: string[] = [];
+        const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+
+        for (const url of fetchTargets) {
+          try {
+            const res = await fetch(url, { headers });
+            const { json: data, text } = await readApiBody<{
+              status?: number;
+              success?: boolean;
+              data?: Record<string, unknown>[];
+              message?: string;
+              error?: string;
+            }>(res);
+
+            if (!res.ok) {
+              errors.push(`${url} -> ${resolveApiErrorMessage(data, `HTTP ${res.status}`, text)}`);
+              continue;
+            }
+
+            if (!data) {
+              errors.push(`${url} -> non-JSON response (${text || `HTTP ${res.status}`})`);
+              continue;
+            }
+
+            if ((data.status === 200 || data.success) && Array.isArray(data.data)) {
               const fetchedUnits = data.data.map((u: Record<string, unknown>) => normalizeUnitOption(u));
               setUnits(fetchedUnits);
-              sessionStorage.setItem('user_units_cache', JSON.stringify(fetchedUnits));
+              clearUnitsCacheKeys();
+              sessionStorage.setItem(buildUnitsCacheKey(employeeId, defaultGroup), JSON.stringify(fetchedUnits));
+              return;
             }
-          })
-          .catch(err => console.error("Error fetching initial units:", err));
-      } catch (e) {
-           console.error("Failed to parse user_data for initial unit fetch", e);
-      }
+
+            errors.push(`${url} -> unexpected payload shape`);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            errors.push(`${url} -> ${message}`);
+          }
+        }
+
+        console.error('Error fetching initial units:', errors.join(' | '));
+      };
+
+      void fetchInitialUnits();
     }
 
     return () => {
@@ -534,7 +675,10 @@ export default function TransactionPage() {
           throw new Error(`Calendar API returned ${response.status}`);
         }
 
-        const body = await response.json();
+        const { json: body, text } = await readApiBody<{ data?: Record<string, unknown>[] }>(response);
+        if (!body) {
+          throw new Error(text || 'Calendar API returned invalid response');
+        }
         const rows = Array.isArray(body?.data) ? (body.data as Record<string, unknown>[]) : [];
         const monthlyEvents = rows
           .map((row) => ({
@@ -640,38 +784,41 @@ export default function TransactionPage() {
         const url = `/api/transactions/drafts?employeeId=${employeeId}&effectiveMonth=${encodeURIComponent(formData.effectiveMonth)}&effectiveYear=${formData.effectiveYear}`;
         const res = await fetch(url);
         if (res.ok) {
-          const data = await res.json();
+          const { json: data, text } = await readApiBody<{ status?: number; data?: Array<{
+            TransactionNo: string;
+            TransactionType: number;
+            EffectiveDate?: string | null;
+            PoolRsFlag: number;
+            StrgFlag: number;
+            BSType: number;
+            SpecFlag: number;
+            UnitReceive: string;
+            Remark: string;
+            LineStaffFlag: number;
+            Policyflag: number;
+            PastFlag: number;
+            LevelGroupTo: string;
+            LevelGroupFrom: string;
+            LevelGroupToName?: string;
+            LevelGroupFromName?: string;
+            UnitTransferName?: string;
+            UnitReceiveName?: string;
+            Amount: number;
+            ConclusionNo: string;
+            ConclusionDate: string | null;
+            UnitTransfer: string;
+            TransferInd: number;
+            CreateDate: string | null;
+          }> }>(res);
+          if (!data) {
+            throw new Error(text || 'Draft API returned invalid response');
+          }
           if (data.status === 200 && data.data && data.data.length > 0) {
             // Map the backend records to the frontend state shape
-            const loadedDrafts: SavedTransaction[] = data.data.map((item: {
-              TransactionNo: string;
-              TransactionType: number;
-              EffectiveDate?: string | null;
-              PoolRsFlag: number;
-              StrgFlag: number;
-              BSType: number;
-              SpecFlag: number;
-              UnitReceive: string;
-              Remark: string;
-              LineStaffFlag: number;
-              Policyflag: number;
-              PastFlag: number;
-              LevelGroupTo: string;
-              LevelGroupFrom: string;
-              LevelGroupToName?: string;
-              LevelGroupFromName?: string;
-              UnitTransferName?: string;
-              UnitReceiveName?: string;
-              Amount: number;
-              ConclusionNo: string;
-              ConclusionDate: string | null;
-              UnitTransfer: string;
-              TransferInd: number;
-              CreateDate: string | null;
-            }) => ({
+            const loadedDrafts: SavedTransaction[] = data.data.map((item) => ({
               id: item.TransactionNo,
               transactionData: {
-                transactionType: item.TransactionType,
+                transactionType: isTransactionTypeEnum(item.TransactionType) ? item.TransactionType : null,
                 effectiveMonth: item.EffectiveDate ? months[new Date(item.EffectiveDate).getMonth()] : currentMonth,
                 effectiveYear: item.EffectiveDate ? (new Date(item.EffectiveDate).getFullYear() + 543).toString() : currentYear,
                 poolRsFlag: item.PoolRsFlag || 0,
@@ -725,14 +872,23 @@ export default function TransactionPage() {
       const monthStr = monthIndex.toString().padStart(2, '0');
       const effectiveDate = `${yearNum}-${monthStr}-01`;
 
-      fetch(`/api/units/all?effectiveDate=${effectiveDate}`)
-        .then(res => res.json())
-        .then(data => {
+      const fetchAllUnits = async () => {
+        try {
+          const res = await fetch(`/api/units/all?effectiveDate=${effectiveDate}`);
+          const { json: data, text } = await readApiBody<{ success?: boolean; data?: Record<string, unknown>[] }>(res);
+          if (!data) {
+            console.error('Error fetching all units: non-JSON response', text || `HTTP ${res.status}`);
+            return;
+          }
           if (data.success && data.data) {
             setAllUnits(data.data.map((u: Record<string, unknown>) => normalizeUnitOption(u)));
           }
-        })
-        .catch(err => console.error('Error fetching all units:', err));
+        } catch (err) {
+          console.error('Error fetching all units:', err);
+        }
+      };
+
+      void fetchAllUnits();
     }
   }, [formData.effectiveMonth, formData.effectiveYear]);
 
@@ -830,7 +986,11 @@ export default function TransactionPage() {
           });
 
           const res = await fetch(`/api/units/transfer-by-receive?${query.toString()}`);
-          const data = await res.json();
+          const { json: data, text } = await readApiBody<{ success?: boolean; data?: Record<string, unknown>[] }>(res);
+          if (!data) {
+            console.error('Error fetching transfer units by receive: non-JSON response', text || `HTTP ${res.status}`);
+            continue;
+          }
           if (data.success && Array.isArray(data.data) && data.data.length > 0) {
             setTransferUnitsByReceive(data.data.map((u: Record<string, unknown>) => normalizeUnitOption(u)));
             return;
@@ -876,7 +1036,10 @@ export default function TransactionPage() {
           const url = `/api/transactions/files?effectiveMonth=${encodeURIComponent(formData.effectiveMonth)}&effectiveYear=${formData.effectiveYear}&employeeId=${empId}`;
           const res = await fetch(url);
           if (res.ok) {
-            const data = await res.json();
+            const { json: data, text } = await readApiBody<{ status?: number; data?: Array<{ id: string; name: string; conclusionNo: string; fileUrl: string }> }>(res);
+            if (!data) {
+              throw new Error(text || 'Existing files API returned invalid response');
+            }
             if (data.status === 200) {
               setExistingFiles(data.data || []);
             }
@@ -906,14 +1069,17 @@ export default function TransactionPage() {
           const checkDate = `${yearNum}${monthStr}01`; 
           
           const unit = selectedTransferUnit;
-          // Get the selected user group from localStorage
-          const userGroupNo = localStorage.getItem('selected_usergroup') || '04';
+          const { userGroupNo } = resolveUserContext();
+          const effectiveUserGroupNo = userGroupNo || '04';
 
-          const url = `/api/units/levels?checkDate=${checkDate}&unit=${unit}&userGroupNo=${userGroupNo}`;
+          const url = `/api/units/levels?checkDate=${checkDate}&unit=${unit}&userGroupNo=${effectiveUserGroupNo}`;
           const res = await fetch(url);
           if (res.ok) {
-            const data = await res.json();
-            if (data.success) {
+            const { json: data, text } = await readApiBody<{ success?: boolean; data?: { id: string; name: string; nameEN: string; order: number; top: number }[] }>(res);
+            if (!data) {
+              throw new Error(text || 'Levels API returned invalid response');
+            }
+            if (data.success && Array.isArray(data.data)) {
               setLevels(data.data.map((l: { id: string; name: string; nameEN: string; order: number; top: number }) => ({
                 id: l.id,
                 name: l.name
@@ -937,7 +1103,6 @@ export default function TransactionPage() {
     units.find((u) => u.id === id)?.name ||
     allUnits.find((u) => u.id === id)?.unitText ||
     allUnits.find((u) => u.id === id)?.name ||
-    departments.find((d) => d.id === id)?.name ||
     id;
   const getLevelName = (id: string, resolvedName?: string) => resolvedName || levels.find((l) => l.id === id)?.name || id;
   const getUnitName = (id: string, resolvedName?: string) =>
@@ -1239,19 +1404,18 @@ export default function TransactionPage() {
         body: formDataPayload
       });
 
+      const { json: responseData, text: responseText } = await readApiBody<{
+        message?: string;
+        error?: string;
+        data?: { transactionNo?: string };
+      }>(response);
+
       if (!response.ok) {
-        let errData: { message?: string; error?: string } | null = null;
-        try {
-          errData = await response.json();
-        } catch {
-          throw new Error('Failed to save draft and failed to parse response');
-        }
-        const detailError = errData?.error?.trim();
-        const genericMessage = errData?.message?.trim();
-        throw new Error(detailError || genericMessage || 'Failed to save draft');
+        throw new Error(resolveApiErrorMessage(responseData, 'Failed to save draft', responseText));
       }
-      
-      const responseData = await response.json();
+      if (!responseData) {
+        throw new Error(responseText || 'Failed to save draft: invalid response');
+      }
 
       const newTransaction: SavedTransaction = {
         id: responseData.data?.transactionNo || Date.now().toString(),
@@ -1306,8 +1470,8 @@ export default function TransactionPage() {
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.message || 'Failed to delete transaction');
+        const { json: errData, text } = await readApiBody<{ message?: string; error?: string }>(response);
+        throw new Error(resolveApiErrorMessage(errData, 'Failed to delete transaction', text));
       }
 
       setSavedTransactions(savedTransactions.filter((t) => t.id !== transactionToDelete));
@@ -1331,21 +1495,14 @@ export default function TransactionPage() {
     }
 
     try {
-      // Read the user's currently selected group from header
-      const defaultUserGroup = localStorage.getItem('selected_usergroup') || '02';
+      // Read user context from local storage / selected header group
+      const { employeeId: currentEmployeeId, userGroupNo: resolvedUserGroup } = resolveUserContext();
+      const defaultUserGroup = resolvedUserGroup || '02';
 
       // --- USER GROUP 04 AUTO-APPROVE BYPASS ---
       if (defaultUserGroup === '04') {
         const transactionNos = savedTransactions.map(t => t.id);
-        const userDataStr = localStorage.getItem('user_data');
-        let updateBy = 'SYSTEM';
-        if (userDataStr) {
-          try {
-            updateBy = JSON.parse(userDataStr).employeeID || 'SYSTEM';
-          } catch (e) {
-            console.error(e);
-          }
-        }
+        const updateBy = currentEmployeeId || 'SYSTEM';
 
         const resp = await fetch('/api/transactions/direct-approve', {
           method: 'POST',
@@ -1408,8 +1565,12 @@ export default function TransactionPage() {
 
           const resp = await fetch(`/api/transactions/approvers?${queryParams}&_t=${Date.now()}`);
           if (resp.ok) {
-            const data = await resp.json();
-            if (data.data?.length > 0) {
+            const { json: data, text } = await readApiBody<{ data?: ApproverUser[] }>(resp);
+            if (!data) {
+              console.error('Approvers API returned non-JSON response', text || `HTTP ${resp.status}`);
+              continue;
+            }
+            if (Array.isArray(data.data) && data.data.length > 0) {
               approversData[scopeKey] = [...approversData[scopeKey], ...data.data];
             }
           }
@@ -1507,16 +1668,9 @@ export default function TransactionPage() {
 
     setIsSubmitting(true);
     try {
-      let employeeId = 'SYSTEM';
-      let userGroupNo = '';
-      const userDataStr = localStorage.getItem('user_data');
-      if (userDataStr) {
-        try {
-          const userData = JSON.parse(userDataStr);
-          employeeId = userData.employeeID || 'SYSTEM';
-          userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
-        } catch { }
-      }
+      const userContext = resolveUserContext();
+      const employeeId = userContext.employeeId || 'SYSTEM';
+      const userGroupNo = userContext.userGroupNo;
 
       const approvalTransactions = savedTransactions.filter((tx) => tx.transactionData.transactionType !== 5);
       const remarkTransactions = savedTransactions.filter((tx) => tx.transactionData.transactionType === 5);
@@ -1582,21 +1736,19 @@ export default function TransactionPage() {
           body: JSON.stringify(payload)
         });
 
+        const { json: submitBody, text: submitText } = await readApiBody<{ message?: string; error?: string; documentNo?: string }>(resp);
+
         if (!resp.ok) {
-          let errStr = `Failed to submit document (${getFlowDisplayName(flowKey)})`;
-          try {
-            const errData = await resp.json();
-            if (errData.error) errStr += `\\n${errData.error}`;
-            else if (errData.message) errStr += `\\n${errData.message}`;
-          } catch { }
+          const errStr = resolveApiErrorMessage(
+            submitBody,
+            `Failed to submit document (${getFlowDisplayName(flowKey)})`,
+            submitText
+          );
           throw new Error(errStr);
         }
 
-        try {
-          const submitData = await resp.json();
-          const documentNo = String(submitData?.documentNo || '').trim();
-          if (documentNo) submittedDocumentNos.push(documentNo);
-        } catch { }
+        const documentNo = String(submitBody?.documentNo || '').trim();
+        if (documentNo) submittedDocumentNos.push(documentNo);
       }
 
       if (remarkTransactions.length > 0) {
@@ -1610,13 +1762,14 @@ export default function TransactionPage() {
           })
         });
 
+        const { json: directApproveBody, text: directApproveText } = await readApiBody<{ message?: string; error?: string }>(directApproveResp);
+
         if (!directApproveResp.ok) {
-          let errStr = 'Failed to auto-approve remark transactions';
-          try {
-            const errData = await directApproveResp.json();
-            if (errData.error) errStr += `\n${errData.error}`;
-            else if (errData.message) errStr += `\n${errData.message}`;
-          } catch { }
+          const errStr = resolveApiErrorMessage(
+            directApproveBody,
+            'Failed to auto-approve remark transactions',
+            directApproveText
+          );
           throw new Error(errStr);
         }
       }

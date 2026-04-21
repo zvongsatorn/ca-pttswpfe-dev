@@ -145,18 +145,41 @@ export default function ReturnPage() {
     return `${normalizedId} ${normalizedName}`;
   };
 
-  const resolveEmployeeId = () => {
+  const resolveUserContext = () => {
+    const selectedGroup = String(localStorage.getItem('selected_usergroup') || '').trim();
+    let employeeId = 'SYSTEM';
+    let userGroupNo = selectedGroup;
+
     const userDataStr = localStorage.getItem('user_data');
     if (userDataStr) {
       try {
-        const userData = JSON.parse(userDataStr) as { employeeID?: string; EmployeeID?: string };
-        const employeeId = String(userData.employeeID || userData.EmployeeID || '').trim();
-        if (employeeId) return employeeId;
+        const userData = JSON.parse(userDataStr) as {
+          employeeID?: string;
+          EmployeeID?: string;
+          userGroupNo?: string;
+          roleId?: string;
+          userGroups?: Array<{ userGroupNo?: string }>;
+        };
+        employeeId = String(userData.employeeID || userData.EmployeeID || employeeId).trim();
+        if (!userGroupNo) {
+          userGroupNo = String(
+            userData.userGroupNo ||
+            userData.roleId ||
+            userData.userGroups?.[0]?.userGroupNo ||
+            ''
+          ).trim();
+        }
       } catch {
-        // ignore parse failure and fallback
+        // ignore parse failure and keep fallback values
       }
     }
 
+    return { employeeId, userGroupNo };
+  };
+
+  const resolveEmployeeId = () => {
+    const { employeeId } = resolveUserContext();
+    if (employeeId && employeeId !== 'SYSTEM') return employeeId;
     return String(localStorage.getItem('employeeId') || '').trim();
   };
 
@@ -333,7 +356,11 @@ export default function ReturnPage() {
     }
 
     try {
-      const defaultUserGroup = localStorage.getItem('selected_usergroup') || '02';
+      const { userGroupNo: defaultUserGroup } = resolveUserContext();
+      if (!defaultUserGroup) {
+        setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'ไม่พบกลุ่มผู้ใช้ กรุณาเลือกสิทธิ์ก่อนทำรายการ', type: 'warning' });
+        return;
+      }
       const groupedReturns = getReturnsByDepartmentPair();
       const approversData: Record<string, ApproverUser[]> = {};
 
@@ -398,16 +425,7 @@ export default function ReturnPage() {
 
     try {
       setIsSubmitting(true);
-      let employeeId = 'SYSTEM';
-      let userGroupNo = '';
-      const userDataStr = localStorage.getItem('user_data');
-      if (userDataStr) {
-        try {
-          const userData = JSON.parse(userDataStr);
-          employeeId = userData.employeeID || 'SYSTEM';
-          userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
-        } catch { }
-      }
+      const { employeeId, userGroupNo } = resolveUserContext();
 
       const selectedReturnsSnapshot = Array.from(selectedReturns.values());
       const itemsPayload = selectedReturnsSnapshot.map(ret => {

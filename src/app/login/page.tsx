@@ -20,6 +20,75 @@ import { loginRequest } from '@/lib/msalConfig';
 import { b2cInstance, b2cLoginRequest } from '@/lib/msalB2CConfig';
 import type { RedirectRequest } from '@azure/msal-browser';
 
+const toText = (value: unknown): string => String(value ?? '').trim();
+
+const UNITS_CACHE_PREFIX = 'user_units_cache:';
+const LEGACY_UNITS_CACHE_KEY = 'user_units_cache';
+
+const normalizeGroupNo = (value: string): string => {
+  const trimmed = toText(value);
+  return /^\d+$/.test(trimmed) ? trimmed.padStart(2, '0') : '';
+};
+
+const buildUnitsCacheKey = (employeeId: string, userGroupNo: string): string => {
+  return `${UNITS_CACHE_PREFIX}${toText(employeeId)}:${normalizeGroupNo(userGroupNo)}`;
+};
+
+const clearUnitsCacheKeys = () => {
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = sessionStorage.key(i);
+      if (!key) continue;
+      if (key === LEGACY_UNITS_CACHE_KEY || key.startsWith(UNITS_CACHE_PREFIX)) {
+        sessionStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // no-op
+  }
+};
+
+type JsonOrTextResult<T> = {
+  json: T | null;
+  text: string;
+};
+
+const readJsonOrText = async <T = Record<string, unknown>>(response: Response): Promise<JsonOrTextResult<T>> => {
+  const raw = await response.text();
+  const text = raw.trim();
+  if (!text) return { json: null, text: '' };
+  try {
+    return { json: JSON.parse(text) as T, text };
+  } catch {
+    return { json: null, text };
+  }
+};
+
+const resolveDefaultRole = (userData: Record<string, unknown>): string => {
+  const userGroups = Array.isArray(userData.userGroups)
+    ? (userData.userGroups as Array<Record<string, unknown>>)
+    : [];
+  const groupNos = userGroups
+    .map((group) => normalizeGroupNo(toText(group.userGroupNo)))
+    .filter(Boolean);
+
+  const selectedGroup = normalizeGroupNo(toText(localStorage.getItem('selected_usergroup')));
+  if (selectedGroup && (groupNos.length === 0 || groupNos.includes(selectedGroup))) return selectedGroup;
+
+  const directGroup = normalizeGroupNo(toText(userData.userGroupNo));
+  if (directGroup) return directGroup;
+
+  const roleId = normalizeGroupNo(toText(userData.roleId));
+  if (roleId) return roleId;
+
+  const firstGroup = normalizeGroupNo(toText(userGroups[0]?.userGroupNo));
+  return firstGroup;
+};
+
+const resolveEmployeeId = (userData: Record<string, unknown>): string => {
+  return toText(userData.employeeID || userData.EmployeeID);
+};
+
 export default function LoginForm() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
@@ -94,12 +163,34 @@ export default function LoginForm() {
               }
 
               // Prefetch units and redirect
-              const defaultRole = userData.userGroupNo || userData.roleId || '01'; 
-              fetch(`/api/units/by-role?empId=${userData.employeeID}&roleId=${defaultRole}`, {
+              const normalizedUser = (userData || {}) as Record<string, unknown>;
+              const employeeId = resolveEmployeeId(normalizedUser);
+              const defaultRole = resolveDefaultRole(normalizedUser);
+              const userGroups = Array.isArray(normalizedUser.userGroups)
+                ? (normalizedUser.userGroups as Array<Record<string, unknown>>)
+                : [];
+              const selectedGroupMeta = userGroups.find((group) => normalizeGroupNo(toText(group.userGroupNo)) === defaultRole);
+              if (defaultRole) {
+                localStorage.setItem('selected_usergroup', defaultRole);
+                localStorage.setItem('selected_usergroup_role', toText(selectedGroupMeta?.userGroupRole));
+              }
+              clearUnitsCacheKeys();
+              if (employeeId && defaultRole) {
+                fetch(`/api/units/by-role?empId=${employeeId}&roleId=${defaultRole}`, {
                   headers: { 'Authorization': `Bearer ${token}` }
-              }).then(res => res.json()).then(unitData => {
-                  if (unitData.success) sessionStorage.setItem('user_units_cache', JSON.stringify(unitData.data));
-              }).catch(() => {});
+                })
+                  .then(async (res) => {
+                    const { json: unitData, text } = await readJsonOrText<{ success?: boolean; data?: unknown[]; message?: string; error?: string }>(res);
+                    if (!res.ok) {
+                      console.error('Failed to prefetch units (SSO):', unitData?.error || unitData?.message || text || `HTTP ${res.status}`);
+                      return;
+                    }
+                    if (unitData?.success && Array.isArray(unitData.data)) {
+                      sessionStorage.setItem(buildUnitsCacheKey(employeeId, defaultRole), JSON.stringify(unitData.data));
+                    }
+                  })
+                  .catch(() => {});
+              }
 
               router.push('/home');
           } else {
@@ -244,20 +335,36 @@ export default function LoginForm() {
           // Fetch units for the default role upon login
           // Assuming userData.userGroupNo represents their default role upon login
           // Fallback to "01" or first role if structure varies in your system
-          const defaultRole = userData.userGroupNo || userData.roleId || '01'; 
-          fetch(`/api/units/by-role?empId=${userData.employeeID}&roleId=${defaultRole}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          })
-            .then(res => res.json())
-            .then(unitData => {
-              if (unitData.success) {
-                // Store fetched units in session storage securely
-                sessionStorage.setItem('user_units_cache', JSON.stringify(unitData.data));
+          const normalizedUser = (userData || {}) as Record<string, unknown>;
+          const employeeId = resolveEmployeeId(normalizedUser);
+          const defaultRole = resolveDefaultRole(normalizedUser);
+          const userGroups = Array.isArray(normalizedUser.userGroups)
+            ? (normalizedUser.userGroups as Array<Record<string, unknown>>)
+            : [];
+          const selectedGroupMeta = userGroups.find((group) => normalizeGroupNo(toText(group.userGroupNo)) === defaultRole);
+          if (defaultRole) {
+            localStorage.setItem('selected_usergroup', defaultRole);
+            localStorage.setItem('selected_usergroup_role', toText(selectedGroupMeta?.userGroupRole));
+          }
+          clearUnitsCacheKeys();
+          if (employeeId && defaultRole) {
+            fetch(`/api/units/by-role?empId=${employeeId}&roleId=${defaultRole}`, {
+              headers: {
+                'Authorization': `Bearer ${token}`
               }
             })
-            .catch(err => console.error("Failed to prefetch units:", err));
+              .then(async (res) => {
+                const { json: unitData, text } = await readJsonOrText<{ success?: boolean; data?: unknown[]; message?: string; error?: string }>(res);
+                if (!res.ok) {
+                  console.error('Failed to prefetch units:', unitData?.error || unitData?.message || text || `HTTP ${res.status}`);
+                  return;
+                }
+                if (unitData?.success && Array.isArray(unitData.data)) {
+                  sessionStorage.setItem(buildUnitsCacheKey(employeeId, defaultRole), JSON.stringify(unitData.data));
+                }
+              })
+              .catch(err => console.error("Failed to prefetch units:", err));
+          }
 
           // Redirect ไปหน้า /home
           router.push('/home');

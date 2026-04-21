@@ -29,6 +29,53 @@ interface DataType {
 interface SearchFormValues {
   date?: dayjs.Dayjs;
 }
+
+const resolveUserContext = () => {
+  let employeeId = 'SYSTEM';
+  let userGroupNo = '';
+
+  if (typeof window !== 'undefined') {
+    const selectedGroup = localStorage.getItem('selected_usergroup')?.trim() || '';
+    const userDataStr = localStorage.getItem('user_data');
+
+    if (userDataStr) {
+      try {
+        const userData = JSON.parse(userDataStr) as {
+          employeeID?: string;
+          employeeId?: string;
+          EmployeeID?: string;
+          roleId?: string;
+          role?: string;
+          userGroupNo?: string;
+          userGroups?: Array<{ userGroupNo?: string }>;
+        };
+        const fallbackGroup = userData.userGroups?.[0]?.userGroupNo?.trim() || '';
+
+        employeeId = (
+          userData.employeeID ||
+          userData.employeeId ||
+          userData.EmployeeID ||
+          employeeId
+        ).trim();
+
+        userGroupNo = (
+          selectedGroup ||
+          userData.userGroupNo ||
+          userData.roleId ||
+          userData.role ||
+          fallbackGroup ||
+          ''
+        ).trim();
+      } catch {
+        userGroupNo = selectedGroup;
+      }
+    } else {
+      userGroupNo = selectedGroup;
+    }
+  }
+
+  return { employeeId, userGroupNo };
+};
 // --- 2. Helper Functions ---
 const levels = ['21', '18-20', '16-17', '14-15', '11-13', '9-10', '4-8', 'รวม'];
 
@@ -406,7 +453,13 @@ export default function Report1Page() {
     setLoading(true);
     setHasSearched(true);
     try {
-      const res = await fetch(`/api/report/report1?effectiveDate=${dateStr}&employeeId=99999999&userGroupNo=04`);
+      const { employeeId, userGroupNo } = resolveUserContext();
+      const params = new URLSearchParams({
+        effectiveDate: dateStr,
+        employeeId,
+        userGroupNo,
+      });
+      const res = await fetch(`/api/report/report1?${params.toString()}`);
       const payload = await res.json();
       if (payload.status === 200 && payload.data) {
         setTableData(payload.data);

@@ -20,10 +20,48 @@ dayjs.locale('th');
 
 const { Title } = Typography;
 
+const toText = (value: unknown): string => String(value ?? '').trim();
+
 function getToken(): string {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem('auth_token') || '';
 }
+
+const resolveUserContext = (currentUser: Record<string, unknown> | null | undefined) => {
+    const selectedGroup = toText(localStorage.getItem('selected_usergroup'));
+    let employeeId = toText(currentUser?.employeeID || currentUser?.EmployeeID);
+    let userGroupNo = selectedGroup;
+
+    if (!userGroupNo) {
+        userGroupNo = toText(currentUser?.userGroupNo || currentUser?.roleId);
+    }
+
+    if (!userGroupNo && Array.isArray(currentUser?.userGroups)) {
+        const firstGroup = currentUser.userGroups[0] as Record<string, unknown> | undefined;
+        userGroupNo = toText(firstGroup?.userGroupNo);
+    }
+
+    const userDataStr = localStorage.getItem('user_data');
+    if (userDataStr) {
+        try {
+            const userData = JSON.parse(userDataStr) as Record<string, unknown>;
+            if (!employeeId) {
+                employeeId = toText(userData.employeeID || userData.EmployeeID);
+            }
+            if (!userGroupNo) {
+                userGroupNo = toText(userData.userGroupNo || userData.roleId);
+            }
+            if (!userGroupNo && Array.isArray(userData.userGroups)) {
+                const firstGroup = userData.userGroups[0] as Record<string, unknown> | undefined;
+                userGroupNo = toText(firstGroup?.userGroupNo);
+            }
+        } catch {
+            // ignore parse failure and use current values
+        }
+    }
+
+    return { employeeId, userGroupNo };
+};
 
 type ExportPositionValue = string | number | null | undefined;
 type ExportPositionRow = Record<string, ExportPositionValue> & { key: string };
@@ -47,10 +85,16 @@ function ExportPositionContent() {
         if (!date) { message.warning('กรุณาเลือกวันที่'); return; }
         setLoading(true);
         try {
-            const userGroupNo = localStorage.getItem('selected_usergroup') || '01';
+            const { employeeId, userGroupNo } = resolveUserContext((currentUser || null) as Record<string, unknown> | null);
+            if (!employeeId || !userGroupNo) {
+                message.warning('ไม่พบข้อมูลผู้ใช้งานหรือสิทธิ์กลุ่มผู้ใช้');
+                setData([]);
+                setColumns([]);
+                return;
+            }
             const res = await exportPosition({
                 effDate: date.format('YYYY-MM-DD'),
-                employeeId: currentUser?.employeeID || '',
+                employeeId,
                 userGroupNo,
                 exportType: 2
             }, token) as ExportPositionResponse | null;

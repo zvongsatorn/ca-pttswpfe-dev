@@ -135,7 +135,7 @@ const toText = (value: unknown): string => {
 };
 
 const resolveUserContext = () => {
-    let employeeId = '99999999';
+    let employeeId = 'SYSTEM';
     let userGroupNo = '';
 
     if (typeof window !== 'undefined') {

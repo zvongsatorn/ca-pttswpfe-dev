@@ -125,19 +125,46 @@ const formatMoney = (value: unknown): string =>
     });
 
 const resolveUserContext = () => {
-    let employeeId = '99999999';
-    let userGroupNo = '04';
+    let employeeId = 'SYSTEM';
+    let userGroupNo = '';
 
     if (typeof window !== 'undefined') {
+        const selectedGroup = localStorage.getItem('selected_usergroup')?.trim() || '';
         const userDataStr = localStorage.getItem('user_data');
+
         if (userDataStr) {
             try {
-                const userData = JSON.parse(userDataStr) as { employeeID?: string; roleId?: string };
-                employeeId = userData.employeeID || employeeId;
-                userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || userGroupNo;
+                const userData = JSON.parse(userDataStr) as {
+                    employeeID?: string;
+                    employeeId?: string;
+                    EmployeeID?: string;
+                    roleId?: string;
+                    role?: string;
+                    userGroupNo?: string;
+                    userGroups?: Array<{ userGroupNo?: string }>;
+                };
+                const fallbackGroup = userData.userGroups?.[0]?.userGroupNo?.trim() || '';
+
+                employeeId = (
+                    userData.employeeID ||
+                    userData.employeeId ||
+                    userData.EmployeeID ||
+                    employeeId
+                ).trim();
+
+                userGroupNo = (
+                    selectedGroup ||
+                    userData.userGroupNo ||
+                    userData.roleId ||
+                    userData.role ||
+                    fallbackGroup ||
+                    ''
+                ).trim();
             } catch {
-                // ignore parse error and fallback to default values
+                userGroupNo = selectedGroup;
             }
+        } else {
+            userGroupNo = selectedGroup;
         }
     }
 

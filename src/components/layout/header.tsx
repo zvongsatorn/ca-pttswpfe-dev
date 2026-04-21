@@ -59,6 +59,48 @@ interface UserData {
   profilePicture?: string;
 }
 
+const UNITS_CACHE_PREFIX = 'user_units_cache:';
+const LEGACY_UNITS_CACHE_KEY = 'user_units_cache';
+
+const normalizeGroupNo = (value: string): string => {
+  const trimmed = String(value || '').trim();
+  return /^\d+$/.test(trimmed) ? trimmed.padStart(2, '0') : '';
+};
+
+const buildUnitsCacheKey = (employeeId: string, userGroupNo: string): string => {
+  return `${UNITS_CACHE_PREFIX}${String(employeeId || '').trim()}:${normalizeGroupNo(userGroupNo)}`;
+};
+
+const clearUnitsCacheKeys = () => {
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = sessionStorage.key(i);
+      if (!key) continue;
+      if (key === LEGACY_UNITS_CACHE_KEY || key.startsWith(UNITS_CACHE_PREFIX)) {
+        sessionStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // no-op
+  }
+};
+
+type JsonOrTextResult<T> = {
+  json: T | null;
+  text: string;
+};
+
+const readJsonOrText = async <T = Record<string, unknown>>(response: Response): Promise<JsonOrTextResult<T>> => {
+  const raw = await response.text();
+  const text = raw.trim();
+  if (!text) return { json: null, text: '' };
+  try {
+    return { json: JSON.parse(text) as T, text };
+  } catch {
+    return { json: null, text };
+  }
+};
+
 
 
 export default function Header({
@@ -189,6 +231,7 @@ export default function Header({
     localStorage.removeItem('user_data');
     localStorage.removeItem('selected_usergroup');
     localStorage.removeItem('selected_usergroup_role');
+    clearUnitsCacheKeys();
     clearSelectedSubjectContext();
 
     // Redirect to login page
@@ -273,9 +316,15 @@ export default function Header({
             'Authorization': `Bearer ${token}`
           }
         });
-        const unitData = await response.json();
-        if (unitData.success) {
-          sessionStorage.setItem('user_units_cache', JSON.stringify(unitData.data));
+        const { json: unitData, text } = await readJsonOrText<{ success?: boolean; data?: unknown[]; message?: string; error?: string }>(response);
+        if (!response.ok) {
+          const message = unitData?.error || unitData?.message || text || `HTTP ${response.status}`;
+          console.error('Failed to fetch units on role change:', message);
+          return;
+        }
+        if (unitData?.success && Array.isArray(unitData.data)) {
+          clearUnitsCacheKeys();
+          sessionStorage.setItem(buildUnitsCacheKey(userData.employeeID, group.id), JSON.stringify(unitData.data));
           // Dispatch a custom event so the transaction page knows to refresh the dropdown immediately
           window.dispatchEvent(new CustomEvent('user-units-changed', { detail: unitData.data }));
         }
