@@ -47,6 +47,13 @@ interface BadgeProps {
     style?: React.CSSProperties;
 }
 
+const formatLevelGroupLabel = (levelGroupNo: string, levelGroupName?: string) => {
+    const normalizedNo = String(levelGroupNo || '').trim();
+    const normalizedName = String(levelGroupName || '').trim();
+    if (!normalizedNo) return '';
+    return normalizedName ? `${normalizedNo} - ${normalizedName}` : normalizedNo;
+};
+
 function getToken(): string {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem('auth_token') || '';
@@ -288,8 +295,14 @@ function RetirementContent() {
         if (!levelGroupNo) return 'ไม่กำหนดระดับ: ระบบจะนับทุกระดับ';
         const startIndex = levelGroupOptions.findIndex((item) => item.LevelGroupNo === levelGroupNo);
         if (startIndex < 0) return `เลือกระดับ ${levelGroupNo}`;
-        const includedLevels = levelGroupOptions.slice(startIndex).map((item) => item.LevelGroupNo);
-        return `เลือกระดับ ${levelGroupNo}: ระบบจะนับ ${includedLevels.join(', ')}`;
+        const selectedLevelLabel = formatLevelGroupLabel(
+            levelGroupOptions[startIndex]?.LevelGroupNo,
+            levelGroupOptions[startIndex]?.LevelGroupName
+        );
+        const includedLevels = levelGroupOptions
+            .slice(startIndex)
+            .map((item) => formatLevelGroupLabel(item.LevelGroupNo, item.LevelGroupName));
+        return `เลือกระดับ ${selectedLevelLabel}: ระบบจะนับ ${includedLevels.join(', ')}`;
     }, [levelGroupNo, levelGroupOptions]);
 
     return (
@@ -334,7 +347,7 @@ function RetirementContent() {
                         onChange={(value) => setLevelGroupNo(value || '')}
                         options={levelGroupOptions.map((item) => ({
                             value: String(item.LevelGroupNo || '').trim(),
-                            label: `${String(item.LevelGroupNo || '').trim()} - ${String(item.LevelGroupName || '').trim()}`
+                            label: formatLevelGroupLabel(item.LevelGroupNo, item.LevelGroupName)
                         }))}
                         allowClear
                         placeholder="เลือกระดับสูงสุดที่ต้องการนับลงมา"
