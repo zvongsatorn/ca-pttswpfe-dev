@@ -23,7 +23,23 @@ interface RateRecord {
     EffectiveYear: number;
     Year: number;
     Rate: number;
+    Base?: number;
     TypeRate?: number;
+}
+
+interface LevelGroupOption {
+    LevelGroupNo: string;
+    LevelGroupName: string;
+    LevelDelayOrder?: number | null;
+}
+
+interface RetirementApiResponse {
+    data?: {
+        rates?: RateRecord[];
+        remark?: string;
+        levelGroupNo?: string;
+        levelGroups?: LevelGroupOption[];
+    };
 }
 
 interface BadgeProps {
@@ -46,11 +62,54 @@ const createDefaultRows = (startYear: number): RetirementDataType[] => {
 
     for (let i = 0; i < DISPLAY_YEAR_COUNT; i++) {
         const year = (startYear + i).toString();
-        businessRow[year] = '0';
-        supportRow[year] = '0';
+        businessRow[year] = '0:1';
+        supportRow[year] = '0:1';
     }
 
     return [businessRow, supportRow];
+};
+
+const normalizeRateInput = (value: string): string => {
+    const cleaned = value.replace(/[^0-9.]/g, '');
+    const [intPart, ...decimalParts] = cleaned.split('.');
+    if (!decimalParts.length) return intPart;
+    return `${intPart}.${decimalParts.join('')}`;
+};
+
+const normalizeBaseInput = (value: string): string => {
+    return value.replace(/[^0-9]/g, '');
+};
+
+const splitRatioInput = (value: string): { rateText: string; baseText: string } => {
+    const raw = String(value || '').trim();
+    if (!raw) return { rateText: '0', baseText: '1' };
+
+    const colonIndex = raw.indexOf(':');
+    if (colonIndex < 0) {
+        return {
+            rateText: normalizeRateInput(raw),
+            baseText: '1'
+        };
+    }
+
+    return {
+        rateText: normalizeRateInput(raw.slice(0, colonIndex)),
+        baseText: normalizeBaseInput(raw.slice(colonIndex + 1))
+    };
+};
+
+const parseRatioCell = (value: string): { rate: number; base: number } => {
+    const raw = String(value || '').trim();
+    if (!raw) return { rate: 0, base: 1 };
+
+    const [rateRaw, baseRaw] = raw.split(':');
+    const parsedRate = Number.parseFloat(rateRaw);
+    const parsedBase = Number.parseInt(baseRaw, 10);
+
+    return {
+        rate: Number.isFinite(parsedRate) ? parsedRate : 0,
+        base: Number.isFinite(parsedBase) && parsedBase > 0 ? parsedBase : 1
+    };
 };
 
 function RetirementContent() {
@@ -59,6 +118,8 @@ function RetirementContent() {
     const currentUser = getUserFromToken();
     const [selectedYear, setSelectedYear] = useState<string>('2569');
     const [remark, setRemark] = useState('');
+    const [levelGroupNo, setLevelGroupNo] = useState('');
+    const [levelGroupOptions, setLevelGroupOptions] = useState<LevelGroupOption[]>([]);
     const [isEditing, setIsEditing] = useState(false);
     const [tableData, setTableData] = useState<RetirementDataType[]>([]);
     const [loading, setLoading] = useState(false);
@@ -79,7 +140,9 @@ function RetirementContent() {
             const typeRate = parsedTypeRate === SUPPORT_TYPE_RATE ? SUPPORT_TYPE_RATE : BUSINESS_TYPE_RATE;
             const targetRow = rowByType[typeRate];
             if (!targetRow) return;
-            targetRow[toBE(row.Year).toString()] = row.Rate.toString();
+            const parsedBase = Number(row.Base);
+            const base = Number.isFinite(parsedBase) && parsedBase > 0 ? Math.trunc(parsedBase) : 1;
+            targetRow[toBE(row.Year).toString()] = `${row.Rate}:${base}`;
         });
 
         setTableData(nextRows);
@@ -88,8 +151,13 @@ function RetirementContent() {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await fetchRetirementRates(toAD(selectedYear), token);
-            if (res?.data) { setRemark(res.data.remark || ''); processRates(res.data.rates || []); }
+            const res = await fetchRetirementRates(toAD(selectedYear), token) as RetirementApiResponse | null;
+            if (res?.data) {
+                setRemark(res.data.remark || '');
+                setLevelGroupNo(String(res.data.levelGroupNo || '').trim());
+                setLevelGroupOptions(Array.isArray(res.data.levelGroups) ? res.data.levelGroups : []);
+                processRates(res.data.rates || []);
+            }
         } catch { notification.error({ title: 'ข้อผิดพลาด', description: 'ไม่สามารถดึงข้อมูลได้' }); }
         finally { setLoading(false); }
     }, [selectedYear, token, notification, processRates]);
@@ -111,11 +179,12 @@ function RetirementContent() {
 
                 return Array.from({ length: DISPLAY_YEAR_COUNT }, (_, index) => {
                     const yearBE = startYearBE + index;
-                    const raw = row[yearBE.toString()] || '0';
-                    const parsedRate = Number.parseFloat(raw);
+                    const raw = row[yearBE.toString()] || '0:1';
+                    const ratio = parseRatioCell(raw);
                     return {
                         year: toAD(yearBE),
-                        rate: Number.isFinite(parsedRate) ? parsedRate : 0,
+                        rate: ratio.rate,
+                        base: ratio.base,
                         typeRate,
                     };
                 });
@@ -124,7 +193,13 @@ function RetirementContent() {
             const res = await fetch(`${API_BASE_URL}/api/retirement`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ effectiveYear: toAD(selectedYear), rates, remark, user: currentUser?.employeeID || 'SYSTEM' }),
+                body: JSON.stringify({
+                    effectiveYear: toAD(selectedYear),
+                    rates,
+                    remark,
+                    levelGroupNo,
+                    user: currentUser?.employeeID || 'SYSTEM'
+                }),
             });
 
             if (res.ok) {
@@ -170,20 +245,52 @@ function RetirementContent() {
             const year = (startYear + i).toString();
             cols.push({
                 title: year, dataIndex: year, key: year, align: 'center',
-                render: (text, record) => isEditing ? (
-                    <Input 
-                        value={text || '0'} 
-                        onChange={(e) => {
-                            const val = e.target.value.replace(/[^0-9.]/g, ''); 
-                            handleTableChange(val, record.key, year);
-                        }} 
-                        className="text-center" 
-                    />
-                ) : <span className="font-medium text-slate-900">{text}</span>
+                render: (text, record) => {
+                    if (!isEditing) {
+                        return <span className="font-medium text-slate-900">{text}</span>;
+                    }
+
+                    const ratioText = String(text || '0:1');
+                    const { rateText, baseText } = splitRatioInput(ratioText);
+
+                    return (
+                        <div className="flex items-center justify-center gap-2">
+                            <Input
+                                value={rateText}
+                                onChange={(e) => {
+                                    const current = splitRatioInput(String(record[year] || '0:1'));
+                                    const nextRate = normalizeRateInput(e.target.value);
+                                    handleTableChange(`${nextRate}:${current.baseText}`, record.key, year);
+                                }}
+                                placeholder="Rate"
+                                className="w-24 text-center"
+                            />
+                            <span className="font-semibold text-slate-500">:</span>
+                            <Input
+                                value={baseText}
+                                onChange={(e) => {
+                                    const current = splitRatioInput(String(record[year] || '0:1'));
+                                    const nextBase = normalizeBaseInput(e.target.value);
+                                    handleTableChange(`${current.rateText}:${nextBase}`, record.key, year);
+                                }}
+                                placeholder="Base"
+                                className="w-20 text-center"
+                            />
+                        </div>
+                    );
+                }
             });
         }
         return cols;
     }, [selectedYear, isEditing]);
+
+    const levelSummary = useMemo(() => {
+        if (!levelGroupNo) return 'ไม่กำหนดระดับ: ระบบจะนับทุกระดับ';
+        const startIndex = levelGroupOptions.findIndex((item) => item.LevelGroupNo === levelGroupNo);
+        if (startIndex < 0) return `เลือกระดับ ${levelGroupNo}`;
+        const includedLevels = levelGroupOptions.slice(startIndex).map((item) => item.LevelGroupNo);
+        return `เลือกระดับ ${levelGroupNo}: ระบบจะนับ ${includedLevels.join(', ')}`;
+    }, [levelGroupNo, levelGroupOptions]);
 
     return (
         <div className="w-full bg-white p-6 rounded-lg shadow-sm">
@@ -192,14 +299,24 @@ function RetirementContent() {
                 <Badge count={`Year ${selectedYear}`} style={{ backgroundColor: '#fff', color: '#2563eb', fontWeight: 'bold' }} />
             </div>
 
-            <div className="flex flex-wrap items-end gap-4 mb-8">
-                <div className="flex flex-col gap-1">
-                    <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">Effective Year</label>
-                    <Select value={selectedYear} onChange={setSelectedYear} className="w-32" options={[{ value: '2568', label: '2568' }, { value: '2569', label: '2569' }, { value: '2570', label: '2570' }, { value: '2571', label: '2571' }]} />
-                </div>
-                <div className="flex gap-2">
+            <div className="mb-8 flex flex-nowrap items-end justify-between gap-4">
+                <div className="flex flex-nowrap items-end gap-2">
+                    <div className="flex flex-col gap-1">
+                        <label className="text-slate-500 font-bold text-xs uppercase tracking-wider">Effective Year</label>
+                        <Select value={selectedYear} onChange={setSelectedYear} className="w-32" options={[{ value: '2568', label: '2568' }, { value: '2569', label: '2569' }, { value: '2570', label: '2570' }, { value: '2571', label: '2571' }]} />
+                    </div>
                     <Button type="primary" onClick={fetchData} className="bg-slate-900 font-bold">เรียกดู</Button>
                     <Button onClick={handleCopy} disabled={isEditing} className="border-green-600 text-green-600 hover:text-green-700 hover:border-green-700 font-medium">สำเนาจากปีที่แล้ว</Button>
+                </div>
+                <div className="ml-auto flex flex-nowrap items-center gap-2">
+                    {!isEditing ? (
+                        <Button onClick={() => setIsEditing(true)} type="primary" className="bg-blue-600 hover:bg-blue-700 font-bold shadow-lg">แก้ไขข้อมูล</Button>
+                    ) : (
+                        <>
+                            <Button onClick={() => { setIsEditing(false); fetchData(); }} className="font-bold">ยกเลิก</Button>
+                            <Button onClick={handleSave} type="primary" className="bg-green-600 hover:bg-green-700 font-bold shadow-lg shadow-green-100">บันทึกการแก้ไข</Button>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -207,20 +324,31 @@ function RetirementContent() {
                 <Spin spinning={loading}>
                     <Table columns={columns} dataSource={tableData} pagination={false} bordered className="rounded-lg overflow-hidden border-slate-100" />
                 </Spin>
+                <div className="mt-2 text-xs text-slate-500">โหมดแก้ไขกรอกแยกช่อง Rate : Base เช่น 1 : 1, 2 : 1, 3 : 2</div>
+            </Card>
+
+            <Card className="mb-8 border-slate-100 shadow-sm" title={<span className="font-bold text-slate-700">ระดับตำแหน่งสำหรับคำนวณเกษียณ</span>}>
+                <div className="flex flex-col gap-2">
+                    <Select
+                        value={levelGroupNo || undefined}
+                        onChange={(value) => setLevelGroupNo(value || '')}
+                        options={levelGroupOptions.map((item) => ({
+                            value: String(item.LevelGroupNo || '').trim(),
+                            label: `${String(item.LevelGroupNo || '').trim()} - ${String(item.LevelGroupName || '').trim()}`
+                        }))}
+                        allowClear
+                        placeholder="เลือกระดับสูงสุดที่ต้องการนับลงมา"
+                        disabled={!isEditing}
+                        className="w-full max-w-md"
+                    />
+                    <span className="text-sm text-slate-500">{levelSummary}</span>
+                </div>
             </Card>
 
             <Card className="mb-8 border-slate-100 shadow-sm" title={<span className="font-bold text-slate-700">หมายเหตุ (Remarks)</span>}>
                 <Input.TextArea rows={4} value={remark} onChange={(e) => setRemark(e.target.value)} disabled={!isEditing} className="text-slate-900 font-medium" placeholder="ระบุหมายเหตุเพื่อบันทึกการเปลี่ยนแปลง..." />
             </Card>
 
-            <div className="flex justify-end gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                {!isEditing ? (
-                    <Button onClick={() => setIsEditing(true)} type="primary" size="large" className="bg-blue-600 hover:bg-blue-700 px-8 font-bold shadow-lg">แก้ไขข้อมูล</Button>
-                ) : (<>
-                    <Button onClick={() => { setIsEditing(false); fetchData(); }} size="large" className="px-8 font-bold">ยกเลิก</Button>
-                    <Button onClick={handleSave} type="primary" size="large" className="bg-green-600 hover:bg-green-700 px-10 font-bold shadow-lg shadow-green-100">บันทึกอัตราส่วน</Button>
-                </>)}
-            </div>
         </div>
     );
 }

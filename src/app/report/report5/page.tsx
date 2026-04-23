@@ -98,7 +98,7 @@ const datasetOptions: FilterOption[] = datasetValues.map((item) => ({ value: ite
 const columnOptions = [
     { label: 'ชื่อย่อ', value: 'unit_short' },
     { label: 'รหัส', value: 'unit_code' },
-    { label: 'ชื่อเต็ม', value: 'unit_name' },
+    { label: 'ชื่อหน่วยงาน', value: 'unit_name' },
     { label: 'วันที่', value: 'date' },
     { label: 'ชุดข้อมูล', value: 'dataset' },
     { label: 'กรอบอัตรากำลัง', value: 'frame' },
@@ -930,7 +930,7 @@ export default function Report5Page() {
 
         addBasicHeader('ชื่อย่อ', 'unit_short');
         addBasicHeader('รหัส', 'unit_code');
-        addBasicHeader('ชื่อเต็ม', 'unit_name');
+        addBasicHeader('ชื่อหน่วยงาน', 'unit_name');
         addBasicHeader('วันที่', 'date');
         addBasicHeader('ชุดข้อมูล', 'dataset');
 
@@ -1113,9 +1113,13 @@ export default function Report5Page() {
             ...(isShow('unit_short') ? [{ title: 'ชื่อย่อ', dataIndex: 'unit_short', key: 'unit_short', width: 100, fixed: 'left' as const, onHeaderCell: () => ({ className: 'bg-blue-100! text-black! font-bold' }), onCell: getBasicCellProps }] : []),
             ...(isShow('unit_code') ? [{ title: 'รหัส', dataIndex: 'unit_code', key: 'unit_code', width: 80, fixed: 'left' as const, onHeaderCell: () => ({ className: 'bg-blue-100! text-black! font-bold' }), onCell: getBasicCellProps }] : []),
             ...(isShow('unit_name') ? [{
-                title: 'ชื่อเต็ม',
-                children: [{ title: 'หน่วยงาน', dataIndex: 'unit_name', key: 'unit_name', width: 260, ellipsis: true, onHeaderCell: () => ({ className: 'bg-blue-100! text-black! font-bold' }), onCell: getBasicCellProps }],
-                onHeaderCell: () => ({ className: 'bg-blue-100! text-black! font-bold' })
+                title: 'ชื่อหน่วยงาน',
+                dataIndex: 'unit_name',
+                key: 'unit_name',
+                width: 260,
+                ellipsis: true,
+                onHeaderCell: () => ({ className: 'bg-blue-100! text-black! font-bold' }),
+                onCell: getBasicCellProps
             }] : []),
             ...(isShow('date') ? [{ title: 'วันที่', dataIndex: 'date', key: 'date', width: 110, align: 'center' as const, onHeaderCell: () => ({ className: 'bg-blue-100! text-black! font-bold' }), onCell: getBasicCellProps }] : []),
             ...(isShow('dataset') ? [{ title: 'ชุดข้อมูล', dataIndex: 'dataset', key: 'dataset', width: 110, align: 'center' as const, onHeaderCell: () => ({ className: 'bg-blue-100! text-black! font-bold' }), onCell: getBasicCellProps }] : []),
@@ -1136,9 +1140,32 @@ export default function Report5Page() {
                     ? { className: 'bg-amber-100! font-bold text-gray-900 border-t-2! border-t-gray-300!' }
                     : { className: 'bg-amber-50!' }
             }] : []),
-            ...(isShow('operator') ? [{ title: 'ผู้ดำเนินการ', dataIndex: 'operator', key: 'operator', width: 150, onHeaderCell: () => ({ className: 'bg-green-100! text-green-900 font-bold' }), onCell: getBasicCellProps }] : []),
-            ...(isShow('remark') ? [{ title: 'หมายเหตุ', dataIndex: 'remark', key: 'remark', width: 200, ellipsis: true, onHeaderCell: () => ({ className: 'bg-green-100! text-green-900 font-bold' }), onCell: getBasicCellProps }] : []),
-            ...(isShow('log') ? [{ title: 'Log', dataIndex: 'log', key: 'log', width: 140, ellipsis: true, onHeaderCell: () => ({ className: 'bg-green-100! text-green-900 font-bold' }), onCell: getBasicCellProps }] : []),
+            ...(isShow('operator') ? [{
+                title: <div className="w-full text-center">ผู้ดำเนินการ</div>,
+                dataIndex: 'operator',
+                key: 'operator',
+                width: 150,
+                onHeaderCell: () => ({ className: 'bg-green-100! text-green-900 font-bold !text-center' }),
+                onCell: getBasicCellProps
+            }] : []),
+            ...(isShow('remark') ? [{
+                title: <div className="w-full text-center">หมายเหตุ</div>,
+                dataIndex: 'remark',
+                key: 'remark',
+                width: 200,
+                ellipsis: true,
+                onHeaderCell: () => ({ className: 'bg-green-100! text-green-900 font-bold !text-center' }),
+                onCell: getBasicCellProps
+            }] : []),
+            ...(isShow('log') ? [{
+                title: <div className="w-full text-center">Log</div>,
+                dataIndex: 'log',
+                key: 'log',
+                width: 140,
+                ellipsis: true,
+                onHeaderCell: () => ({ className: 'bg-green-100! text-green-900 font-bold !text-center' }),
+                onCell: getBasicCellProps
+            }] : []),
         ];
     }, [effectiveCheckedList]);
 

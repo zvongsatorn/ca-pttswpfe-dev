@@ -170,9 +170,9 @@ function DebugMailContent() {
                                 <Radio value="CALENDAR_END">ปฏิทิน: แจ้งเตือนวันกำหนดสิ้นสุดการบันทึกข้อมูล</Radio>
                                 <Radio value="TRANSACTION_SUBMIT">Transaction: มีการเปลี่ยนแปลงกรอบอัตรากำลัง ส่งมาให้ตรวจสอบ</Radio>
                                 <Radio value="TRANSACTION_REJECT">Transaction: มีการ Reject การเปลี่ยนแปลงกรอบอัตรากำลัง</Radio>
-                                <Radio value="MKD_NEXT">MKD: ขออนุมัติ Mandriver Power (รายการถัดไป)</Radio>
-                                <Radio value="MKD_REJECT">MKD: รายการ Mandriver Power ไม่เห็นชอบ</Radio>
-                                <Radio value="MKD_HRUSER">MKD: Mandriver Power ผ่านการเห็นชอบแล้ว</Radio>
+                                <Radio value="MKD_NEXT">MKD: ขออนุมัติ Manpower Key Driver (รายการถัดไป)</Radio>
+                                <Radio value="MKD_REJECT">MKD: รายการ Manpower Key Driver ไม่เห็นชอบ</Radio>
+                                <Radio value="MKD_HRUSER">MKD: Manpower Key Driver ผ่านการเห็นชอบแล้ว</Radio>
                             </Space>
                         </Radio.Group>
                     </Form.Item>

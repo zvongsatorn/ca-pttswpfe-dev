@@ -19,6 +19,7 @@ dayjs.locale('th');
 interface Report9DataType {
     key: string;
     unit: string;
+    unit_name?: string;
     cut_support: number;
     cut_bu: number;
     cut_total: number;
@@ -35,6 +36,7 @@ interface Report9ApiResponse {
 interface RateRecord {
     Year: number;
     Rate: number;
+    Base?: number;
     TypeRate?: number;
 }
 
@@ -139,7 +141,9 @@ const buildRateLabelMap = (years: number[], rates: RateRecord[]) => {
 
         const typeRate = toNumber(row.TypeRate) === 2 ? 2 : 1;
         const rateValue = toNumber(row.Rate);
-        const label = `${rateValue}:1`;
+        const baseValueRaw = Number(row.Base);
+        const baseValue = Number.isFinite(baseValueRaw) && baseValueRaw > 0 ? Math.trunc(baseValueRaw) : 1;
+        const label = `${rateValue}:${baseValue}`;
 
         if (typeRate === 2) {
             map[yearBE].support = label;
@@ -227,10 +231,10 @@ export default function Report9Page() {
             textBlue: 'FF1E3A8A',
         };
 
-        const row1 = ['กลุ่ม/หน่วยธุรกิจ'];
-        const row2 = [''];
-        const dataKeys = ['unit'];
-        const colWidths = [34];
+        const row1 = ['กลุ่ม/หน่วยธุรกิจ', 'ชื่อหน่วยงาน'];
+        const row2 = ['', ''];
+        const dataKeys = ['unit', 'unit_name'];
+        const colWidths = [34, 34];
 
         displayYears.forEach((year) => {
             row1.push(String(year));
@@ -265,8 +269,12 @@ export default function Report9Page() {
         const firstCell = worksheet.getCell(1, 1);
         firstCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.headerFirstCol } };
         firstCell.value = row1[0];
+        worksheet.mergeCells(1, 2, 2, 2);
+        const secondCell = worksheet.getCell(1, 2);
+        secondCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.headerFirstCol } };
+        secondCell.value = row1[1];
 
-        let colIdx = 2;
+        let colIdx = 3;
         displayYears.forEach(() => {
             worksheet.mergeCells(1, colIdx, 1, colIdx + 1);
             const headerCell = worksheet.getCell(1, colIdx);
@@ -321,6 +329,7 @@ export default function Report9Page() {
             rows.forEach((row) => {
                 const rowData = dataKeys.map((key, idx) => {
                     if (idx === 0) return '    '.repeat(depth) + String(row.unit || '');
+                    if (idx === 1) return String(row.unit_name || '');
                     return toNumber(row[key]);
                 });
 
@@ -334,7 +343,7 @@ export default function Report9Page() {
                         right: { style: 'thin', color: { argb: colors.border } },
                     };
 
-                    if (cIdx > 1) {
+                    if (cIdx > 2) {
                         cell.alignment = { horizontal: 'center' };
                         cell.numFmt = '#,##0';
                     } else {
@@ -462,7 +471,7 @@ export default function Report9Page() {
                 dataIndex: 'unit',
                 key: 'unit',
                 fixed: 'left',
-                width: 260,
+                width: 200,
                 className: 'bg-white z-20',
                 onHeaderCell: () => ({ className: 'bg-blue-100! text-blue-900! font-bold' }),
                 onCell: (record) =>
@@ -471,12 +480,32 @@ export default function Report9Page() {
                         : { className: 'bg-white' },
                 render: (text: unknown) => <span className="font-medium text-gray-700">{String(text ?? '')}</span>,
             },
+            {
+                title: 'ชื่อหน่วยงาน',
+                dataIndex: 'unit_name',
+                key: 'unit_name',
+                fixed: 'left',
+                width: 320,
+                ellipsis: true,
+                className: 'bg-white z-20',
+                onHeaderCell: () => ({ className: 'bg-blue-100! text-blue-900! font-bold' }),
+                onCell: (record) =>
+                    record.key === 'total'
+                        ? { className: 'bg-blue-100! font-bold border-t-2! border-t-gray-300 text-blue-900' }
+                        : { className: 'bg-white' },
+                render: (text: unknown) => <span className="text-gray-700">{String(text ?? '')}</span>,
+            },
             ...yearCols,
             {
-                title: 'ตัดกรอบ Support',
+                title: (
+                    <div className="leading-tight">
+                        <div>ตัดกรอบ</div>
+                        <div>Support</div>
+                    </div>
+                ),
                 dataIndex: 'cut_support',
                 key: 'cut_support',
-                width: 130,
+                width: 100,
                 align: 'center' as const,
                 className: 'report9-col-cut-support',
                 render: (value: unknown) => formatNumber(value),
@@ -487,10 +516,15 @@ export default function Report9Page() {
                         : { className: 'report9-col-cut-support' },
             },
             {
-                title: 'ตัดกรอบ BU',
+                title: (
+                    <div className="leading-tight">
+                        <div>ตัดกรอบ</div>
+                        <div>BU</div>
+                    </div>
+                ),
                 dataIndex: 'cut_bu',
                 key: 'cut_bu',
-                width: 130,
+                width: 100,
                 align: 'center' as const,
                 className: 'report9-col-cut-bu',
                 render: (value: unknown) => formatNumber(value),
@@ -504,7 +538,7 @@ export default function Report9Page() {
                 title: 'รวมตัดกรอบ',
                 dataIndex: 'cut_total',
                 key: 'cut_total',
-                width: 130,
+                width: 100,
                 align: 'center' as const,
                 className: 'report9-col-cut-total',
                 render: (value: unknown) => formatNumber(value),

@@ -24,6 +24,7 @@ const REQUIRED_COLUMNS = [
     'FULLNAMETH',
     'FULLNAMEENG',
     'CHANGE_DATE',
+    'Secondment_text',
     'CODE',
     'RETIREYEAR',
     'POSNAME',

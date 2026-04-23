@@ -15,6 +15,8 @@ export interface DelayEmployeeOptionType {
     label: string;
     name: string;
     position: string;
+    buSupport: string;
+    unitName: string;
 }
 
 export interface DelayUpsertPayload {

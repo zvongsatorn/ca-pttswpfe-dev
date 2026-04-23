@@ -22,6 +22,7 @@ dayjs.locale('th');
 interface DataType {
   key: string;
   unit: string;
+  unit_name?: string;
   children?: DataType[];
   [key: string]: unknown;
 }
@@ -409,6 +410,7 @@ const initialData: DataType[] = [
 
 // ตัวเลือกกลุ่มคอลัมน์
 const columnOptions = [
+  { label: 'ชื่อหน่วยงาน', value: 'unit_name' },
   { label: 'กรอบพนักงาน', value: 'frame_staff' },
   { label: 'คนปกติ & Pool RS', value: 'people_normal' },
   { label: 'กรอบ Secondment', value: 'frame_sec' },
@@ -417,7 +419,7 @@ const columnOptions = [
   { label: 'รวมคน', value: 'total_people' },
   { label: 'สรรหา', value: 'recruit' },
   { label: 'ว่าง', value: 'vacancy' },
-  { label: 'Contact Out', value: 'contact_out' },
+  { label: 'Contact Out สัญญาใหญ่', value: 'contact_out' },
   { label: 'Contact Out สัญญาย่อย', value: 'contact_out_sub' },
 ];
 
@@ -451,7 +453,6 @@ export default function Report1Page() {
 
   const fetchData = async (dateStr: string) => {
     setLoading(true);
-    setHasSearched(true);
     try {
       const { employeeId, userGroupNo } = resolveUserContext();
       const params = new URLSearchParams({
@@ -464,13 +465,13 @@ export default function Report1Page() {
       if (payload.status === 200 && payload.data) {
         setTableData(payload.data);
         setExpandedKeys(getAllKeys(payload.data));
-        setHasSearched(true);
       } else {
         console.error('Failed to fetch report1 data:', payload.message);
       }
     } catch (error) {
       console.error('Error fetching component data:', error);
     } finally {
+      setHasSearched(true);
       setLoading(false);
     }
   };
@@ -532,6 +533,7 @@ export default function Report1Page() {
     try {
       const dateStr = currentSearchDate.format('YYYY-MM-DD');
       const isShow = (key: string) => checkedList.includes(key);
+      const showUnitName = isShow('unit_name');
 
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Report 01');
@@ -671,7 +673,7 @@ export default function Report1Page() {
         },
         {
           enabled: isShow('contact_out'),
-          title: 'Contact Out',
+          title: 'Contact Out สัญญาใหญ่',
           topBg: colors.purple300,
           topFg: colors.black,
           columns: [
@@ -689,9 +691,9 @@ export default function Report1Page() {
         },
       ];
 
-      const topHeader: string[] = ['กลุ่ม/หน่วยธุรกิจ'];
-      const subHeader: string[] = [''];
-      const dataKeys: string[] = ['unit'];
+      const topHeader: string[] = ['กลุ่ม/หน่วยธุรกิจ', ...(showUnitName ? ['ชื่อหน่วยงาน'] : [])];
+      const subHeader: string[] = ['', ...(showUnitName ? [''] : [])];
+      const dataKeys: string[] = ['unit', ...(showUnitName ? ['unit_name'] : [])];
       const columnMeta: ExportColumn[] = [{
         key: 'unit',
         label: 'กลุ่ม/หน่วยธุรกิจ',
@@ -699,6 +701,15 @@ export default function Report1Page() {
         subFg: colors.blue900,
         isNumeric: false,
       }];
+      if (showUnitName) {
+        columnMeta.push({
+          key: 'unit_name',
+          label: 'ชื่อหน่วยงาน',
+          subBg: colors.blue100,
+          subFg: colors.blue900,
+          isNumeric: false,
+        });
+      }
       const groupRanges: Array<{ startCol: number; endCol: number; topBg: string; topFg: string }> = [];
 
       groups.forEach((group) => {
@@ -721,8 +732,8 @@ export default function Report1Page() {
         });
       });
 
-      worksheet.columns = dataKeys.map((k, i) => ({
-        width: i === 0 ? 40 : (k === 'contact_out_sub' ? 20 : 12),
+      worksheet.columns = dataKeys.map((k) => ({
+        width: k === 'unit' ? 40 : k === 'unit_name' ? 32 : (k === 'contact_out_sub' ? 20 : 12),
       }));
 
       const topHeaderRow = worksheet.addRow(topHeader);
@@ -741,6 +752,20 @@ export default function Report1Page() {
         bottom: { style: 'thin' },
         right: { style: 'thin' },
       };
+
+      if (showUnitName) {
+        worksheet.mergeCells(1, 2, 2, 2);
+        const unitNameHeaderCell = worksheet.getCell(1, 2);
+        unitNameHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.blue100 } };
+        unitNameHeaderCell.font = { bold: true, name: 'Sarabun', color: { argb: colors.blue900 } };
+        unitNameHeaderCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        unitNameHeaderCell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+      }
 
       groupRanges.forEach(({ startCol, endCol, topBg, topFg }) => {
         if (startCol === endCol) {
@@ -802,8 +827,9 @@ export default function Report1Page() {
 
       const addRows = (rowsData: DataType[], depth: number) => {
         rowsData.forEach((item) => {
-          const rowData = dataKeys.map((k, i) => {
-            if (i === 0) return `${'    '.repeat(depth)}${item.unit ?? ''}`;
+          const rowData = dataKeys.map((k) => {
+            if (k === 'unit') return `${'    '.repeat(depth)}${item.unit ?? ''}`;
+            if (k === 'unit_name') return String(item.unit_name ?? '');
             const v = item[k];
             if (typeof v === 'number') return v !== 0 ? v : '';
             if (typeof v === 'string') return v;
@@ -817,6 +843,7 @@ export default function Report1Page() {
           row.eachCell((cell, colNo) => {
             const meta = columnMeta[colNo - 1];
             const isFirstCol = colNo === 1;
+            const isTextCol = meta?.key === 'unit' || meta?.key === 'unit_name';
             const shouldPreserveColumnColor = !!meta?.isTotalCol || !!meta?.isRecruitCol;
             let fillColor = meta?.bodyBg;
 
@@ -836,7 +863,7 @@ export default function Report1Page() {
               bold: Boolean(isTotalRow || isParentRow || meta?.isTotalCol),
               ...(fontColor ? { color: { argb: fontColor } } : {}),
             };
-            cell.alignment = isFirstCol
+            cell.alignment = (isTextCol || isFirstCol)
               ? { vertical: 'middle', horizontal: 'left' }
               : { vertical: 'middle', horizontal: 'center' };
 
@@ -860,7 +887,7 @@ export default function Report1Page() {
       };
 
       addRows(tableData, 0);
-      worksheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 2 }];
+      worksheet.views = [{ state: 'frozen', xSplit: showUnitName ? 2 : 1, ySplit: 2 }];
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob(
@@ -888,14 +915,26 @@ export default function Report1Page() {
         title: 'กลุ่ม/หน่วยธุรกิจ',
         dataIndex: 'unit',
         key: 'unit',
-        fixed: 'left',
-        width: 220,
+        fixed: 'left' as const,
+        width: 180,
         className: 'bg-white z-20',
         onHeaderCell: () => ({
           className: 'bg-blue-100! text-blue-900! font-bold',
         }),
         render: (text: unknown) => <span className="font-medium text-gray-700">{String(text ?? '')}</span>
       },
+      ...(isShow('unit_name') ? [{
+        title: 'ชื่อหน่วยงาน',
+        dataIndex: 'unit_name',
+        key: 'unit_name',
+        fixed: 'left' as const,
+        width: 220,
+        className: 'bg-white z-20',
+        onHeaderCell: () => ({
+          className: 'bg-blue-100! text-blue-900! font-bold',
+        }),
+        render: (text: unknown) => <span className="text-gray-700">{String(text ?? '')}</span>
+      }] : []),
       {
         title: 'กรอบการบริหารกำลังเดือน (Actual Movement)',
         onHeaderCell: () => ({
@@ -977,7 +1016,13 @@ export default function Report1Page() {
             children: generateLevelColumns('vacancy', bgWhite)
           }] : []),
           ...(isShow('contact_out') ? [{
-            title: 'Contact Out',
+            title: (
+              <span className="inline-block leading-tight text-center">
+                Contact Out
+                <br />
+                สัญญาใหญ่
+              </span>
+            ),
             dataIndex: 'contact_out',
             key: 'contact_out',
             width: 100,
@@ -987,7 +1032,13 @@ export default function Report1Page() {
           }] : []),
 
           ...(isShow('contact_out_sub') ? [{
-            title: 'Contact Out สัญญาย่อย',
+            title: (
+              <span className="inline-block leading-tight text-center">
+                Contact Out
+                <br />
+                สัญญาย่อย
+              </span>
+            ),
             dataIndex: 'contact_out_sub',
             key: 'contact_out_sub',
             width: 120,
@@ -1106,7 +1157,6 @@ export default function Report1Page() {
                   y: tableScrollY,
                 }}
                 pagination={false}
-                sticky
                 expandable={{
                   expandedRowKeys: expandedKeys,
                   onExpandedRowsChange: (keys) => setExpandedKeys(keys),
@@ -1124,6 +1174,28 @@ export default function Report1Page() {
         )}
       </div>
       <style jsx global>{`
+        .report1-table .ant-table-container::before,
+        .report1-table .ant-table-container::after {
+          display: none !important;
+        }
+        .report1-table .ant-table-cell-fix-left::before,
+        .report1-table .ant-table-cell-fix-left::after,
+        .report1-table .ant-table-cell-fix-right::before,
+        .report1-table .ant-table-cell-fix-right::after {
+          display: none !important;
+          box-shadow: none !important;
+        }
+        .report1-table .ant-table-cell-fix-left-last::after,
+        .report1-table .ant-table-cell-fix-right-first::after {
+          box-shadow: none !important;
+        }
+        .report1-table .ant-table-thead > tr > th.ant-table-cell-fix-left {
+          background-color: #dbeafe !important;
+        }
+        .report1-table .ant-table-thead > tr > th.ant-table-cell-fix-left,
+        .report1-table .ant-table-thead > tr > th.ant-table-cell-fix-right {
+          background-clip: padding-box !important;
+        }
         .report1-table .ant-table-tbody > tr.report1-row-parent > td:not(.report1-col-total):not(.report1-col-recruit) {
           background-color: #ffffff !important;
           color: #1e3a8a !important;

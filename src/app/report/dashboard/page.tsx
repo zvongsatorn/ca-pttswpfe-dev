@@ -574,15 +574,14 @@ export default function DashboardPage() {
                             </div>
                         )}
 
-                        <Button 
-                            type="primary" 
-                            danger 
-                            icon={<Search size={16} />} 
+                        <Button
+                            type="primary"
+                            icon={<Search size={16} />}
                             onClick={loadData}
-                            className="bg-red-600 hover:bg-red-700 min-w-24 text-white font-bold ml-auto"
+                            className="bg-blue-600! hover:bg-blue-700! border-none! min-w-24 text-white! font-bold ml-auto"
                             loading={loading}
                         >
-                            Search
+                            ค้นหา
                         </Button>
                         <div className="flex items-center gap-2">
                             <Button 
@@ -603,7 +602,7 @@ export default function DashboardPage() {
                         {loading && dashboardData.length === 0 ? (
                             <div className="w-full h-full flex justify-center items-center h-[500px]">Loading...</div>
                         ) : !hasSearched ? (
-                            <div className="w-full h-full flex justify-center items-center text-gray-500 h-[500px]">เลือกเงื่อนไขแล้วกด Search</div>
+                            <div className="w-full h-full flex justify-center items-center text-gray-500 h-[500px]">เลือกเงื่อนไขแล้วกดค้นหา</div>
                         ) : dashboardData.length === 0 ? (
                             <div className="w-full h-full flex justify-center items-center text-gray-500 h-[500px]">ไม่พบข้อมูล</div>
                         ) : (

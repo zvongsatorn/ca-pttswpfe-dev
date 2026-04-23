@@ -19,6 +19,7 @@ dayjs.locale('th');
 interface Report8DataType {
     key: string;
     unit: string;
+    unit_name?: string;
     children?: Report8DataType[];
 
     people_21?: number;
@@ -96,11 +97,12 @@ const levelKeys = ['21', '18_20', '16_17', '14_15', '11_13', '9_10', '4_8', 'tot
 const defaultEffectiveDate = dayjs();
 
 const columnOptions = [
+    { label: 'ชื่อหน่วยงาน', value: 'unit_name' },
     { label: 'จำนวนพนักงานและผู้บริหาร', value: 'people' },
-    { label: 'ค่าใช้จ่ายพนักงานและผู้บริหาร', value: 'expense' },
+    { label: 'ค่าใช้จ่าย Assumption พนักงานและผู้บริหาร (บาท)', value: 'expense' },
     { label: 'สัญญาใหญ่', value: 'major' },
     { label: 'สัญญาย่อย', value: 'minor' },
-    { label: 'ค่าใช้จ่ายรวมทั้งหมด', value: 'grand_total' },
+    { label: 'ค่าใช้จ่าย Assumption รวมทั้งหมด (บาท)', value: 'grand_total' },
 ];
 
 const defaultCheckedList = columnOptions.map((opt) => opt.value);
@@ -564,10 +566,11 @@ export default function Report8Page() {
             bgGray: 'FFE5E7EB',
         };
 
-        const row1 = ['กลุ่ม/หน่วยธุรกิจ'];
-        const row2 = [''];
-        const dataKeys = ['unit'];
-        const colWidths = [40];
+        const showUnitName = checkedList.includes('unit_name');
+        const row1 = ['กลุ่ม/หน่วยธุรกิจ', ...(showUnitName ? ['ชื่อหน่วยงาน'] : [])];
+        const row2 = ['', ...(showUnitName ? [''] : [])];
+        const dataKeys = ['unit', ...(showUnitName ? ['unit_name'] : [])];
+        const colWidths = [40, ...(showUnitName ? [34] : [])];
 
         const addGroup = (title: string, keys: string[], subTitles: string[], width: number) => {
             row1.push(title);
@@ -586,19 +589,19 @@ export default function Report8Page() {
 
         if (checkedList.includes('expense')) {
             const keys = levelKeys.map((key) => `expense_${key}`);
-            addGroup('ค่าใช้จ่ายพนักงานและผู้บริหาร', keys, levels, 15);
+            addGroup('ค่าใช้จ่าย Assumption พนักงานและผู้บริหาร (บาท)', keys, levels, 15);
         }
 
         if (checkedList.includes('major')) {
-            addGroup('สัญญาใหญ่', ['major_points', 'major_budget'], ['จำนวนจุดบริการ', 'งบจ้างเหมาบริการ'], 18);
+            addGroup('สัญญาใหญ่', ['major_points', 'major_budget'], ['จำนวนจุดบริการ', 'งบประมาณจ้างเหมาบริการ (บาท)'], 18);
         }
 
         if (checkedList.includes('minor')) {
-            addGroup('สัญญาย่อย', ['minor_points', 'minor_budget'], ['จำนวนจุดบริการ', 'งบจ้างเหมาบริการ'], 18);
+            addGroup('สัญญาย่อย', ['minor_points', 'minor_budget'], ['จำนวนจุดบริการ', 'งบประมาณจ้างเหมาบริการ (บาท)'], 18);
         }
 
         if (checkedList.includes('grand_total')) {
-            row1.push('ค่าใช้จ่ายรวมทั้งหมด');
+            row1.push('ค่าใช้จ่าย Assumption รวมทั้งหมด (บาท)');
             row2.push('');
             dataKeys.push('total_grand_expense');
             colWidths.push(20);
@@ -607,7 +610,7 @@ export default function Report8Page() {
         worksheet.addRow(row1);
         worksheet.addRow(row2);
 
-        let colIdx = 2;
+        let colIdx = showUnitName ? 3 : 2;
         const mergeAndStyle = (count: number, colorTop: string, colorSub: string) => {
             worksheet.mergeCells(1, colIdx, 1, colIdx + count - 1);
             worksheet.getCell(1, colIdx).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorTop } };
@@ -630,6 +633,10 @@ export default function Report8Page() {
 
         worksheet.mergeCells(1, 1, 2, 1);
         worksheet.getCell(1, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.bgGray } };
+        if (showUnitName) {
+            worksheet.mergeCells(1, 2, 2, 2);
+            worksheet.getCell(1, 2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.bgGray } };
+        }
 
         for (let rowNo = 1; rowNo <= 2; rowNo++) {
             worksheet.getRow(rowNo).eachCell((cell) => {
@@ -648,6 +655,7 @@ export default function Report8Page() {
             list.forEach((item) => {
                 const rowData = dataKeys.map((key, idx) => {
                     if (idx === 0) return '    '.repeat(depth) + item.unit;
+                    if (key === 'unit_name') return toText((item as Record<string, unknown>).unit_name);
                     return toNumber((item as Record<string, unknown>)[key]);
                 });
 
@@ -662,9 +670,9 @@ export default function Report8Page() {
                         right: { style: 'thin' },
                     };
 
-                    if (cIdx > 1) {
+                    const key = dataKeys[cIdx - 1];
+                    if (key !== 'unit' && key !== 'unit_name') {
                         cell.alignment = { horizontal: 'right' };
-                        const key = dataKeys[cIdx - 1];
                         if (key.includes('expense') || key.includes('budget') || key === 'total_grand_expense') {
                             cell.numFmt = '#,##0.00';
                         } else {
@@ -682,7 +690,7 @@ export default function Report8Page() {
                         };
 
                         const key = dataKeys[cIdx - 1];
-                        if (cIdx === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.bgGray } };
+                        if (key === 'unit' || key === 'unit_name') cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.bgGray } };
                         else if (key.startsWith('people_')) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.totalOrange } };
                         else if (key.startsWith('expense_')) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.totalBlue } };
                         else if (key.startsWith('major_')) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.totalGreen } };
@@ -730,6 +738,19 @@ export default function Report8Page() {
                 onCell: getUnitCellProps,
                 render: (text: unknown) => <span className="font-medium text-gray-700">{String(text ?? '')}</span>,
             },
+            ...(isShow('unit_name')
+                ? [{
+                    title: 'ชื่อหน่วยงาน',
+                    dataIndex: 'unit_name',
+                    key: 'unit_name',
+                    fixed: 'left' as const,
+                    width: 260,
+                    ellipsis: true,
+                    onHeaderCell: () => ({ className: 'bg-blue-100! text-blue-900! font-bold' }),
+                    onCell: getUnitCellProps,
+                    render: (text: unknown) => <span className="text-gray-700">{String(text ?? '')}</span>,
+                }]
+                : []),
             ...(isShow('people')
                 ? [{
                     title: 'จำนวนพนักงานและผู้บริหาร',
@@ -747,7 +768,7 @@ export default function Report8Page() {
                 : []),
             ...(isShow('expense')
                 ? [{
-                    title: 'ค่าใช้จ่ายพนักงานและผู้บริหาร',
+                    title: 'ค่าใช้จ่าย Assumption พนักงานและผู้บริหาร (บาท)',
                     className: 'bg-blue-50!',
                     onHeaderCell: () => ({ className: 'bg-blue-200! text-blue-900! font-bold text-center' }),
                     children: generateLevelColumns(
@@ -780,7 +801,7 @@ export default function Report8Page() {
                                     : {},
                         },
                         {
-                            title: 'งบจ้างเหมาบริการ',
+                            title: 'งบประมาณจ้างเหมาบริการ (บาท)',
                             dataIndex: 'major_budget',
                             key: 'major_budget',
                             width: 130,
@@ -815,7 +836,7 @@ export default function Report8Page() {
                                     : {},
                         },
                         {
-                            title: 'งบจ้างเหมาบริการ',
+                            title: 'งบประมาณจ้างเหมาบริการ (บาท)',
                             dataIndex: 'minor_budget',
                             key: 'minor_budget',
                             width: 130,
@@ -832,7 +853,7 @@ export default function Report8Page() {
                 : []),
             ...(isShow('grand_total')
                 ? [{
-                    title: 'ค่าใช้จ่ายรวมทั้งหมด',
+                    title: 'ค่าใช้จ่าย Assumption รวมทั้งหมด (บาท)',
                     dataIndex: 'total_grand_expense',
                     key: 'total_grand_expense',
                     width: 170,

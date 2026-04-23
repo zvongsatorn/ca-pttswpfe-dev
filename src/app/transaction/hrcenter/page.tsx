@@ -3,6 +3,7 @@
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,7 @@ import {
   CheckCircle,
   Loader2,
   X,
+  Info,
 } from 'lucide-react';
 import { useState, useRef, useEffect, useMemo, useSyncExternalStore } from 'react';
 
@@ -376,6 +378,8 @@ const truncateText = (text: string | null | undefined, max: number) => {
   if (text.length <= max) return text;
   return text.substring(0, max) + "...";
 };
+const CONCLUSION_NO_MAX_LENGTH = 40;
+const NOTE_MAX_LENGTH = 40;
 
 const formatNoteForDisplay = (value: unknown): string => {
   const text = String(value ?? '').trim();
@@ -385,6 +389,23 @@ const formatNoteForDisplay = (value: unknown): string => {
   return text
     .replace(/#/g, '\n\n')
     .replace(/\$/g, '\n');
+};
+
+const formatConclusionNoForDisplay = (value: unknown): string => {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+
+  return text
+    .replace(/#/g, '\n')
+    .replace(/\$/g, '\n')
+    .replace(/\n{3,}/g, '\n\n');
+};
+
+const normalizeSingleLineText = (value: unknown): string => {
+  return String(value ?? '')
+    .replace(/\r?\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 };
 
 const toNumber = (value: unknown): number => {
@@ -510,7 +531,7 @@ const SAP_MINUS_COLUMN_LABELS: Record<string, string> = {
   Level11_13: '11-13',
   Level9_10: '9-10',
   Level4_8: '4-8',
-  LevelContract: 'Contract',
+  LevelContract: 'Contract สัญญาใหญ่',
   LevelContractSub: 'Contract สัญญาย่อย',
 };
 
@@ -641,7 +662,7 @@ export default function HRCenterPage() {
     level9_10: 'Level 9-10',
     level4_8: 'Level 4-8',
     total: 'รวม',
-    contract: 'Contract',
+    contract: 'Contract สัญญาใหญ่',
     contractSubcontract: 'Contract สัญญาย่อย',
     people: 'คน',
     find: 'สรรหา',
@@ -1131,7 +1152,7 @@ export default function HRCenterPage() {
         { key: 'level9_10', label: '9-10', value: (item) => toNumber(item.amount_6), summary: () => totals.level9_10 },
         { key: 'level4_8', label: '4-8', value: (item) => toNumber(item.amount_7), summary: () => totals.level4_8 },
         { key: 'total', label: 'รวม', value: (item) => toNumber(item.total_amount), summary: () => totals.total },
-        { key: 'contract', label: 'Contract', value: (item) => toNumber(item.amount_8), summary: () => totals.contract },
+        { key: 'contract', label: 'Contract สัญญาใหญ่', value: (item) => toNumber(item.amount_8), summary: () => totals.contract },
         { key: 'contractSubcontract', label: 'Contract สัญญาย่อย', value: (item) => toNumber(item.amount_subcontact), summary: () => totals.contractSubcontract },
         { key: 'people', label: 'คน', value: (item) => getPeopleTotal(item), summary: () => totals.people },
         { key: 'find', label: 'สรรหา', value: (item) => getRecruitTotal(item), summary: () => totals.find },
@@ -1540,7 +1561,7 @@ export default function HRCenterPage() {
                       {visibleColumns.level9_10 && <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[50px]">9-10</th>}
                       {visibleColumns.level4_8 && <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[50px]">4-8</th>}
                       {visibleColumns.total && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[50px]">รวม</th>}
-                      {visibleColumns.contract && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[70px]">Contract</th>}
+                      {visibleColumns.contract && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[90px]">Contract<br />สัญญาใหญ่</th>}
                       {visibleColumns.contractSubcontract && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[80px]">Contract<br />สัญญาย่อย</th>}
                       {visibleColumns.people && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[50px]">คน</th>}
                       {visibleColumns.find && <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-600 min-w-[50px]">สรรหา</th>}
@@ -1627,13 +1648,90 @@ export default function HRCenterPage() {
 
                         {/* Split Columns Data */}
                         {visibleColumns.resolutionNumber && (
-                          <td className="px-2 py-3 text-[11px] text-gray-700 border-l border-gray-300" title={dept.ConclusionNo}>
-                            {truncateText(dept.ConclusionNo, 40)}
+                          <td className="px-2 py-3 text-[11px] text-gray-700 border-l border-gray-300">
+                            {(() => {
+                              const fullConclusionNo = String(dept.ConclusionNo || '');
+                              const isTruncated = fullConclusionNo.length > CONCLUSION_NO_MAX_LENGTH;
+                              return (
+                                <div className="flex items-center gap-1">
+                                  <span title={fullConclusionNo}>
+                                    {truncateText(fullConclusionNo, CONCLUSION_NO_MAX_LENGTH)}
+                                  </span>
+                                  {isTruncated && (
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center rounded-full p-0.5 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+                                          aria-label="ดูเลขที่มติทั้งหมด"
+                                        >
+                                          <Info className="h-3.5 w-3.5" />
+                                        </button>
+                                      </PopoverTrigger>
+                                      <PopoverContent
+                                        side="top"
+                                        align="start"
+                                        className="w-[360px] max-w-[420px] rounded-lg border border-slate-200 bg-white p-3 shadow-xl"
+                                      >
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+                                            <Info className="h-3.5 w-3.5 text-blue-600" />
+                                            เลขที่มติ
+                                          </div>
+                                          <div className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-slate-600">
+                                            {formatConclusionNoForDisplay(fullConclusionNo)}
+                                          </div>
+                                        </div>
+                                      </PopoverContent>
+                                    </Popover>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
                         )}
                         {visibleColumns.notes && (
-                          <td className="px-2 py-3 text-[11px] text-blue-600 whitespace-pre-line break-words">
-                            {formatNoteForDisplay(dept.note)}
+                          <td className="px-2 py-3 text-[11px] text-blue-600">
+                            {(() => {
+                              const fullNote = formatNoteForDisplay(dept.note);
+                              const noteSingleLine = normalizeSingleLineText(fullNote);
+                              const isTruncated = noteSingleLine.length > NOTE_MAX_LENGTH;
+                              return (
+                                <div className="flex items-center gap-1">
+                                  <span title={noteSingleLine}>
+                                    {truncateText(noteSingleLine, NOTE_MAX_LENGTH)}
+                                  </span>
+                                  {isTruncated && (
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center rounded-full p-0.5 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+                                          aria-label="ดูหมายเหตุทั้งหมด"
+                                        >
+                                          <Info className="h-3.5 w-3.5" />
+                                        </button>
+                                      </PopoverTrigger>
+                                      <PopoverContent
+                                        side="top"
+                                        align="start"
+                                        className="w-[360px] max-w-[420px] rounded-lg border border-slate-200 bg-white p-3 shadow-xl"
+                                      >
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+                                            <Info className="h-3.5 w-3.5 text-blue-600" />
+                                            หมายเหตุ
+                                          </div>
+                                          <div className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-slate-600">
+                                            {fullNote}
+                                          </div>
+                                        </div>
+                                      </PopoverContent>
+                                    </Popover>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
                         )}
                         {visibleColumns.sapStatusColumn && (

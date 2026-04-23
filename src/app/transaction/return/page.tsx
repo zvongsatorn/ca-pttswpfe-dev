@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import ExcelJS from 'exceljs';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import MultiSelectFilter from '@/components/filters/MultiSelectFilter';
+import { saveExcelFile } from '@/utils/fileDownload';
 import {
   ChevronDown,
   ChevronRight,
@@ -15,6 +17,7 @@ import {
   Check,
   AlertCircle,
   Info,
+  Download,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import buddhistEra from 'dayjs/plugin/buddhistEra';
@@ -37,6 +40,15 @@ interface ReturnRecord {
   DocumentNo: string;
   DocumentStatus: number;
   DocumentCreateDate: string;
+  EffectiveDate?: string;
+  UnitReceive?: string;
+  UnitTransfer?: string;
+  PoolRsFlag?: number;
+  PoolRSFlag?: number;
+  StrgFlag?: number;
+  BSType?: number;
+  SpecFlag?: number;
+  LineStaffFlag?: number;
 }
 
 interface BorrowRecord {
@@ -114,6 +126,7 @@ export default function ReturnPage() {
   const [selectedStatus, setSelectedStatus] = useState<string>('borrowed');
   const [selectedBusinessUnits, setSelectedBusinessUnits] = useState<string[]>([]);
   const [selectedFromDepts, setSelectedFromDepts] = useState<string[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
   
   // Table column filters
   const [filterInbox, setFilterInbox] = useState('');
@@ -648,6 +661,219 @@ export default function ReturnPage() {
     return grouped;
   };
 
+  const formatDateCell = (value: string | null | undefined): string => {
+    if (!value) return '';
+    const parsed = dayjs(value);
+    if (!parsed.isValid()) return String(value);
+    return parsed.format('DD/MM/YYYY');
+  };
+
+  const formatDateTimeCell = (value: string | null | undefined): string => {
+    if (!value) return '';
+    const parsed = dayjs(value);
+    if (!parsed.isValid()) return String(value);
+    return parsed.format('DD/MM/YYYY HH:mm');
+  };
+
+  const getReturnStatusLabel = (status: number): string => {
+    if (status === 3) return 'คืนแล้ว';
+    if (status === 1 || status === 2) return 'รออนุมัติ';
+    if (status === 0) return 'ยกเลิก';
+    return String(status ?? '');
+  };
+
+  const toNumberOrDefault = (value: unknown, fallback = 0): number => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const mapPoolRsFlagLabel = (value: unknown): string => {
+    const flag = toNumberOrDefault(value, 0);
+    if (flag === 0) return 'ปกติ';
+    if (flag === 1) return 'Pool Resource';
+    if (flag === 2) return 'Secondment';
+    return 'ปกติ';
+  };
+
+  const mapStrategicPositionLabel = (value: unknown): string => {
+    return toNumberOrDefault(value, 0) === 1 ? 'ระบุ' : 'ไม่ระบุ';
+  };
+
+  const mapBusinessTypeLabel = (value: unknown): string => {
+    const type = toNumberOrDefault(value, 0);
+    if (type === 1) return 'Business';
+    if (type === 2) return 'Support';
+    return 'ไม่ระบุ';
+  };
+
+  const mapSpecificallyLabel = (value: unknown): string => {
+    return toNumberOrDefault(value, 0) === 1 ? 'อัตราเฉพาะตัว' : 'ไม่ระบุ';
+  };
+
+  const mapLineStaffFlagLabel = (value: unknown): string => {
+    const flag = toNumberOrDefault(value, 0);
+    if (flag === 1) return 'Line';
+    if (flag === 2) return 'Staff';
+    return 'None';
+  };
+
+  const fetchReturnHistoryForExport = async (documentNo: string): Promise<ReturnRecord[]> => {
+    const normalizedDocumentNo = String(documentNo || '').trim();
+    if (!normalizedDocumentNo) return [];
+
+    try {
+      const res = await fetch(`/api/transactions/return-history/${encodeURIComponent(normalizedDocumentNo)}?_t=${Date.now()}`);
+      if (!res.ok) return [];
+      const result = await res.json();
+      return Array.isArray(result?.data) ? (result.data as ReturnRecord[]) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const handleExportExcel = async () => {
+    if (filteredRecords.length === 0) {
+      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'ไม่พบข้อมูลสำหรับ Export', type: 'warning' });
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const recordsWithReturns = await Promise.all(
+        filteredRecords.map(async (record) => ({
+          record,
+          returns: await fetchReturnHistoryForExport(record.DocumentNo),
+        }))
+      );
+
+      const rows: Array<{
+        no: number;
+        transactionNo: string;
+        documentNo: string;
+        recordType: string;
+        transactionDesc: string;
+        unitReceive: string;
+        unitTransfer: string;
+        parentDocumentNo: string;
+        refTransactionNo: string;
+        amount: number | string;
+        status: string;
+        effectiveDate: string;
+        poolRsFlag: string;
+        strategicPosition: string;
+        businessType: string;
+        specifically: string;
+        lineStaffFlag: string;
+        createDate: string;
+      }> = [];
+      let rowNo = 1;
+
+      recordsWithReturns.forEach(({ record, returns }) => {
+        rows.push({
+          no: rowNo++,
+          transactionNo: String(record.TransactionNo || ''),
+          documentNo: String(record.DocumentNo || ''),
+          recordType: 'ยืม',
+          transactionDesc: String(record.TransactionDesc || ''),
+          unitReceive: String(record.UnitReceive || ''),
+          unitTransfer: String(record.UnitTransfer || ''),
+          parentDocumentNo: '',
+          refTransactionNo: '',
+          amount: Number(record.Amount || 0),
+          status: record.RemainingCount <= 0 ? 'คืนหมดแล้ว' : 'ยืมอยู่',
+          effectiveDate: formatDateCell(record.EffectiveDate),
+          poolRsFlag: mapPoolRsFlagLabel(record.PoolRsFlag),
+          strategicPosition: mapStrategicPositionLabel(record.StrgFlag),
+          businessType: mapBusinessTypeLabel(record.BSType),
+          specifically: mapSpecificallyLabel(record.SpecFlag),
+          lineStaffFlag: mapLineStaffFlagLabel(record.LineStaffFlag),
+          createDate: formatDateTimeCell(record.CreateDate),
+        });
+
+        returns.forEach((ret) => {
+          const returnPoolRsFlag = ret.PoolRsFlag ?? ret.PoolRSFlag;
+          rows.push({
+            no: rowNo++,
+            transactionNo: String(ret.TransactionNo || ''),
+            documentNo: String(ret.DocumentNo || record.DocumentNo || ''),
+            recordType: 'คืน',
+            transactionDesc: String(ret.TransactionDesc || ''),
+            unitReceive: String(ret.UnitReceive || record.UnitReceive || ''),
+            unitTransfer: String(ret.UnitTransfer || record.UnitTransfer || ''),
+            parentDocumentNo: String(record.DocumentNo || ''),
+            refTransactionNo: String(record.TransactionNo || ''),
+            amount: Number(ret.ReturnCount || 0),
+            status: getReturnStatusLabel(Number(ret.Status || 0)),
+            effectiveDate: formatDateCell(ret.EffectiveDate),
+            poolRsFlag: mapPoolRsFlagLabel(returnPoolRsFlag),
+            strategicPosition: mapStrategicPositionLabel(ret.StrgFlag),
+            businessType: mapBusinessTypeLabel(ret.BSType),
+            specifically: mapSpecificallyLabel(ret.SpecFlag),
+            lineStaffFlag: mapLineStaffFlagLabel(ret.LineStaffFlag),
+            createDate: formatDateTimeCell(ret.CreateDate),
+          });
+        });
+      });
+
+      if (rows.length === 0) {
+        setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'ไม่พบข้อมูลสำหรับ Export', type: 'warning' });
+        return;
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Document Transaction');
+
+      worksheet.columns = [
+        { header: 'ลำดับ', key: 'no', width: 10 },
+        { header: 'ประเภท', key: 'recordType', width: 12 },
+        { header: 'TransactionNo', key: 'transactionNo', width: 20 },
+        { header: 'DocumentNo', key: 'documentNo', width: 20 },
+        { header: 'มติ / เรื่อง', key: 'transactionDesc', width: 50 },
+        { header: 'หน่วยงานรับยืม (UnitReceive)', key: 'unitReceive', width: 24 },
+        { header: 'หน่วยงานที่ให้ยืม (UnitTransfer)', key: 'unitTransfer', width: 24 },
+        { header: 'ParentDocumentNo', key: 'parentDocumentNo', width: 22 },
+        { header: 'RefTransactionNo', key: 'refTransactionNo', width: 20 },
+        { header: 'Amount', key: 'amount', width: 12 },
+        { header: 'Status', key: 'status', width: 14 },
+        { header: 'EffectiveDate', key: 'effectiveDate', width: 14 },
+        { header: 'PoolRSFlag', key: 'poolRsFlag', width: 18 },
+        { header: 'Strategic Position', key: 'strategicPosition', width: 18 },
+        { header: 'Business Type', key: 'businessType', width: 16 },
+        { header: 'Specifically', key: 'specifically', width: 18 },
+        { header: 'LineStaffFlag', key: 'lineStaffFlag', width: 14 },
+        { header: 'CreateDate', key: 'createDate', width: 20 },
+      ];
+
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4EA' } };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFB7D7C1' } },
+          left: { style: 'thin', color: { argb: 'FFB7D7C1' } },
+          bottom: { style: 'thin', color: { argb: 'FFB7D7C1' } },
+          right: { style: 'thin', color: { argb: 'FFB7D7C1' } },
+        };
+      });
+
+      rows.forEach((row) => worksheet.addRow(row));
+      worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+      worksheet.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: 1, column: worksheet.columnCount },
+      };
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const fileName = `Borrow_Return_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`;
+      await saveExcelFile(buffer, fileName);
+    } catch (error) {
+      console.error('Failed to export return excel:', error);
+      setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: 'ไม่สามารถ Export Excel ได้', type: 'error' });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // Filter records
   const filteredRecords = borrowRecords.filter(record => {
     // Status filter
@@ -741,6 +967,15 @@ export default function ReturnPage() {
           
 
           <div className="flex-1"></div>
+
+          <Button
+            onClick={handleExportExcel}
+            disabled={isExporting || filteredRecords.length === 0}
+            className="bg-linear-to-r from-green-600 to-emerald-600 text-white px-6 h-9 text-sm font-semibold hover:from-green-700 hover:to-emerald-700 shadow-md"
+          >
+            <Download className="w-4 h-4" />
+            {isExporting ? 'กำลัง Export...' : 'EXPORT EXCEL'}
+          </Button>
 
           {/* Request Button */}
           {selectedReturns.size > 0 && (

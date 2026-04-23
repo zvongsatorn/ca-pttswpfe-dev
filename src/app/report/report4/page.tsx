@@ -138,7 +138,7 @@ const levelLabels = ['21', '18-20', '16-17', '14-15', '11-13', '9-10', '8 ลง
 const columnOptions = [
     { label: 'ชื่อย่อ', value: 'unit_short' },
     { label: 'รหัส', value: 'unit_code' },
-    { label: 'ชื่อเต็มหน่วยงาน', value: 'unit_name' },
+    { label: 'ชื่อหน่วยงาน', value: 'unit_name' },
     { label: 'สายงาน', value: 'line_of_work' },
     { label: 'ระดับ', value: 'level' },
     { label: 'หน่วยธุรกิจ', value: 'business_unit' },
@@ -150,7 +150,7 @@ const columnOptions = [
     { label: 'รวมคน', value: 'total_people' },
     { label: 'สรรหา', value: 'recruit' },
     { label: 'ว่าง', value: 'vacancy' },
-    { label: 'Contact Out', value: 'contact_out' },
+    { label: 'Contact Out สัญญาใหญ่', value: 'contact_out' },
     { label: 'Contact Out สัญญาย่อย', value: 'contact_out_sub' },
     { label: 'หมายเหตุ', value: 'remark' },
     { label: 'Log', value: 'log' },
@@ -958,7 +958,7 @@ export default function Report4Page() {
         if (isShow('vacancy')) addGroup('ว่าง', 'vacancy', false, false);
 
         if (isShow('contact_out')) {
-            headersRow1.push('Contact Out');
+            headersRow1.push('Contact Out สัญญาใหญ่');
             headersRow2.push('');
             dataKeys.push('contact_out');
         }
@@ -1171,7 +1171,7 @@ export default function Report4Page() {
         return [
             ...(isShow('unit_short') ? [{ title: 'ชื่อย่อ', dataIndex: 'unit_short', key: 'unit_short', width: 100, fixed: 'left' as const, onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }), onCell: getBasicCellProps }] : []),
             ...(isShow('unit_code') ? [{ title: 'รหัส', dataIndex: 'unit_code', key: 'unit_code', width: 80, fixed: 'left' as const, onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }), onCell: getBasicCellProps }] : []),
-            ...(isShow('unit_name') ? [{ title: 'ชื่อเต็มหน่วยงาน', dataIndex: 'unit_name', key: 'unit_name', width: 250, ellipsis: true, onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }), onCell: getBasicCellProps }] : []),
+            ...(isShow('unit_name') ? [{ title: 'ชื่อหน่วยงาน', dataIndex: 'unit_name', key: 'unit_name', width: 250, ellipsis: true, onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }), onCell: getBasicCellProps }] : []),
             ...(isShow('line_of_work') ? [{ title: 'สายงาน', dataIndex: 'line_of_work', key: 'line_of_work', width: 100, align: 'center' as const, onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }), onCell: getBasicCellProps }] : []),
             ...(isShow('level') ? [{ title: 'ระดับ', dataIndex: 'level', key: 'level', width: 80, align: 'center' as const, onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }), onCell: getBasicCellProps }] : []),
             ...(isShow('business_unit') ? [{ title: 'หน่วยธุรกิจ', dataIndex: 'business_unit', key: 'business_unit', width: 120, onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }), onCell: getBasicCellProps }] : []),
@@ -1274,7 +1274,8 @@ export default function Report4Page() {
             }] : []),
 
             ...(isShow('contact_out') ? [{
-                title: 'Contact Out', dataIndex: 'contact_out', key: 'contact_out', width: 90, align: 'center' as const,
+                title: <div className="w-full text-center leading-tight">Contact Out<br />สัญญาใหญ่</div>,
+                dataIndex: 'contact_out', key: 'contact_out', width: 120, align: 'center' as const,
                 onHeaderCell: () => ({ className: 'bg-purple-200! text-purple-900 font-bold' }), render: renderNumber,
                 onCell: (record: Report4DataType) => getColoredCellProps(record, 'bg-purple-100!')
             }] : []),
@@ -1286,15 +1287,16 @@ export default function Report4Page() {
             }] : []),
 
             ...(isShow('remark') ? [{
-                title: 'หมายเหตุ', dataIndex: 'remark', key: 'remark', width: 200, ellipsis: true,
-                onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }),
-                render: (t: string) => <span className="text-xs">{t}</span>,
+                title: <div className="w-full text-center">หมายเหตุ</div>, dataIndex: 'remark', key: 'remark', width: 200, ellipsis: true,
+                onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold !text-center' }),
+                render: (t: string) => <span className="text-[10px] leading-4 whitespace-pre-wrap">{t}</span>,
                 onCell: getBasicCellProps
             }] : []),
 
             ...(isShow('log') ? [{
-                title: 'Log', dataIndex: 'log', key: 'log', width: 100, ellipsis: true,
-                onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }),
+                title: <div className="w-full text-center">Log</div>, dataIndex: 'log', key: 'log', width: 120, ellipsis: true,
+                onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold !text-center' }),
+                render: (t: string) => <span className="text-[10px] leading-4 whitespace-pre-wrap">{t}</span>,
                 onCell: getBasicCellProps
             }] : []),
         ];

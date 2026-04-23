@@ -19,6 +19,8 @@ interface SearchFormValues {
 
 interface Report10SummaryApiRow {
     key?: unknown;
+    level_code?: unknown;
+    LevelCode?: unknown;
     position?: unknown;
     n1?: unknown;
     n2?: unknown;
@@ -46,6 +48,10 @@ type Report10LevelGroup = '010' | '020_030' | '040' | '050' | 'OTHER';
 interface Report10DetailApiRow {
     key?: unknown;
     level_group?: unknown;
+    level_group_no?: unknown;
+    LevelGroupNo?: unknown;
+    level_code?: unknown;
+    LevelCode?: unknown;
     level_name?: unknown;
     position_name?: unknown;
     position_short_name?: unknown;
@@ -87,6 +93,7 @@ interface UserContext {
 
 interface Report10SummaryDataType {
     key: string;
+    levelCode: string;
     position: string;
     struct_frame: number;
     struct_emp: number;
@@ -181,12 +188,34 @@ const readJsonSafely = async <T,>(response: Response): Promise<T | null> => {
     }
 };
 
-const REPORT10_LEVEL_ORDER = [
-    'ปธบ./กผญ.',
-    'ประธานเจ้าหน้าที่/รองกรรมการผู้จัดการใหญ่',
-    'ผู้ช่วยกรรมการผู้จัดการใหญ่',
-    'ผู้จัดการฝ่าย',
-];
+const REPORT10_LEVEL_ORDER = ['1007', '1006', '1005', '1004'];
+
+const REPORT10_LEVEL_NAME_BY_CODE: Record<string, string> = {
+    '1007': 'ปธบ./กผญ.',
+    '1006': 'ประธานเจ้าหน้าที่/รองกรรมการผู้จัดการใหญ่',
+    '1005': 'ผู้ช่วยกรรมการผู้จัดการใหญ่',
+    '1004': 'ผู้จัดการฝ่าย',
+};
+
+const resolveReport10LevelName = (rawLevelCode: unknown, fallbackLevelName: string): string => {
+    const normalizedLevelCode = toText(rawLevelCode).replace(/\D/g, '');
+    return REPORT10_LEVEL_NAME_BY_CODE[normalizedLevelCode] || fallbackLevelName;
+};
+
+const getReport10SummarySortRank = (levelCode: string, position: string): number => {
+    const normalizedLevelCode = toText(levelCode).replace(/\D/g, '');
+    if (normalizedLevelCode === '1007') return 1;
+    if (normalizedLevelCode === '1006') return 2;
+    if (normalizedLevelCode === '1005') return 3;
+    if (normalizedLevelCode === '1004') return 4;
+
+    const normalizedPosition = toText(position).replace(/\s+/g, '');
+    if (normalizedPosition.includes('ปธบ') || normalizedPosition.includes('กผญ')) return 1;
+    if (normalizedPosition.includes('รองกรรมการผู้จัดการใหญ่') || normalizedPosition.includes('ประธานเจ้าหน้าที่')) return 2;
+    if (normalizedPosition.includes('ผู้ช่วยกรรมการผู้จัดการใหญ่')) return 3;
+    if (normalizedPosition.includes('ผู้จัดการฝ่าย')) return 4;
+    return 99;
+};
 
 const mapLevelGroup = (levelName: string): Report10LevelGroup => {
     if (levelName.includes('ปธบ') || levelName.includes('กผญ')) return '010';
@@ -196,12 +225,12 @@ const mapLevelGroup = (levelName: string): Report10LevelGroup => {
     return 'OTHER';
 };
 
-const mapLevelGroupByLevelNo = (rawLevelNo: unknown, fallbackLevelName: string): Report10LevelGroup => {
-    const levelNo = toText(rawLevelNo).replace(/\D/g, '');
-    if (levelNo === '010') return '010';
-    if (levelNo === '020' || levelNo === '030') return '020_030';
-    if (levelNo === '040') return '040';
-    if (levelNo === '050') return '050';
+const mapLevelGroupByLevelCode = (rawLevelCode: unknown, fallbackLevelName: string): Report10LevelGroup => {
+    const levelCode = toText(rawLevelCode).replace(/\D/g, '');
+    if (levelCode === '1007' || levelCode === '010') return '010';
+    if (levelCode === '1006' || levelCode === '020' || levelCode === '030') return '020_030';
+    if (levelCode === '1005' || levelCode === '040') return '040';
+    if (levelCode === '1004' || levelCode === '050') return '050';
     return mapLevelGroup(fallbackLevelName);
 };
 
@@ -242,7 +271,11 @@ const mapSpecificRate = (rawSpecificRate: unknown, rawSpecFlag: unknown): string
 const transformSummaryRows = (rows: Report10SummaryApiRow[]): Report10SummaryDataType[] => {
     const transformed = rows.map((row, index) => ({
         key: toText(row.key) || `r10-${index + 1}`,
-        position: toText(row.position) || toText(row['ตำแหน่ง']),
+        levelCode: toText(row.level_code) || toText(row.LevelCode),
+        position:
+            toText(row.position) ||
+            toText(row['ตำแหน่ง']) ||
+            resolveReport10LevelName(row.level_code ?? row.LevelCode, ''),
         struct_frame: toNumber(row.n1),
         struct_emp: toNumber(row.n2),
         struct_vac: toNumber(row.n3),
@@ -258,13 +291,14 @@ const transformSummaryRows = (rows: Report10SummaryApiRow[]): Report10SummaryDat
     }));
 
     return transformed.sort((a, b) => {
-        const idxA = REPORT10_LEVEL_ORDER.indexOf(a.position);
-        const idxB = REPORT10_LEVEL_ORDER.indexOf(b.position);
+        const rankA = getReport10SummarySortRank(a.levelCode, a.position);
+        const rankB = getReport10SummarySortRank(b.levelCode, b.position);
+        if (rankA !== rankB) return rankA - rankB;
 
-        if (idxA === -1 && idxB === -1) return a.position.localeCompare(b.position, 'th');
-        if (idxA === -1) return 1;
-        if (idxB === -1) return -1;
-        return idxA - idxB;
+        const idxA = REPORT10_LEVEL_ORDER.indexOf(a.levelCode);
+        const idxB = REPORT10_LEVEL_ORDER.indexOf(b.levelCode);
+        if (idxA !== idxB) return idxA - idxB;
+        return a.position.localeCompare(b.position, 'th');
     });
 };
 
@@ -279,10 +313,18 @@ const transformDetailRows = (rows: Report10DetailApiRow[]): Report10DetailDataTy
 
     return rows
         .map((row, index) => {
-            const unitLevelNo = toText(row.unit_level_no) || toText(row.UnitLevelNo);
-            const levelName = toText(row.level_name) || toText(row.LevelName) || toText(row.unit_level_name) || toText(row.UnitLevelName);
+            const levelCode =
+                toText(row.level_group_no) ||
+                toText(row.LevelGroupNo) ||
+                toText(row.level_code) ||
+                toText(row.LevelCode) ||
+                toText(row.unit_level_no) ||
+                toText(row.UnitLevelNo);
+            const levelNameFallback =
+                toText(row.level_name) || toText(row.LevelName) || toText(row.unit_level_name) || toText(row.UnitLevelName);
+            const levelName = resolveReport10LevelName(levelCode, levelNameFallback);
             const levelGroupRaw = toText(row.level_group) as Report10LevelGroup;
-            const levelGroup = levelGroupRaw || mapLevelGroupByLevelNo(unitLevelNo, levelName);
+            const levelGroup = levelGroupRaw || mapLevelGroupByLevelCode(levelCode, levelName);
             const orgType = toNumber(row.org_type ?? row.OrgType);
             const poolRsFlag = toNumber(row.pool_rs_flag ?? row.PoolRSFlag);
             const employeeId = toText(row.employee_id) || toText(row.EmployeeID);
@@ -294,10 +336,10 @@ const transformDetailRows = (rows: Report10DetailApiRow[]): Report10DetailDataTy
                 employeeId,
                 name: employeeId ? (toText(row.full_name) || toText(row.FULLNAMETH) || 'ไม่มีชื่อ') : 'ว่าง',
                 positionNameFull: toText(row.position_name) || toText(row.POSNAME) || '-',
-                positionNameShort: toText(row.position_short_name) || toText(row.UnitLevelName) || '-',
+                positionNameShort: toText(row.position_short_name) || levelName || '-',
                 unitName: toText(row.unit_name) || toText(row.UnitName) || '-',
                 parentUnitName: toText(row.parent_unit_name) || toText(row.ParentUnitName) || '-',
-                unitLevelNo: unitLevelNo || '-',
+                unitLevelNo: levelCode || '-',
                 jg: toText(row.jg) || toText(row.job_band) || toText(row.JobBand) || '-',
                 positionId: toText(row.position_id) || toText(row.POSCODE) || toText(row.PositionID) || '-',
                 frameType: mapFrameType(row.frame_type, row.org_type ?? row.OrgType, row.pool_rs_flag ?? row.PoolRSFlag),

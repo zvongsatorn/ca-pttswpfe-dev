@@ -14,6 +14,7 @@ import {
   Hash,
   Check,
   X,
+  Loader2,
   ArrowRight,
   File as FileIcon,
 } from 'lucide-react';
@@ -58,10 +59,12 @@ const getServerYearsSnapshot = () => {
 // 1. TYPES DEFINITION
 // ============================================================================
 
+type TypeColorKey = 'purple' | 'indigo' | 'pink' | 'cyan' | 'orange' | 'gray' | 'blue';
+
 interface TransactionDetail {
   id: string;
   typeLabel: string;
-  typeCategory: 'transfer' | 'other' | 'add' | 'adjust';
+  typeCategory: TypeColorKey;
   description: string;
   remark: string;
   hasFile: boolean;
@@ -84,6 +87,8 @@ interface TransactionProgressItem {
   id: string;            // DocumentNo
   inboxNumber: string;   
   hasRejectedItem: boolean;
+  hasDocumentRejected?: boolean;
+  hasTransactionRejected?: boolean;
   allRejected?: boolean;
   effectiveDate: string;
   category: string;      
@@ -91,7 +96,7 @@ interface TransactionProgressItem {
   statusLabel: string;   
   processStage: 1 | 2 | 3;
   createdDate: string;
-  typeCategory: string; 
+  typeCategory: TypeColorKey; 
   businessUnitId: string;
   businessUnitName: string;
   divisionId: string;
@@ -318,6 +323,7 @@ export default function TransactionProgressPage() {
   // -- Data State --
   const [transactions, setTransactions] = useState<TransactionProgressItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [expandedResolutionRows, setExpandedResolutionRows] = useState<Set<string>>(new Set());
   const [selectedHeaderGroupNo, setSelectedHeaderGroupNo] = useState('');
   const [selectedHeaderGroupRole, setSelectedHeaderGroupRole] = useState('');
 
@@ -360,7 +366,31 @@ export default function TransactionProgressPage() {
     const suffix = log.UnitSide === 'UnitReceive' ? ' (ฝั่งรับ)' : log.UnitSide === 'UnitTransfer' ? ' (ฝั่งให้)' : '';
     return baseName + suffix;
   };
-  const cleanUnitText = (text: string) => text.replace(/^[A-Za-z0-9_-]+\s+/, '').trim();
+  const buildCodeNameLabel = (code: unknown, name: unknown) => {
+    const codeText = String(code ?? '').trim();
+    const nameText = String(name ?? '').trim();
+    if (codeText && nameText) {
+      const normalizedCode = codeText.toLowerCase();
+      const normalizedName = nameText.toLowerCase();
+      if (normalizedName === normalizedCode || normalizedName.startsWith(`${normalizedCode} `)) {
+        return nameText;
+      }
+      return `${codeText} ${nameText}`;
+    }
+    return nameText || codeText;
+  };
+  const buildNameOnlyLabel = (code: unknown, name: unknown) => {
+    const codeText = String(code ?? '').trim();
+    const nameText = String(name ?? '').trim();
+    if (!nameText) return codeText;
+    if (!codeText) return nameText;
+    const normalizedCode = codeText.toLowerCase();
+    const normalizedName = nameText.toLowerCase();
+    if (normalizedName.startsWith(`${normalizedCode} `)) {
+      return nameText.slice(codeText.length).trim();
+    }
+    return nameText;
+  };
   const uniqueOptions = (options: FilterOption[]) => {
     const map = new Map<string, FilterOption>();
     options.forEach((opt) => {
@@ -389,7 +419,7 @@ export default function TransactionProgressPage() {
     return uniqueOptions(
       transactions.map((row) => {
         const value = normalizeOptionValue(row.businessUnitId, row.businessUnitName);
-        const label = normalizeOptionValue(row.businessUnitName, row.businessUnitId);
+        const label = buildNameOnlyLabel(row.businessUnitId, row.businessUnitName);
         return value && label ? { value, label } : null;
       }).filter((item): item is FilterOption => item !== null)
     );
@@ -401,7 +431,7 @@ export default function TransactionProgressPage() {
         .filter((row) => matchesSelected(selectedBusinessUnits, row.businessUnitId, row.businessUnitName))
         .map((row) => {
           const value = normalizeOptionValue(row.divisionId, row.divisionName);
-          const label = normalizeOptionValue(row.divisionName, row.divisionId);
+          const label = buildCodeNameLabel(row.divisionId, row.divisionName);
           return value && label ? { value, label } : null;
         })
         .filter((item): item is FilterOption => item !== null)
@@ -415,7 +445,7 @@ export default function TransactionProgressPage() {
         .filter((row) => matchesSelected(selectedDivisions, row.divisionId, row.divisionName))
         .map((row) => {
           const value = normalizeOptionValue(row.agencyId, row.agencyName);
-          const label = normalizeOptionValue(row.agencyName, row.agencyId);
+          const label = buildCodeNameLabel(row.agencyId, row.agencyName);
           return value && label ? { value, label } : null;
         })
         .filter((item): item is FilterOption => item !== null)
@@ -447,12 +477,52 @@ export default function TransactionProgressPage() {
           ? 'ปรับระดับ'
           : transactionType === 4
             ? 'เพิ่ม/ลด'
+            : transactionType === 5
+              ? 'บันทึก'
             : transactionType === 6
               ? 'ยืม'
               : transactionType === 7
                 ? 'คืนยืม'
                 : ''
   );
+  const getTypeColorByTransactionType = (transactionType: number): TypeColorKey => {
+    switch (transactionType) {
+      case 1:
+        return 'purple';
+      case 2:
+        return 'indigo';
+      case 3:
+        return 'pink';
+      case 4:
+        return 'cyan';
+      case 5:
+        return 'gray';
+      case 6:
+        return 'orange';
+      case 7:
+        return 'blue';
+      default:
+        return 'blue';
+    }
+  };
+  const getTypeColorByLabel = (label: string): TypeColorKey => {
+    const text = String(label || '').trim();
+    if (text === 'ภายใต้ผู้ช่วย') return 'purple';
+    if (text === 'โอนกรอบอื่นๆ') return 'indigo';
+    if (text === 'ปรับสัดส่วน') return 'pink';
+    if (text === 'เพิ่ม/ลด') return 'cyan';
+    if (text === 'ยืม') return 'orange';
+    if (text === 'คืนยืม') return 'blue';
+    if (text === 'บันทึก') return 'gray';
+    if (text === 'อื่นๆ') return 'gray';
+    if (text === 'บันทึก Remark หน่วยงาน') return 'gray';
+    return 'blue';
+  };
+  const normalizeCategoryLabel = (label: string) => {
+    const text = String(label || '').trim();
+    if (text === 'อื่นๆ') return 'บันทึก';
+    return text;
+  };
   const dedupeDocumentItems = (items: APIDocumentItem[]) => {
     const map = new Map<string, APIDocumentItem>();
 
@@ -524,66 +594,69 @@ export default function TransactionProgressPage() {
     try {
       const { employeeId } = getUserContext();
       const mapDocuments = (docs: APIDocumentSummary[]) => {
-        return docs.map((doc) => ({
-          ...(() => {
-            const dedupedItems = dedupeDocumentItems(Array.isArray(doc.items) ? doc.items : []);
-            
-            const rejectedItemsCount = dedupedItems.filter((i) => String(i.RejectionReason || '').trim().length > 0).length;
-            const allRejected = isRejectedStatus(doc.statusLabel) || (dedupedItems.length > 0 && rejectedItemsCount === dedupedItems.length);
-            const hasRejected = rejectedItemsCount > 0 || (Array.isArray(doc.logs) ? doc.logs.some((l) => Number(l.AuditStatus) === -1) : false) || allRejected;
+        return docs.map((doc) => {
+          const dedupedItems = dedupeDocumentItems(Array.isArray(doc.items) ? doc.items : []);
+          const rejectedItemsCount = dedupedItems.filter((i) => String(i.RejectionReason || '').trim().length > 0).length;
+          const hasDocumentRejected = isRejectedStatus(doc.statusLabel);
+          const hasTransactionRejected = rejectedItemsCount > 0;
+          const allRejected = hasDocumentRejected || (dedupedItems.length > 0 && rejectedItemsCount === dedupedItems.length);
+          const hasRejected = hasTransactionRejected || (Array.isArray(doc.logs) ? doc.logs.some((l) => Number(l.AuditStatus) === -1) : false) || allRejected;
 
-            return {
-              hasRejectedItem: hasRejected,
-              allRejected: allRejected,
-              items: dedupedItems.map((i) => ({
-                id: i.ItemID,
-                typeLabel: getTypeLabelByTransactionType(i.TransactionType),
-                typeCategory: (i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer') as 'transfer' | 'other' | 'add' | 'adjust',
-                description: i.TransactionDesc || '',
-                remark: i.ReqRemark || '-',
-                hasFile: Number(i.FileCount || 0) > 0,
-                fileUrl: i.FileUrl,
-                rejectionReason: i.RejectionReason,
-              })),
-            };
-          })(),
-          id: doc.documentNo,
-          inboxNumber: `[${doc.documentNo}]`,
-          effectiveDate: String(doc.effectiveDate || doc.createDate || ''),
-          category: doc.category,
-          resolution: doc.resolution,
-          statusLabel: doc.statusLabel,
-          processStage: doc.processStage as 1 | 2 | 3,
-          createdDate: dayjs(doc.createDate).format('DD/MM/BBBB'),
-          typeCategory: doc.typeCategory,
-          businessUnitId: normalizeOptionValue(doc.businessUnitId, doc.businessUnitName),
-          businessUnitName: normalizeOptionValue(doc.businessUnitName, doc.businessUnitId),
-          divisionId: normalizeOptionValue(doc.divisionId, doc.divisionName),
-          divisionName: normalizeOptionValue(doc.divisionName, doc.divisionId),
-          agencyId: normalizeOptionValue(doc.agencyId, doc.agencyName),
-          agencyName: normalizeOptionValue(doc.agencyName, doc.agencyId),
-          logs: [
-            ...doc.logs.map((l) => ({
-              action: l.Seqno === 0 ? 'สร้าง' : l.AuditStatus === 2 ? 'อนุมัติ' : l.AuditStatus === 1 ? 'รออนุมัติ' : l.AuditStatus === -1 ? 'ไม่อนุมัติ' : 'รอดำเนินการ',
-              timestamp: l.AuditDate ? dayjs(l.AuditDate).format('DD/MM/BBBB HH:mm') : '',
-              user: `${l.EmployeeID} ${l.Fullname}`,
-              role: (() => {
-                if (l.Seqno === 0) return l.UserGroupName || 'ผู้สร้างรายการ';
-                const baseName = l.UserGroupName || l.UserGroupNo || '';
-                const suffix = l.UnitSide === 'UnitReceive' ? ' (ฝั่งรับ)' : l.UnitSide === 'UnitTransfer' ? ' (ฝั่งให้)' : '';
-                return baseName + suffix;
-              })(),
-              status: (l.AuditStatus === 2 ? 'completed' : l.AuditStatus === 1 ? 'current' : 'pending') as 'completed' | 'current' | 'pending',
+          return {
+            hasRejectedItem: hasRejected,
+            hasDocumentRejected,
+            hasTransactionRejected,
+            allRejected,
+            items: dedupedItems.map((i) => ({
+              id: i.ItemID,
+              typeLabel: getTypeLabelByTransactionType(i.TransactionType),
+              typeCategory: getTypeColorByTransactionType(i.TransactionType),
+              description: i.TransactionDesc || '',
+              remark: i.ReqRemark || '-',
+              hasFile: Number(i.FileCount || 0) > 0,
+              fileUrl: i.FileUrl,
+              rejectionReason: i.RejectionReason,
             })),
-            {
-              action: 'เอกสารสมบูรณ์',
-              timestamp: '',
-              user: '-',
-              role: 'System',
-              status: (doc.processStage === 3 ? 'success' : 'pending') as 'success' | 'pending',
-            }
-          ],
-        }));
+            id: doc.documentNo,
+            inboxNumber: `[${doc.documentNo}]`,
+            effectiveDate: String(doc.effectiveDate || doc.createDate || ''),
+            category: normalizeCategoryLabel(doc.category),
+            resolution: doc.resolution,
+            statusLabel: doc.statusLabel,
+            processStage: doc.processStage as 1 | 2 | 3,
+            createdDate: dayjs(doc.createDate).format('DD/MM/BBBB'),
+            typeCategory: dedupedItems.length > 0
+              ? getTypeColorByTransactionType(dedupedItems[0].TransactionType)
+              : getTypeColorByLabel(doc.category || doc.typeCategory),
+            businessUnitId: normalizeOptionValue(doc.businessUnitId, doc.businessUnitName),
+            businessUnitName: normalizeOptionValue(doc.businessUnitName, doc.businessUnitId),
+            divisionId: normalizeOptionValue(doc.divisionId, doc.divisionName),
+            divisionName: normalizeOptionValue(doc.divisionName, doc.divisionId),
+            agencyId: normalizeOptionValue(doc.agencyId, doc.agencyName),
+            agencyName: normalizeOptionValue(doc.agencyName, doc.agencyId),
+            logs: [
+              ...doc.logs.map((l) => ({
+                action: l.Seqno === 0 ? 'สร้าง' : l.AuditStatus === 2 ? 'อนุมัติ' : l.AuditStatus === 1 ? 'รออนุมัติ' : l.AuditStatus === -1 ? 'ไม่อนุมัติ' : 'รอดำเนินการ',
+                timestamp: l.AuditDate ? dayjs(l.AuditDate).format('DD/MM/BBBB HH:mm') : '',
+                user: `${l.EmployeeID} ${l.Fullname}`,
+                role: (() => {
+                  if (l.Seqno === 0) return l.UserGroupName || 'ผู้สร้างรายการ';
+                  const baseName = l.UserGroupName || l.UserGroupNo || '';
+                  const suffix = l.UnitSide === 'UnitReceive' ? ' (ฝั่งรับ)' : l.UnitSide === 'UnitTransfer' ? ' (ฝั่งให้)' : '';
+                  return baseName + suffix;
+                })(),
+                status: (l.AuditStatus === 2 ? 'completed' : l.AuditStatus === 1 ? 'current' : 'pending') as 'completed' | 'current' | 'pending',
+              })),
+              {
+                action: 'เอกสารสมบูรณ์',
+                timestamp: '',
+                user: '-',
+                role: 'System',
+                status: (doc.processStage === 3 ? 'success' : 'pending') as 'success' | 'pending',
+              }
+            ],
+          };
+        });
       };
 
       const fetchDocs = async (path: string): Promise<APIDocumentSummary[] | null> => {
@@ -695,12 +768,16 @@ export default function TransactionProgressPage() {
   // 3. HELPERS & HANDLERS
   // ============================================================================
 
-  const getTypeBadgeColor = (category: string) => {
-    switch (category) {
-      case 'transfer': return 'bg-purple-100 text-purple-700 border-purple-200'; 
-      case 'add': return 'bg-cyan-100 text-cyan-700 border-cyan-200';       
-      case 'adjust': return 'bg-pink-100 text-pink-700 border-pink-200';     
-      default: return 'bg-gray-100 text-gray-700';
+  const getTypeBadgeColor = (category: TypeColorKey | string) => {
+    switch (category as TypeColorKey) {
+      case 'purple': return 'bg-purple-100 text-purple-700 border-purple-300';
+      case 'indigo': return 'bg-indigo-100 text-indigo-700 border-indigo-300';
+      case 'pink': return 'bg-pink-100 text-pink-700 border-pink-300';
+      case 'cyan': return 'bg-cyan-100 text-cyan-700 border-cyan-300';
+      case 'orange': return 'bg-orange-100 text-orange-700 border-orange-300';
+      case 'gray': return 'bg-gray-100 text-gray-700 border-gray-300';
+      case 'blue': return 'bg-blue-100 text-blue-700 border-blue-300';
+      default: return 'bg-blue-100 text-blue-700 border-blue-300';
     }
   };
   const getStatusBadgeColor = (item: Pick<TransactionProgressItem, 'statusLabel' | 'processStage' | 'hasRejectedItem'>) => {
@@ -715,23 +792,37 @@ export default function TransactionProgressPage() {
   const canRejectItem = (item: Pick<TransactionProgressItem, 'statusLabel' | 'allRejected'>) =>
     canRejectBySelectedGroup && !item.allRejected && !isRejectedStatus(item.statusLabel);
   const getTypeSummary = (row: TransactionProgressItem) => {
-    const byLabel = new Map<string, string>();
+    const byLabel = new Map<string, TypeColorKey | string>();
     row.items.forEach((item) => {
       const label = String(item.typeLabel || '').trim();
       if (!label || byLabel.has(label)) return;
-      byLabel.set(label, item.typeCategory || 'other');
+      byLabel.set(label, item.typeCategory || 'blue');
     });
     if (byLabel.size === 0 && row.category) {
-      byLabel.set(row.category, row.typeCategory || 'other');
+      byLabel.set(row.category, row.typeCategory || 'blue');
     }
     return Array.from(byLabel.entries()).map(([label, category]) => ({ label, category }));
   };
   const getResolutionSummary = (row: TransactionProgressItem) => {
     const lines = row.items
-      .map((item) => `[${item.id}] ${String(item.description || '').trim()}`)
-      .filter((line) => line !== '[]');
-    if (lines.length === 0 && row.resolution) return [row.resolution];
+      .map((item) => ({
+        text: `[${item.id}] ${String(item.description || '').trim()}`.trim(),
+        isRejected: !row.hasDocumentRejected && String(item.rejectionReason || '').trim().length > 0,
+      }))
+      .filter((line) => line.text !== '[]');
+    if (lines.length === 0 && row.resolution) return [{ text: row.resolution, isRejected: false }];
     return lines;
+  };
+  const toggleResolutionExpand = (documentId: string) => {
+    setExpandedResolutionRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(documentId)) {
+        next.delete(documentId);
+      } else {
+        next.add(documentId);
+      }
+      return next;
+    });
   };
   const fetchRejectableItemOptions = async (documentNo: string): Promise<RejectableItemOption[]> => {
     const employeeId = getEmployeeId();
@@ -865,7 +956,7 @@ export default function TransactionProgressPage() {
             })(),
             id: i.ItemID,
             typeLabel: getTypeLabelByTransactionType(i.TransactionType),
-            typeCategory: i.TransactionType === 4 ? 'add' : i.TransactionType === 3 ? 'adjust' : 'transfer',
+            typeCategory: getTypeColorByTransactionType(i.TransactionType),
             description: i.TransactionDesc || '',
             remark: i.ReqRemark || '-',
             hasFile: Number(i.FileCount || 0) > 0,
@@ -1048,7 +1139,7 @@ export default function TransactionProgressPage() {
     if (filterCat) {
       const hasMatchedCategory =
         item.items.some((detail) => String(detail.typeLabel || '').trim() === filterCat) ||
-        String(item.category || '').trim() === filterCat;
+        normalizeCategoryLabel(item.category) === filterCat;
       if (!hasMatchedCategory) return false;
     }
     if (filterRes) {
@@ -1140,6 +1231,7 @@ export default function TransactionProgressPage() {
                   values={selectedBusinessUnits}
                   options={businessUnitOptions}
                   placeholder="เลือกหน่วยธุรกิจ..."
+                  widthClass="w-[22rem] max-w-[calc(100vw-2rem)]"
                   onChange={(nextValues) => {
                     setSelectedBusinessUnits(nextValues);
                     setSelectedDivisions([]);
@@ -1155,6 +1247,7 @@ export default function TransactionProgressPage() {
                   values={selectedDivisions}
                   options={lineOfWorkOptions}
                   placeholder="เลือกสายงาน..."
+                  widthClass="w-[22rem] max-w-[calc(100vw-2rem)]"
                   onChange={(nextValues) => {
                     setSelectedDivisions(nextValues);
                     setSelectedAgencies([]);
@@ -1169,6 +1262,7 @@ export default function TransactionProgressPage() {
                   values={selectedAgencies}
                   options={orgUnitOptions}
                   placeholder="เลือกหน่วยงาน..."
+                  widthClass="w-[22rem] max-w-[calc(100vw-2rem)]"
                   onChange={(nextValues) => setSelectedAgencies(nextValues)}
                 />
             </div>
@@ -1205,7 +1299,9 @@ export default function TransactionProgressPage() {
                           <option value="โอนกรอบอื่นๆ">โอนกรอบอื่นๆ</option>
                           <option value="ปรับสัดส่วน">ปรับสัดส่วน</option>
                           <option value="เพิ่ม/ลด">เพิ่ม/ลด</option>
+                          <option value="บันทึก">บันทึก</option>
                           <option value="ยืม">ยืม</option>
+                          <option value="คืนยืม">คืนยืม</option>
                         </select>
                     </th>
                     <th className="px-4 py-2 border-b border-gray-200 font-normal">
@@ -1226,43 +1322,48 @@ export default function TransactionProgressPage() {
                 
                 <tbody>
                   {isLoading ? (
-                    <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">กำลังโหลดข้อมูล...</td></tr>
+                    <tr>
+                      <td colSpan={5} className="px-4 py-14">
+                        <div className="mx-auto max-w-md rounded-lg border border-blue-100 bg-blue-50/70 p-5 text-center shadow-sm">
+                          <div className="mb-2 flex items-center justify-center">
+                            <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                          </div>
+                          <div className="text-base font-semibold text-blue-900">กำลังโหลดข้อมูล</div>
+                          <div className="mt-1 text-sm text-blue-700">กรุณารอสักครู่ ระบบกำลังประมวลผล...</div>
+                        </div>
+                      </td>
+                    </tr>
                   ) : paginatedTransactions.length === 0 ? (
                     <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">ไม่มีรายการ</td></tr>
                   ) : paginatedTransactions.map((item, index) => (
                     <tr key={item.id} className={`border-b border-gray-100 hover:bg-blue-50/30 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
                       {/* Inbox No. (Clickable) */}
                       <td className="px-4 py-4 text-sm font-medium align-top">
-                         <button
-                           onClick={() => handleOpenView(item)}
-                           className={`hover:underline font-mono whitespace-nowrap flex items-center gap-1 ${
-                             item.hasRejectedItem
-                               ? 'text-red-600 hover:text-red-800'
-                               : 'text-blue-600 hover:text-blue-800'
-                           }`}
-                         >
-                            <Hash className="w-3 h-3" />{item.inboxNumber}
-                        </button>
+                        <div className="flex flex-col items-start gap-1">
+                          <button
+                            onClick={() => handleOpenView(item)}
+                            className={`hover:underline font-mono whitespace-nowrap flex items-center gap-1 ${
+                              item.hasDocumentRejected ? 'text-red-600 hover:text-red-800' : 'text-blue-600 hover:text-blue-800'
+                            }`}
+                          >
+                              <Hash className="w-3 h-3" />{item.inboxNumber}
+                          </button>
+                        </div>
                       </td>
                       <td className="px-4 py-4 text-sm text-gray-900 font-medium align-top">
                         {(() => {
                           const typeSummary = getTypeSummary(item);
                           return (
                             <div className="flex flex-wrap gap-1.5">
-                              {typeSummary.slice(0, 2).map((type) => (
+                              {typeSummary.map((type) => (
                                 <span
                                   key={`${item.id}-${type.label}`}
-                                  className={`inline-block px-2 py-1 rounded text-xs font-bold border ${getTypeBadgeColor(type.category)}`}
+                                  className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium border ${getTypeBadgeColor(type.category)}`}
                                   title={type.label}
                                 >
                                   {type.label}
                                 </span>
                               ))}
-                              {typeSummary.length > 2 && (
-                                <span className="inline-block px-2 py-1 rounded text-xs font-bold border bg-gray-100 text-gray-700 border-gray-200">
-                                  +{typeSummary.length - 2}
-                                </span>
-                              )}
                             </div>
                           );
                         })()}
@@ -1270,13 +1371,39 @@ export default function TransactionProgressPage() {
                       <td className="px-4 py-4 text-sm text-gray-600 align-top leading-relaxed">
                         {(() => {
                           const resolutionSummary = getResolutionSummary(item);
+                          const isExpanded = expandedResolutionRows.has(item.id);
+                          const previewLines = resolutionSummary.slice(0, 1);
+                          const extraLines = resolutionSummary.slice(1);
                           return (
                             <div className="space-y-1">
-                              {resolutionSummary.slice(0, 2).map((line, lineIndex) => (
-                                <div key={`${item.id}-res-${lineIndex}`} className="leading-relaxed">{line}</div>
+                              {previewLines.map((line, lineIndex) => (
+                                <div
+                                  key={`${item.id}-res-${lineIndex}`}
+                                  className={`leading-relaxed ${line.isRejected ? 'text-red-600 font-medium' : ''}`}
+                                >
+                                  {line.text}
+                                </div>
                               ))}
-                              {resolutionSummary.length > 2 && (
-                                <div className="text-xs text-gray-400">+ อีก {resolutionSummary.length - 2} รายการ</div>
+                              {isExpanded && extraLines.length > 0 && (
+                                <div className="space-y-0.5">
+                                  {extraLines.map((line, lineIndex) => (
+                                    <div
+                                      key={`${item.id}-res-extra-${lineIndex}`}
+                                      className={`text-[11px] leading-snug ${line.isRejected ? 'text-red-500' : 'text-gray-500'}`}
+                                    >
+                                      {line.text}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {extraLines.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleResolutionExpand(item.id)}
+                                  className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 hover:text-blue-800"
+                                >
+                                  {isExpanded ? 'ซ่อนรายการเพิ่มเติม' : `+ อีก ${extraLines.length} รายการ`}
+                                </button>
                               )}
                             </div>
                           );
@@ -1445,7 +1572,15 @@ export default function TransactionProgressPage() {
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
                 
                 {viewLoading ? (
-                  <div className="flex items-center justify-center py-12 text-gray-400">กำลังโหลดข้อมูล...</div>
+                  <div className="py-14">
+                    <div className="mx-auto max-w-md rounded-lg border border-blue-100 bg-blue-50/70 p-5 text-center shadow-sm">
+                      <div className="mb-2 flex items-center justify-center">
+                        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                      </div>
+                      <div className="text-base font-semibold text-blue-900">กำลังโหลดข้อมูล</div>
+                      <div className="mt-1 text-sm text-blue-700">กำลังดึงรายละเอียดเอกสาร กรุณารอสักครู่</div>
+                    </div>
+                  </div>
                 ) : (
                   <>
                     {/* Items Table */}

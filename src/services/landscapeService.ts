@@ -39,6 +39,29 @@ export interface LandscapeRecord {
     jr: number;
 }
 
+export interface LandscapeFormulaPayload {
+    formulaKey: string;
+    formulaName: string | null;
+    beginDate: string;
+    endDate: string | null;
+    formulaJson: string;
+    isActive: boolean;
+}
+
+export interface LandscapeFormulaRecord {
+    LandscapeFormulaID: number;
+    FormulaKey: string;
+    FormulaName: string | null;
+    BeginDate: string;
+    EndDate: string;
+    FormulaJson: string;
+    IsActive: boolean;
+    CreateBy?: string | null;
+    CreateDate?: string | null;
+    UpdateBy?: string | null;
+    UpdateDate?: string | null;
+}
+
 export const getLandscape = async (token?: string) => {
     return fetchWithAuth('/api/landscape', token);
 };
@@ -73,5 +96,44 @@ export const deleteLandscape = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ original, updateBy })
+    });
+};
+
+export const getLandscapeFormulas = async (token?: string) => {
+    return fetchWithAuth('/api/landscape/formula', token);
+};
+
+export const getLandscapeFormulaDefault = async (token?: string) => {
+    return fetchWithAuth('/api/landscape/formula/default', token);
+};
+
+export const createLandscapeFormula = async (
+    payload: LandscapeFormulaPayload,
+    createBy: string,
+    token?: string
+) => {
+    return fetchWithAuth('/api/landscape/formula', token, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, createBy })
+    });
+};
+
+export const updateLandscapeFormula = async (
+    formulaId: number,
+    payload: LandscapeFormulaPayload,
+    updateBy: string,
+    token?: string
+) => {
+    return fetchWithAuth(`/api/landscape/formula/${encodeURIComponent(String(formulaId))}`, token, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, updateBy })
+    });
+};
+
+export const deleteLandscapeFormula = async (formulaId: number, token?: string) => {
+    return fetchWithAuth(`/api/landscape/formula/${encodeURIComponent(String(formulaId))}`, token, {
+        method: 'DELETE'
     });
 };

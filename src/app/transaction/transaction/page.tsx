@@ -66,7 +66,7 @@ interface TransactionFormData {
   specFlag: number;
   unitReceive: string;
   remark: string;
-  lineStaffFlag: number;
+  lineStaffFlag: 1 | 2 | null;
   policyFlag: number;
   pastFlag: number;
 }
@@ -155,6 +155,12 @@ const toAdYear = (yearRaw: string): number | null => {
   const parsed = Number.parseInt(String(yearRaw || '').trim(), 10);
   if (!Number.isInteger(parsed)) return null;
   return parsed > 2400 ? parsed - 543 : parsed;
+};
+
+const normalizeLineStaffFlag = (value: unknown): 1 | 2 | null => {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  if (parsed === 1 || parsed === 2) return parsed;
+  return null;
 };
 
 const formatThaiDateTime = (date: Date): string => {
@@ -512,7 +518,7 @@ export default function TransactionPage() {
       specFlag: 0,
       unitReceive: '',
       remark: '',
-      lineStaffFlag: 0,
+      lineStaffFlag: null,
       policyFlag: isPolicy,
       pastFlag: 0,
     };
@@ -838,7 +844,7 @@ export default function TransactionPage() {
                 specFlag: item.SpecFlag || 0,
                 unitReceive: item.UnitReceive || '',
                 remark: item.Remark || '',
-                lineStaffFlag: item.LineStaffFlag || 0,
+                lineStaffFlag: normalizeLineStaffFlag(item.LineStaffFlag),
                 policyFlag: item.Policyflag || 0,
                 pastFlag: item.PastFlag || 0,
               },
@@ -1247,7 +1253,7 @@ export default function TransactionPage() {
         specFlag: 0,
         unitReceive: '',
         remark: '',
-        lineStaffFlag: 0,
+        lineStaffFlag: null,
         policyFlag: (typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04') ? 1 : 0,
         pastFlag: 0,
       });
@@ -1262,7 +1268,7 @@ export default function TransactionPage() {
         specFlag: 0,
         unitReceive: '',
         remark: '',
-        lineStaffFlag: 0,
+        lineStaffFlag: null,
         policyFlag: (typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04') ? 1 : 0,
         pastFlag: 0,
       });
@@ -1301,6 +1307,7 @@ export default function TransactionPage() {
     if (!canProceedByCalendar) return false;
     if (!activeTab) return false;
     if (!formData.effectiveMonth || !formData.effectiveYear) return false;
+    if (formData.lineStaffFlag !== 1 && formData.lineStaffFlag !== 2) return false;
 
     if (activeTab !== 5) {
       if (!formData.unitReceive) return false;
@@ -1365,7 +1372,7 @@ export default function TransactionPage() {
       const levelGroupToName = levels.find(l => l.id === detailFormData.levelGroupTo)?.name || '';
       let submitLevelGroupFrom = detailFormData.levelGroupFrom;
 
-      if (formData.transactionType !== 2) {
+      if (formData.transactionType !== 2 && formData.transactionType !== 3) {
         submitLevelGroupFrom = detailFormData.levelGroupTo;
         levelGroupFromName = levelGroupToName;
       }
@@ -1991,13 +1998,8 @@ export default function TransactionPage() {
                   </div>
 
                   <div className="mt-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Line / Staff</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Line / Staff <span className="text-red-500">*</span></label>
                     <div className="flex flex-wrap gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="lineStaffType" value={0} checked={formData.lineStaffFlag === 0}
-                          onChange={() => setFormData({ ...formData, lineStaffFlag: 0 })} className="w-4 h-4 text-blue-600" />
-                        <span className="text-sm text-gray-700">None</span>
-                      </label>
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input type="radio" name="lineStaffType" value={1} checked={formData.lineStaffFlag === 1}
                           onChange={() => setFormData({ ...formData, lineStaffFlag: 1 })} className="w-4 h-4 text-blue-600" />
@@ -2182,7 +2184,16 @@ export default function TransactionPage() {
                       <>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">จากระดับตำแหน่ง <span className="text-red-500">*</span></label>
-                          <select value={detailFormData.levelGroupFrom} onChange={(e) => setDetailFormData({ ...detailFormData, levelGroupFrom: e.target.value })}
+                          <select
+                            value={detailFormData.levelGroupFrom}
+                            onChange={(e) => {
+                              const nextLevelGroupFrom = e.target.value;
+                              setDetailFormData((prev) => ({
+                                ...prev,
+                                levelGroupFrom: nextLevelGroupFrom,
+                                levelGroupTo: prev.levelGroupTo === nextLevelGroupFrom ? '' : prev.levelGroupTo
+                              }));
+                            }}
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                             <option value="">เลือกระดับตำแหน่ง...</option>
                             {levels.map((lvl) => <option key={lvl.id} value={lvl.id}>{lvl.name}</option>)}
@@ -2193,7 +2204,9 @@ export default function TransactionPage() {
                           <select value={detailFormData.levelGroupTo} onChange={(e) => setDetailFormData({ ...detailFormData, levelGroupTo: e.target.value })}
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                             <option value="">เลือกระดับตำแหน่ง...</option>
-                            {levels.map((lvl) => <option key={lvl.id} value={lvl.id}>{lvl.name}</option>)}
+                            {levels
+                              .filter((lvl) => lvl.id !== detailFormData.levelGroupFrom)
+                              .map((lvl) => <option key={lvl.id} value={lvl.id}>{lvl.name}</option>)}
                           </select>
                         </div>
                       </>

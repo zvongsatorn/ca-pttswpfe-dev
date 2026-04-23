@@ -462,8 +462,6 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
         </CardContent>
       </Card>
 
-      {loading && <div className="text-center text-sm text-gray-500 py-4">Loading...</div>}
-
       {/* Table Section */}
       <Card className="bg-white border-0 shadow-sm">
         <CardContent className="p-0">
@@ -499,9 +497,6 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                     MKD
                     <br />
                     (อนุมัติ)
-                  </th>
-                  <th className="px-4 py-4 text-left text-sm font-semibold text-gray-700">
-                    Status
                   </th>
                   <th className="px-4 py-4 text-center text-sm font-semibold text-gray-700">
                     Detail
@@ -565,29 +560,24 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                     />
                   </th>
                   <th className="px-4 py-3"></th>
-                  <th className="px-4 py-3">
-                    <Select
-                      value={statusFilter}
-                      onValueChange={setStatusFilter}
-                    >
-                      <SelectTrigger className="bg-white h-9">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {statusOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="bg-white">
-
-                {filteredRecords.map((record) => (
+                {loading ? (
+                  <tr>
+                    <td colSpan={10} className="text-center py-8 text-sm text-gray-500">
+                      Loading...
+                    </td>
+                  </tr>
+                ) : filteredRecords.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="text-center py-8 text-sm text-gray-500">
+                      ไม่พบข้อมูล
+                    </td>
+                  </tr>
+                ) : (
+                  filteredRecords.map((record) => (
                   <tr
                     key={record.no}
                     className="border-b hover:bg-gray-50 transition-colors"
@@ -622,7 +612,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 text-xs">
                       {record.approveSteps && (
                         <div className="flex items-center gap-2">
                           <button
@@ -630,13 +620,13 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                             className="p-1 hover:bg-blue-50 rounded-full transition-colors cursor-pointer"
                             title="View Approval Flow"
                           >
-                            <User className="h-5 w-5 text-blue-500" />
+                            <User className="h-4 w-4 text-blue-500" />
                           </button>
                           <div className="space-y-1">
-                            <div className={`${record.approveSteps.status === -1 ? 'text-red-600' : 'text-green-600'} font-medium`}>
+                            <div className={`${record.approveSteps.status === -1 ? 'text-red-600' : 'text-green-600'} text-xs font-medium leading-tight`}>
                               {record.approveSteps.step}
                             </div>
-                            <div className="text-xs text-gray-500">
+                            <div className="text-[11px] text-gray-500 leading-tight">
                               {record.approveSteps.date}
                             </div>
                           </div>
@@ -661,11 +651,6 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`font-semibold text-sm ${record.statusColor}`}>
-                        {record.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-2">
                         <button
                           onClick={() => handleViewDetail(record.mkdID)}
@@ -686,12 +671,10 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
-            {filteredRecords.length === 0 && !loading && (
-                <div className="text-center py-8 text-gray-500">ไม่พบข้อมูล</div>
-            )}
           </div>
         </CardContent>
       </Card>

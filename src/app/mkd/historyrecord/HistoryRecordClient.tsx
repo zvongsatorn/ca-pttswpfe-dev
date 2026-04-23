@@ -360,7 +360,16 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredRecords.map((r, idx) => (
+                                    {loading ? (
+                                        <tr>
+                                            <td colSpan={7} className="px-4 py-12 text-center text-gray-500">Loading...</td>
+                                        </tr>
+                                    ) : filteredRecords.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={7} className="px-4 py-12 text-center text-gray-400 italic">ไม่พบข้อมูล</td>
+                                        </tr>
+                                    ) : (
+                                        filteredRecords.map((r, idx) => (
                                         <tr key={r.ManDriverID || idx} className="border-b hover:bg-slate-50 transition-colors">
                                             <td className="px-4 py-3 text-sm text-center font-medium text-gray-500">{r.no}</td>
                                             <td className="px-4 py-3 text-sm font-bold text-blue-700">{r.fullRequestNo || r.RequestNo || '-'}</td>
@@ -390,11 +399,7 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                                                 </div>
                                             </td>
                                         </tr>
-                                    ))}
-                                    {filteredRecords.length === 0 && !loading && (
-                                        <tr>
-                                            <td colSpan={7} className="px-4 py-12 text-center text-gray-400 italic">ไม่พบข้อมูล</td>
-                                        </tr>
+                                        ))
                                     )}
                                 </tbody>
                             </table>

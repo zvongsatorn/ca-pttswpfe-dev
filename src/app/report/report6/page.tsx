@@ -115,7 +115,7 @@ const levelConfigs = [
 
 const displayGroupOptions = [
     { value: 'unit_short', label: 'ชื่อย่อ' },
-    { value: 'unit_name', label: 'ชื่อเต็มหน่วยงาน' },
+    { value: 'unit_name', label: 'ชื่อหน่วยงาน' },
     { value: 'quota_normal', label: 'กรอบ ปกติ' },
     { value: 'quota_pool', label: 'กรอบ Pool' },
     { value: 'quota_sec', label: 'กรอบ Sec' },
@@ -502,8 +502,9 @@ export default function Report6Page() {
             if (!tableContainerRef.current) return;
             const rect = tableContainerRef.current.getBoundingClientRect();
             // Reserve space for app/menu header + search area + table chrome to avoid outer scrollbar.
-            const availableHeight = Math.floor(window.innerHeight - rect.top - 80);
-            setTableScrollY(Math.max(260, availableHeight));
+            const reservedBottomSpace = isFullscreen ? 90 : 110;
+            const availableHeight = Math.floor(window.innerHeight - rect.top - reservedBottomSpace);
+            setTableScrollY(Math.max(220, availableHeight));
         };
 
         const raf = window.requestAnimationFrame(updateTableHeight);
@@ -732,7 +733,7 @@ export default function Report6Page() {
                 onCell: getBasicCell
             }] : []),
             ...(metricVisibility.unit_name ? [{
-                title: 'ชื่อเต็มหน่วย',
+                title: 'ชื่อหน่วยงาน',
                 dataIndex: 'unit_name',
                 key: 'unit_name',
                 width: 320,
@@ -744,12 +745,13 @@ export default function Report6Page() {
 
         const trailing: ColumnsType<Report6DataType> = metricVisibility.remark
             ? [{
-                title: 'หมายเหตุ',
+                title: <div className="w-full text-center">หมายเหตุ</div>,
                 dataIndex: 'remark',
                 key: 'remark',
                 width: 260,
                 ellipsis: true,
-                onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }),
+                onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold !text-center' }),
+                render: (text: string) => <span className="text-[10px] leading-4 whitespace-pre-wrap">{text}</span>,
                 onCell: getBasicCell
             }]
             : [];
@@ -855,7 +857,7 @@ export default function Report6Page() {
             columnMeta.push({ kind: 'unit_short' });
         }
         if (metricVisibility.unit_name) {
-            topHeaders.push('ชื่อเต็มหน่วย');
+            topHeaders.push('ชื่อหน่วยงาน');
             subHeaders.push('');
             dataKeys.push('unit_name');
             columnMeta.push({ kind: 'unit_name' });
@@ -1009,7 +1011,12 @@ export default function Report6Page() {
 
     return (
         <Main currentPath="/report">
-            <div ref={fullscreenRef} className={`space-y-6 w-full min-w-0 ${isFullscreen ? 'bg-white p-4 overflow-auto' : ''}`}>
+            <div
+                ref={fullscreenRef}
+                className={`w-full min-w-0 ${
+                    isFullscreen ? 'h-screen overflow-hidden bg-white p-4 flex flex-col gap-4' : 'space-y-6'
+                }`}
+            >
                 {!isFullscreen && (
                     <div className="rounded-xl bg-linear-to-r from-blue-600 to-blue-400 p-4 shadow-md border border-blue-500 mb-6 text-white">
                         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
@@ -1023,7 +1030,11 @@ export default function Report6Page() {
                     </div>
                 )}
 
-                <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4 sticky top-0 z-[200]">
+                <div
+                    className={`bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4 ${
+                        isFullscreen ? 'shrink-0' : 'sticky top-0 z-[200]'
+                    }`}
+                >
                     <Form
                         form={form}
                         layout="inline"
@@ -1123,10 +1134,10 @@ export default function Report6Page() {
                 </div>
 
                 {hasSearched && (
-                    <div className="bg-white rounded-lg shadow-sm border border-gray-100 mt-4 z-0">
+                    <div className={`bg-white rounded-lg shadow-sm border border-gray-100 z-0 ${isFullscreen ? 'mt-0 flex-1 min-h-0' : 'mt-4'}`}>
                         <div
                             ref={tableContainerRef}
-                            className="w-full max-w-[calc(100vw-2rem)] md:max-w-[calc(100vw-2rem)] overflow-hidden"
+                            className={`${isFullscreen ? 'h-full min-h-0 overflow-hidden' : 'w-full max-w-[calc(100vw-2rem)] md:max-w-[calc(100vw-2rem)] overflow-hidden'}`}
                         >
                             <Table
                                 columns={columns}
@@ -1134,9 +1145,8 @@ export default function Report6Page() {
                                 loading={loading}
                                 bordered
                                 size="small"
-                                scroll={{ x: 'max-content', y: tableScrollY }}
+                                scroll={{ x: 'max-content', y: isFullscreen ? Math.max(220, tableScrollY - 18) : tableScrollY }}
                                 pagination={false}
-                                sticky
                                 className="report6-table [&_.ant-table-cell]:text-[12px]! [&_.ant-table-cell]:py-1!"
                                 rowClassName={(record) => record.key === 'TOTAL_SUMMARY' ? 'font-bold' : 'bg-white'}
                                 expandable={{
@@ -1149,9 +1159,6 @@ export default function Report6Page() {
                 )}
             </div>
             <style jsx global>{`
-                .report6-table .ant-table-header.ant-table-sticky-holder {
-                    z-index: 1 !important;
-                }
                 .ant-picker-dropdown,
                 .ant-select-dropdown {
                     z-index: 2200 !important;

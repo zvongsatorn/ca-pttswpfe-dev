@@ -11,7 +11,7 @@ import {
     FullscreenExitOutlined,
     SettingOutlined,
 } from '@ant-design/icons';
-import { ChevronDown, Search, Check, FileText } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import MultiSelectFilter, { FilterOption } from '@/components/filters/MultiSelectFilter';
 import dayjs, { Dayjs } from 'dayjs';
 import 'dayjs/locale/th';
@@ -208,7 +208,7 @@ const levelLabels = ['21', '18-20', '16-17', '14-15', '11-13', '9-10', '8 ลง
 const columnOptions = [
     { label: 'ชื่อย่อ', value: 'unit_short' },
     { label: 'รหัส', value: 'unit_code' },
-    { label: 'ชื่อเต็มหน่วยงาน', value: 'unit_name' },
+    { label: 'ชื่อหน่วยงาน', value: 'unit_name' },
     { label: 'สายงาน', value: 'line_of_work' },
     { label: 'ระดับ', value: 'level' },
     { label: 'หน่วยธุรกิจ', value: 'business_unit' },
@@ -531,214 +531,15 @@ export default function Report3Page() {
     const fullscreenRef = useRef<HTMLDivElement>(null);
     const tableContainerRef = useRef<HTMLDivElement>(null);
     const [fullscreenTableHeight, setFullscreenTableHeight] = useState(600);
-    const [horizontalScrollState, setHorizontalScrollState] = useState({
-        hasOverflow: false,
-        canScrollLeft: false,
-        canScrollRight: false,
-    });
 
     const updateFullscreenTableHeight = useCallback(() => {
         if (!tableContainerRef.current) return;
         const rect = tableContainerRef.current.getBoundingClientRect();
-        // Reserve space for app/menu header + search area + table chrome to avoid outer scrollbar.
-        const availableHeight = Math.floor(window.innerHeight - rect.top - 120);
-        setFullscreenTableHeight(Math.max(260, availableHeight));
-    }, []);
-
-    const collectScrollCandidates = useCallback((axis: 'x' | 'y') => {
-        const root = tableContainerRef.current;
-        if (!root) return [] as HTMLElement[];
-
-        const selectors = [
-            '.ant-table-body',
-            '.ant-table-content',
-            '.ant-table-header',
-            '.ant-table-container',
-            '.ant-table-sticky-scroll',
-            '.ant-table-sticky-scroll-bar',
-            '.rc-virtual-list-holder',
-            '.rc-virtual-list-holder-inner',
-            '.ant-table-tbody-virtual-holder',
-            '.ant-table-tbody',
-        ];
-
-        const candidates: HTMLElement[] = [root];
-        const descendants = Array.from(root.querySelectorAll<HTMLElement>('*'));
-
-        selectors.forEach((selector) => {
-            const found = root.querySelectorAll<HTMLElement>(selector);
-            found.forEach((element) => {
-                if (!candidates.includes(element)) candidates.push(element);
-            });
-        });
-
-        descendants.forEach((element) => {
-            const scrollSize = axis === 'x'
-                ? element.scrollWidth - element.clientWidth
-                : element.scrollHeight - element.clientHeight;
-
-            if (scrollSize > 4 && !candidates.includes(element)) {
-                candidates.push(element);
-            }
-        });
-
-        return candidates;
-    }, []);
-
-    const getHorizontalScrollTargets = useCallback(() => {
-        const candidates = collectScrollCandidates('x');
-        const scrollables = candidates.filter((element) => element.scrollWidth - element.clientWidth > 4);
-        return scrollables.length ? scrollables : candidates;
-    }, [collectScrollCandidates]);
-
-    const getHorizontalTargetPriority = useCallback((element: HTMLElement) => {
-        const className = element.className || '';
-        if (className.includes('ant-table-body')) return 0;
-        if (className.includes('rc-virtual-list-holder')) return 1;
-        if (className.includes('ant-table-content')) return 2;
-        if (className.includes('ant-table-header')) return 3;
-        if (className.includes('ant-table-sticky-scroll')) return 4;
-        return 5;
-    }, []);
-
-    const updateHorizontalScrollState = useCallback(
-        () => {
-            const targets = getHorizontalScrollTargets().filter(
-                (element) => element.scrollWidth - element.clientWidth > 4
-            );
-
-            if (!targets.length) {
-                setHorizontalScrollState((prev) => {
-                    if (!prev.hasOverflow && !prev.canScrollLeft && !prev.canScrollRight) return prev;
-                    return { hasOverflow: false, canScrollLeft: false, canScrollRight: false };
-                });
-                return;
-            }
-
-            const source = [...targets].sort((a, b) => getHorizontalTargetPriority(a) - getHorizontalTargetPriority(b))[0];
-            const left = source?.scrollLeft ?? 0;
-            const max = source ? Math.max(0, source.scrollWidth - source.clientWidth) : 0;
-            const nextState = {
-                hasOverflow: max > 4,
-                canScrollLeft: left > 2,
-                canScrollRight: left < max - 2,
-            };
-
-            setHorizontalScrollState((prev) => {
-                if (
-                    prev.hasOverflow === nextState.hasOverflow &&
-                    prev.canScrollLeft === nextState.canScrollLeft &&
-                    prev.canScrollRight === nextState.canScrollRight
-                ) {
-                    return prev;
-                }
-                return nextState;
-            });
-        },
-        [getHorizontalScrollTargets, getHorizontalTargetPriority]
-    );
-
-    const getVerticalScrollCandidates = useCallback(() => {
-        const candidates = collectScrollCandidates('y');
-        const scrollables = candidates.filter((element) => element.scrollHeight - element.clientHeight > 4);
-        return scrollables.length ? scrollables : candidates;
-    }, [collectScrollCandidates]);
-
-    const syncHorizontalScroll = useCallback(
-        () => {
-            const targets = getHorizontalScrollTargets().filter(
-                (element) => element.scrollWidth - element.clientWidth > 4
-            );
-
-            if (!targets.length) {
-                return;
-            }
-
-            const source = [...targets].sort((a, b) => getHorizontalTargetPriority(a) - getHorizontalTargetPriority(b))[0];
-            const desired = source?.scrollLeft ?? 0;
-
-            targets.forEach((target) => {
-                const maxScrollLeft = Math.max(0, target.scrollWidth - target.clientWidth);
-                const next = Math.min(maxScrollLeft, Math.max(0, desired));
-
-                if (Math.abs(target.scrollLeft - next) > 1) {
-                    target.scrollLeft = next;
-                    target.scrollTo({ left: next, behavior: 'auto' });
-                }
-            });
-
-            updateHorizontalScrollState();
-        },
-        [getHorizontalScrollTargets, getHorizontalTargetPriority, updateHorizontalScrollState]
-    );
-
-    const handleHorizontalScroll = useCallback(
-        (direction: 'left' | 'right') => {
-            const targets = getHorizontalScrollTargets();
-            const distance = direction === 'left' ? -600 : 600;
-
-            const scrollables = targets.filter((target) => target.scrollWidth - target.clientWidth > 4);
-            if (!scrollables.length) {
-                return;
-            }
-
-            const source = [...scrollables].sort(
-                (a, b) => getHorizontalTargetPriority(a) - getHorizontalTargetPriority(b)
-            )[0];
-            const sourceMax = source ? Math.max(0, source.scrollWidth - source.clientWidth) : 0;
-            const sourceCurrent = source?.scrollLeft ?? 0;
-            const desired = Math.min(sourceMax, Math.max(0, sourceCurrent + distance));
-
-            scrollables.forEach((target) => {
-                const maxScrollLeft = Math.max(0, target.scrollWidth - target.clientWidth);
-                const next = Math.min(maxScrollLeft, desired);
-
-                target.scrollLeft = next;
-                target.scrollTo({ left: next, behavior: 'auto' });
-            });
-
-            window.requestAnimationFrame(() => {
-                syncHorizontalScroll();
-            });
-        },
-        [getHorizontalScrollTargets, getHorizontalTargetPriority, syncHorizontalScroll]
-    );
-
-    const handleVerticalScroll = useCallback(
-        (direction: 'top' | 'bottom') => {
-            const candidates = getVerticalScrollCandidates();
-
-            const scrollables = candidates.filter(
-                (element) => element.scrollHeight - element.clientHeight > 4
-            );
-
-            if (!scrollables.length) {
-                return;
-            }
-
-            const applyEdgeScroll = () => {
-                scrollables.forEach((element) => {
-                    const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
-                    const next = direction === 'top' ? 0 : maxScrollTop;
-
-                    element.scrollTop = next;
-                    element.scrollTo({ top: next, behavior: 'auto' });
-                });
-
-                // Keep sticky/fixed header and body aligned on x-axis after y-axis jumps.
-                syncHorizontalScroll();
-            };
-
-            applyEdgeScroll();
-            window.requestAnimationFrame(() => {
-                applyEdgeScroll();
-                window.requestAnimationFrame(() => {
-                    applyEdgeScroll();
-                });
-            });
-        },
-        [getVerticalScrollCandidates, syncHorizontalScroll]
-    );
+        // Reserve space for pagination + container paddings so table fits viewport without clipping bottom area.
+        const reservedBottomSpace = isFullscreen ? 120 : 190;
+        const availableHeight = Math.floor(window.innerHeight - rect.top - reservedBottomSpace);
+        setFullscreenTableHeight(Math.max(220, availableHeight));
+    }, [isFullscreen]);
 
     const fetchFilterOptions = useCallback(
         async (effectiveDate: Dayjs, bgNo = '', division = '') => {
@@ -969,55 +770,6 @@ export default function Report3Page() {
 
         return [...filteredData, totalRow];
     }, [filteredData]);
-
-    useEffect(() => {
-        if (!hasSearched) {
-            setHorizontalScrollState({ hasOverflow: false, canScrollLeft: false, canScrollRight: false });
-            return;
-        }
-
-        const raf = window.requestAnimationFrame(() => {
-            updateHorizontalScrollState();
-        });
-
-        return () => window.cancelAnimationFrame(raf);
-    }, [
-        hasSearched,
-        isFullscreen,
-        checkedList,
-        tableDataWithSummary.length,
-        updateHorizontalScrollState,
-    ]);
-
-    useEffect(() => {
-        if (!hasSearched) return;
-
-        const targets = getHorizontalScrollTargets().filter(
-            (element) => element.scrollWidth - element.clientWidth > 4
-        );
-
-        const handleNativeScroll = () => {
-            updateHorizontalScrollState();
-        };
-
-        targets.forEach((target) => {
-            target.addEventListener('scroll', handleNativeScroll, { passive: true });
-        });
-        window.addEventListener('resize', handleNativeScroll);
-        handleNativeScroll();
-
-        return () => {
-            targets.forEach((target) => target.removeEventListener('scroll', handleNativeScroll));
-            window.removeEventListener('resize', handleNativeScroll);
-        };
-    }, [
-        checkedList,
-        getHorizontalScrollTargets,
-        hasSearched,
-        isFullscreen,
-        tableDataWithSummary.length,
-        updateHorizontalScrollState,
-    ]);
 
     const handleExportExcel = async () => {
         if (tableDataWithSummary.length === 0) {
@@ -1329,7 +1081,7 @@ export default function Report3Page() {
             ...(isShow('unit_name')
                 ? [
                       {
-                          title: 'ชื่อเต็มหน่วยงาน',
+                          title: 'ชื่อหน่วยงาน',
                           dataIndex: 'unit_name',
                           key: 'unit_name',
                           width: 280,
@@ -1546,13 +1298,13 @@ export default function Report3Page() {
             ...(isShow('remark')
                 ? [
                       {
-                          title: 'หมายเหตุ',
+                          title: <div className="w-full text-center">หมายเหตุ</div>,
                           dataIndex: 'remark',
                           key: 'remark',
                           width: 240,
                           ellipsis: true,
-                          onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }),
-                          render: (text: string) => <span className="text-xs whitespace-pre-wrap">{text}</span>,
+                          onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold !text-center' }),
+                          render: (text: string) => <span className="text-[10px] leading-4 whitespace-pre-wrap">{text}</span>,
                           onCell: getBasicCellProps,
                       },
                   ]
@@ -1560,13 +1312,13 @@ export default function Report3Page() {
             ...(isShow('log')
                 ? [
                       {
-                          title: 'Log',
+                          title: <div className="w-full text-center">Log</div>,
                           dataIndex: 'log',
                           key: 'log',
                           width: 240,
                           ellipsis: true,
-                          onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }),
-                          render: (text: string) => <span className="text-xs whitespace-pre-wrap">{text}</span>,
+                          onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold !text-center' }),
+                          render: (text: string) => <span className="text-[10px] leading-4 whitespace-pre-wrap">{text}</span>,
                           onCell: getBasicCellProps,
                       },
                   ]
@@ -1714,55 +1466,7 @@ export default function Report3Page() {
                         }`}
                     >
                         <div className={`relative group/table ${isFullscreen ? 'h-full' : ''}`}>
-                            {horizontalScrollState.hasOverflow && (
-                                <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-40 invisible opacity-0 transition-opacity duration-150 group-hover/table:visible group-hover/table:opacity-100">
-                                    {horizontalScrollState.canScrollLeft && (
-                                        <button
-                                            onClick={() => handleHorizontalScroll('left')}
-                                            className="pointer-events-auto absolute -left-4 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white text-gray-700 shadow-lg border border-gray-300 hover:bg-gray-50 transition-colors flex items-center justify-center cursor-pointer"
-                                            aria-label="Scroll Left"
-                                        >
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                                            </svg>
-                                        </button>
-                                    )}
-                                    {horizontalScrollState.canScrollRight && (
-                                        <button
-                                            onClick={() => handleHorizontalScroll('right')}
-                                            className="pointer-events-auto absolute -right-4 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white text-gray-700 shadow-lg border border-gray-300 hover:bg-gray-50 transition-colors flex items-center justify-center cursor-pointer"
-                                            aria-label="Scroll Right"
-                                        >
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                            </svg>
-                                        </button>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Vertical Scroll Buttons (Bottom Right) */}
-                            <div className="pointer-events-none absolute bottom-6 right-6 flex flex-col gap-2 z-50 invisible opacity-0 transition-opacity duration-150 group-hover/table:visible group-hover/table:opacity-100">
-                                {/* Scroll to Top */}
-                                <button
-                                    onClick={() => handleVerticalScroll('top')}
-                                    className="pointer-events-auto bg-blue-600 hover:bg-blue-700 text-white shadow-lg border border-blue-500 rounded-full p-3 flex items-center justify-center cursor-pointer"
-                                    aria-label="Scroll to Top"
-                                    title="ขึ้นบนสุด"
-                                >
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7"/></svg>
-                                </button>
-
-                                {/* Scroll to Bottom */}
-                                <button
-                                    onClick={() => handleVerticalScroll('bottom')}
-                                    className="pointer-events-auto bg-blue-600 hover:bg-blue-700 text-white shadow-lg border border-blue-500 rounded-full p-3 flex items-center justify-center cursor-pointer"
-                                    aria-label="Scroll to Bottom"
-                                    title="ลงล่างสุด (เพื่อดูยอดรวม)"
-                                >
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
-                                </button>
-                            </div>
+                          
 
                             <div
                                 ref={tableContainerRef}
@@ -1770,7 +1474,7 @@ export default function Report3Page() {
                                     isFullscreen
                                         ? 'h-full min-h-0 overflow-hidden'
                                         : 'w-full max-w-[calc(100vw-2rem)] md:max-w-[calc(100vw-7.2rem)] overflow-x-auto overflow-y-hidden'
-                                } scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100`}
+                                }`}
                             >
                                 <Table
                                     columns={columns}
@@ -1779,24 +1483,15 @@ export default function Report3Page() {
                                     bordered
                                     size="small"
                                     scroll={{ x: 3200, y: fullscreenTableHeight }}
-                                    pagination={false}
-                                    sticky={{ offsetHeader: isFullscreen ? 0 : 0 }}
-                                    virtual
+                                    pagination={{
+                                        defaultPageSize: 50,
+                                        showSizeChanger: true,
+                                        pageSizeOptions: ['20', '50', '100', '200'],
+                                        showTotal: (total, range) => `${range[0]}-${range[1]} จาก ${total} รายการ`,
+                                        placement: ['bottomEnd'],
+                                    }}
                                     rowKey="key"
-                                    className="[&_.ant-table-cell]:text-[12px]! [&_.ant-table-cell]:py-1!
-                                           /* Custom Scrollbar Styling for Table Body */
-                                           [&_.ant-table-body]:scrollbar-auto
-                                           [&_.ant-table-body::-webkit-scrollbar]:w-3
-                                           [&_.ant-table-body::-webkit-scrollbar]:h-3
-                                           [&_.ant-table-body::-webkit-scrollbar-thumb]:bg-gray-500
-                                           [&_.ant-table-body::-webkit-scrollbar-thumb]:rounded-full
-                                           [&_.ant-table-body::-webkit-scrollbar-thumb:hover]:bg-gray-700
-                                           [&_.ant-table-body::-webkit-scrollbar-track]:bg-gray-200
-                                           /* Horizontal Scrollbar specifically */
-                                           [&_.ant-table-content]:scrollbar-auto
-                                           [&_.ant-table-content::-webkit-scrollbar]:h-3
-                                           [&_.ant-table-content::-webkit-scrollbar-thumb]:bg-gray-500
-                                           [&_.ant-table-content::-webkit-scrollbar-track]:bg-gray-200"
+                                    className="report3-table [&_.ant-table-cell]:text-[12px]! [&_.ant-table-cell]:py-1!"
                                     rowClassName={(record) =>
                                         record.key === 'TOTAL_SUMMARY'
                                             ? 'font-bold'

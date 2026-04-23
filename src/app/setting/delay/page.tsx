@@ -18,6 +18,16 @@ import {
 import { getUserFromToken } from '@/utils/auth';
 
 const CURRENT_BE_YEAR = new Date().getFullYear() + 543;
+const BU_SUPPORT_TYPES = new Set(['Business', 'Support']);
+
+const formatEmployeeOptionLabel = (option: DelayEmployeeOptionType): string => {
+    const baseLabel = String(option.label || `${option.value} - ${option.name || option.value}`).trim();
+    const buSupport = String(option.buSupport || '').trim();
+    if (!BU_SUPPORT_TYPES.has(buSupport) || baseLabel.includes(`(${buSupport})`)) {
+        return baseLabel;
+    }
+    return `${baseLabel} (${buSupport})`;
+};
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
@@ -77,6 +87,14 @@ function DelayRetirementContent() {
         () => new Set(employeeOptions.map((item) => item.value)),
         [employeeOptions]
     );
+    const employeeBuSupportById = useMemo(
+        () => new Map(employeeOptions.map((item) => [item.value, item.buSupport || '-'])),
+        [employeeOptions]
+    );
+    const employeeUnitNameById = useMemo(
+        () => new Map(employeeOptions.map((item) => [item.value, item.unitName || '-'])),
+        [employeeOptions]
+    );
 
     const fetchData = useCallback(async () => {
         if (!selectedYear) return;
@@ -95,7 +113,12 @@ function DelayRetirementContent() {
             }
 
             if (empRes?.success && Array.isArray(empRes.data)) {
-                setEmployeeOptions(empRes.data);
+                setEmployeeOptions(
+                    empRes.data.map((option) => ({
+                        ...option,
+                        label: formatEmployeeOptionLabel(option)
+                    }))
+                );
             } else {
                 setEmployeeOptions([]);
             }
@@ -182,35 +205,50 @@ function DelayRetirementContent() {
                 notification.success({ title: 'สำเร็จ', description: 'เพิ่มข้อมูลเรียบร้อยแล้ว' });
             }
 
-            await fetchData();
             setIsModalVisible(false);
+            form.resetFields();
+            await fetchData();
         } catch (error) {
-            console.error('Validate Failed:', error);
+            const validationError = error as {
+                errorFields?: Array<{ name: (string | number)[]; errors?: string[] }>;
+            };
+
+            if (validationError?.errorFields?.length) {
+                const firstError = validationError.errorFields[0];
+                const firstMessage = firstError?.errors?.[0] || 'กรุณาตรวจสอบข้อมูลที่กรอก';
+                if (firstError?.name?.length) {
+                    form.scrollToField(firstError.name);
+                }
+                notification.warning({ title: 'ข้อมูลไม่ถูกต้อง', description: firstMessage });
+                return;
+            }
+
+            console.error('Save Delay failed:', error);
+            notification.error({ title: 'ไม่สำเร็จ', description: 'เกิดข้อผิดพลาดระหว่างบันทึกข้อมูล' });
         }
     };
 
     const columns: ColumnsType<DelayRetirementDataType> = [
-        { title: 'รหัสพนักงาน', dataIndex: 'EmployeeID', key: 'EmployeeID', align: 'center', width: 150, render: (text) => <span className="font-bold text-slate-700">{text}</span> },
-        { title: 'ชื่อพนักงาน', dataIndex: 'EmployeeName', key: 'EmployeeName', width: 260, ellipsis: true, render: (text) => <span className="block truncate text-slate-700 font-medium">{text || '-'}</span> },
-        { title: 'ตำแหน่ง', dataIndex: 'PosName', key: 'PosName', width: 420, ellipsis: true, render: (text) => <span className="block truncate text-slate-600 font-medium">{text || '-'}</span> },
-        { title: 'ปีที่ทด', dataIndex: 'DelayYear', key: 'DelayYear', align: 'center', width: 110 },
+        { title: 'รหัสพนักงาน', dataIndex: 'EmployeeID', key: 'EmployeeID', align: 'center', width: 140, render: (text) => <span className="font-bold text-slate-700">{text}</span> },
+        { title: 'ชื่อพนักงาน', dataIndex: 'EmployeeName', key: 'EmployeeName', width: 220, ellipsis: true, render: (text) => <span className="block truncate text-slate-700 font-medium">{text || '-'}</span> },
+        { title: 'ตำแหน่ง', dataIndex: 'PosName', key: 'PosName', width: 360, ellipsis: true, render: (text) => <span className="block truncate text-slate-600 font-medium">{text || '-'}</span> },
         {
-            title: 'ประเภท',
-            key: 'delayType',
-            align: 'center',
-            width: 170,
-            render: (_, record) => {
-                const retireYear = Number.parseInt(selectedYear, 10);
-                const delayYear = Number.parseInt(String(record.DelayYear || ''), 10);
-
-                if (Number.isNaN(retireYear) || Number.isNaN(delayYear)) return '-';
-                if (delayYear < retireYear) return 'Early Retire';
-                if (delayYear > retireYear) return 'ทำงานต่อ';
-                return 'เกษียณตามปีปกติ';
-            }
+            title: 'ชื่อหน่วยงาน',
+            key: 'UnitName',
+            width: 300,
+            ellipsis: true,
+            render: (_, record) => <span className="block truncate text-slate-700">{employeeUnitNameById.get(record.EmployeeID) || '-'}</span>
         },
         {
-            title: 'จัดการ', key: 'action', align: 'center', width: 120,
+            title: 'BU/Support',
+            key: 'BUSupport',
+            align: 'center',
+            width: 120,
+            render: (_, record) => employeeBuSupportById.get(record.EmployeeID) || '-'
+        },
+        { title: 'ปีที่ทด', dataIndex: 'DelayYear', key: 'DelayYear', align: 'center', width: 100 },
+        {
+            title: 'จัดการ', key: 'action', align: 'center', width: 90,
             render: (_, record) => (
                 <Space size="small">
                     <Button type="text" className="text-blue-600 hover:bg-blue-50 rounded-full" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
@@ -253,7 +291,7 @@ function DelayRetirementContent() {
                 pagination={{ pageSize: 10 }}
                 bordered
                 tableLayout="fixed"
-                scroll={{ x: 1230 }}
+                scroll={{ x: 1330 }}
                 rowClassName="hover:bg-blue-50/20 transition-colors"
                 className="shadow-sm rounded-xl overflow-hidden border border-slate-100"
             />
@@ -274,6 +312,7 @@ function DelayRetirementContent() {
                         <Form.Item
                             name="DelayYear"
                             label={<span className="font-bold text-slate-600 uppercase text-xs tracking-wider">ปีที่ทด</span>}
+                            extra={<span className="text-xs text-slate-500">หมายเหตุ: ไม่นับปีทด ระบุ 9999</span>}
                             rules={[
                                 { required: true, message: 'กรุณากรอกปีที่ทด' },
                                 {

@@ -122,6 +122,12 @@ interface UnitOption {
   ParentOrgUnitNo?: string | null;
 }
 
+interface CreateMKDPayload {
+  effectiveYear: string;
+  orgUnitNo: string;
+  orgUnitName: string;
+}
+
 const NO_REUSABLE_FILE_VALUE = '__NONE__';
 
 const statusOptions = [
@@ -135,10 +141,12 @@ const statusOptions = [
   { value: 'ไม่เห็นชอบ', label: 'ไม่เห็นชอบ' },
   { value: 'ไม่อนุมัติ', label: 'ไม่อนุมัติ' },
 ];
+const RESTRICTED_GROUP_NO = '08';
 
 export default function MKDHistoryPage() {
   const router = useRouter();
   const [year, setYear] = useState((new Date().getFullYear() + 543).toString());
+  const [appliedYear, setAppliedYear] = useState((new Date().getFullYear() + 543).toString());
   const [availableYears, setAvailableYears] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState('ทั้งหมด');
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
@@ -151,6 +159,8 @@ export default function MKDHistoryPage() {
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
   const [isMainComboboxOpen, setIsMainComboboxOpen] = useState(false);
   const [selectedMainUnit, setSelectedMainUnit] = useState('');
+  const [appliedMainUnit, setAppliedMainUnit] = useState('');
+  const [currentUserGroupNo, setCurrentUserGroupNo] = useState('');
 
   // Approval Modal State
   const [isAppModalOpen, setIsAppModalOpen] = useState(false);
@@ -176,6 +186,9 @@ export default function MKDHistoryPage() {
   const [filterCreateBy, setFilterCreateBy] = useState('');
   const [filterConclusion, setFilterConclusion] = useState('');
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [isDuplicateCreateConfirmOpen, setIsDuplicateCreateConfirmOpen] = useState(false);
+  const [pendingCreatePayload, setPendingCreatePayload] = useState<CreateMKDPayload | null>(null);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [resultTitle, setResultTitle] = useState('');
   const [resultMessage, setResultMessage] = useState('');
@@ -255,6 +268,18 @@ export default function MKDHistoryPage() {
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
   }, [availableUnits, availableUnitsByRole, getParentOrgUnitNo]);
 
+  const isGroupRestricted = useMemo(
+    () => currentUserGroupNo === RESTRICTED_GROUP_NO,
+    [currentUserGroupNo]
+  );
+
+  useEffect(() => {
+    if (!isGroupRestricted) return;
+    setSelectedMainUnit('');
+    setAppliedMainUnit('');
+    setIsMainComboboxOpen(false);
+  }, [isGroupRestricted]);
+
   const fetchUnits = useCallback(async () => {
     try {
       const res = await fetch(`/api/units/all?effectiveDate=${new Date().toISOString().split('T')[0]}`);
@@ -310,7 +335,11 @@ export default function MKDHistoryPage() {
   useEffect(() => {
     const storedYear = localStorage.getItem('mkd_history_year');
     const storedStatus = localStorage.getItem('mkd_history_status');
-    if (storedYear) setYear(storedYear.trim());
+    if (storedYear) {
+      const normalizedYear = storedYear.trim();
+      setYear(normalizedYear);
+      setAppliedYear(normalizedYear);
+    }
     if (storedStatus) setStatusFilter(storedStatus.trim());
     setIsLoaded(true);
   }, []);
@@ -340,6 +369,13 @@ export default function MKDHistoryPage() {
   }, [isNewModalOpen, fetchUnitsByRole]);
 
   useEffect(() => {
+    if (!isNewModalOpen || isUnitsByRoleLoading) return;
+    if (availableUnitsByRole.length === 1) {
+      setSelectedOrgUnit(availableUnitsByRole[0].id);
+    }
+  }, [isNewModalOpen, isUnitsByRoleLoading, availableUnitsByRole]);
+
+  useEffect(() => {
     const fetchStartYear = async () => {
       try {
         const res = await mkdService.getStartYear();
@@ -353,7 +389,9 @@ export default function MKDHistoryPage() {
           }
           setAvailableYears(years);
           if (!years.includes(year)) {
-             setYear(currentYear.toString());
+             const normalizedCurrentYear = currentYear.toString();
+             setYear(normalizedCurrentYear);
+             setAppliedYear(normalizedCurrentYear);
           }
         }
       } catch (e) {
@@ -370,6 +408,9 @@ export default function MKDHistoryPage() {
 
   useEffect(() => {
     setSelectedMainUnit((prev) =>
+      !prev || lineOptions.some((line) => line.id === prev) ? prev : ''
+    );
+    setAppliedMainUnit((prev) =>
       !prev || lineOptions.some((line) => line.id === prev) ? prev : ''
     );
   }, [lineOptions]);
@@ -397,13 +438,13 @@ export default function MKDHistoryPage() {
         }
       }
 
-      const numericYear = parseInt(year);
-      const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : year;
+      const numericYear = parseInt(appliedYear);
+      const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : appliedYear;
 
       const query = new URLSearchParams({
         EffectiveYear: ceYear,
         OrgUnitNo: '',
-        division: selectedMainUnit,
+        division: appliedMainUnit,
         EmployeeID: employeeId,
         UserGroupNo: userGroupNo,
         RequestType: '1'
@@ -486,11 +527,13 @@ export default function MKDHistoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [year, selectedMainUnit]);
+  }, [appliedYear, appliedMainUnit]);
 
   useEffect(() => {
     if (isLoaded) {
       fetchHistory();
+      const { userGroupNo } = getCurrentUserContext();
+      setCurrentUserGroupNo(userGroupNo);
       const storedUser = localStorage.getItem('empNo');
       if (storedUser) {
         setUser(storedUser);
@@ -504,7 +547,7 @@ export default function MKDHistoryPage() {
         }
       }
     }
-  }, [isLoaded, fetchHistory]);
+  }, [isLoaded, fetchHistory, getCurrentUserContext]);
 
   const openFlowPopup = async (mkdID: string, approveID?: string) => {
     if (!approveID || approveID === '0') return;
@@ -556,8 +599,8 @@ export default function MKDHistoryPage() {
 
       if (!employeeId) return;
 
-      const numericYear = parseInt(year);
-      const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : year;
+      const numericYear = parseInt(appliedYear);
+      const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : appliedYear;
       const res = await mkdService.getReusableMkdFiles({
         EffectiveYear: ceYear,
         EmployeeID: employeeId,
@@ -595,7 +638,7 @@ export default function MKDHistoryPage() {
     } finally {
       setReusableFilesLoading(false);
     }
-  }, [year]);
+  }, [appliedYear]);
 
   const handleReusableFileChange = (value: string) => {
     setSelectedReusableFileValue(value);
@@ -774,89 +817,117 @@ export default function MKDHistoryPage() {
     const handleGroupChange = () => {
         fetchHistory();
         fetchUnitsByRole();
+        const { userGroupNo } = getCurrentUserContext();
+        setCurrentUserGroupNo(userGroupNo);
     };
     window.addEventListener('user-group-changed', handleGroupChange);
     return () => window.removeEventListener('user-group-changed', handleGroupChange);
-  }, [fetchHistory, fetchUnitsByRole]);
+  }, [fetchHistory, fetchUnitsByRole, getCurrentUserContext]);
 
   const handleSearch = () => {
-    fetchHistory();
+    const isYearChanged = appliedYear !== year;
+    const isMainUnitChanged = appliedMainUnit !== selectedMainUnit;
+
+    if (isYearChanged) {
+      setAppliedYear(year);
+    }
+    if (isMainUnitChanged) {
+      setAppliedMainUnit(selectedMainUnit);
+    }
+
+    if (!isYearChanged && !isMainUnitChanged) {
+      fetchHistory();
+    }
   };
 
+  const createNewMKD = useCallback(async (payload: CreateMKDPayload) => {
+    const { employeeId } = getCurrentUserContext();
+    const createRes = await fetch('/api/mkd', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        EffectiveYear: payload.effectiveYear,
+        RequestType: 1,
+        OrgUnitNo: payload.orgUnitNo,
+        OrgUnitName: payload.orgUnitName,
+        CreateBy: employeeId || 'SYSTEM'
+      })
+    });
+
+    const createResult = await createRes.json();
+    if (!createResult.success) {
+      toast.error(createResult?.message || 'เกิดข้อผิดพลาดในการสร้างรายการ');
+      return;
+    }
+
+    const newId = createResult?.data?.ManDriverID;
+    if (!newId) {
+      toast.error('ไม่พบเลขที่รายการที่สร้างใหม่');
+      return;
+    }
+
+    setIsDuplicateCreateConfirmOpen(false);
+    setPendingCreatePayload(null);
+    setIsNewModalOpen(false);
+    setSelectedOrgUnit('');
+    router.push(`/mkd/history/${newId}`);
+  }, [getCurrentUserContext, router]);
+
   const handleCreateNew = async () => {
-    if (selectedOrgUnit) {
-      try {
-        const selectedUnitDetail =
-          availableUnitsByRole.find((u) => u.id === selectedOrgUnit)
-          || availableUnits.find((u) => u.id === selectedOrgUnit);
+    if (!selectedOrgUnit || isCreatingNew) return;
 
-        // Map BE year to CE if needed
-        const numericYear = parseInt(year);
-        const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : year;
+    try {
+      setIsCreatingNew(true);
+      const selectedUnitDetail =
+        availableUnitsByRole.find((u) => u.id === selectedOrgUnit)
+        || availableUnits.find((u) => u.id === selectedOrgUnit);
 
-        // 1. Check duplicate
-        const checkRes = await fetch('/api/mkd/check-dup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                EffectiveYear: ceYear,
-                RequestType: 1,
-                OrgUnitNo: selectedOrgUnit,
-                OrgUnitName: selectedUnitDetail?.name || ''
-            })
-        });
-        const checkResult = await checkRes.json();
-        
-        if (checkResult.success && checkResult.isDuplicate) {
-            alert('มีการสร้างรายการสำหรับหน่วยงานและปีนี้ไปแล้ว');
-            return;
-        }
+      const numericYear = parseInt(year, 10);
+      const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : year;
+      const payload: CreateMKDPayload = {
+        effectiveYear: ceYear,
+        orgUnitNo: selectedOrgUnit,
+        orgUnitName: selectedUnitDetail?.name || selectedUnitDetail?.unitText || ''
+      };
 
-        // Get User ID and User Group
-        let employeeId = 'SYSTEM';
-        let userGroupNo = '';
-        const userDataStr = localStorage.getItem('user_data');
-        if (userDataStr) {
-            try {
-                const userData = JSON.parse(userDataStr);
-                employeeId = userData.employeeID || 'SYSTEM';
-                
-                // Use same robust logic for userGroup
-                userGroupNo = localStorage.getItem('selected_usergroup') || '';
-                if (!userGroupNo) {
-                  userGroupNo = userData.userGroupNo || userData.roleId || '';
-                }
-                if (!userGroupNo && userData.userGroups && userData.userGroups.length > 0) {
-                  userGroupNo = userData.userGroups[0].userGroupNo;
-                }
-            } catch {}
-        }
+      const checkRes = await fetch('/api/mkd/check-dup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          EffectiveYear: payload.effectiveYear,
+          RequestType: 1,
+          OrgUnitNo: payload.orgUnitNo,
+          OrgUnitName: payload.orgUnitName
+        })
+      });
+      const checkResult = await checkRes.json();
 
-        // 2. Create New
-        const createRes = await fetch('/api/mkd', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                EffectiveYear: ceYear,
-                RequestType: 1,
-                OrgUnitNo: selectedOrgUnit,
-                OrgUnitName: selectedUnitDetail?.name || '',
-                CreateBy: employeeId
-            })
-        });
-        const createResult = await createRes.json();
-        if (createResult.success) {
-            const newId = createResult.data.ManDriverID;
-            setIsNewModalOpen(false);
-            router.push(`/mkd/history/${newId}`);
-        } else {
-            alert('เกิดข้อผิดพลาดในการสร้างรายการ');
-        }
-
-      } catch (error) {
-         console.error('Error creating MKD', error);
-         alert('เกิดข้อผิดพลาดในการสร้างรายการ');
+      if (checkResult.success && checkResult.isDuplicate) {
+        setPendingCreatePayload(payload);
+        setIsDuplicateCreateConfirmOpen(true);
+        return;
       }
+
+      await createNewMKD(payload);
+    } catch (error) {
+      console.error('Error creating MKD', error);
+      toast.error('เกิดข้อผิดพลาดในการสร้างรายการ');
+    } finally {
+      setIsCreatingNew(false);
+    }
+  };
+
+  const handleConfirmCreateWithDuplicate = async () => {
+    if (!pendingCreatePayload || isCreatingNew) return;
+
+    try {
+      setIsCreatingNew(true);
+      await createNewMKD(pendingCreatePayload);
+    } catch (error) {
+      console.error('Error creating MKD after duplicate confirmation', error);
+      toast.error('เกิดข้อผิดพลาดในการสร้างรายการ');
+    } finally {
+      setIsCreatingNew(false);
     }
   };
 
@@ -864,6 +935,10 @@ export default function MKDHistoryPage() {
     router.push(`/mkd/history/${mkdId}`);
   };
 const handleViewDashboard = (mkdId: string) => {
+    if (isGroupRestricted) {
+      toast.error('กลุ่มผู้ใช้งานนี้ไม่มีสิทธิ์เข้าดูกราฟ');
+      return;
+    }
     router.push(`/mkd/dashboard/${mkdId}`);
   };
 
@@ -889,71 +964,73 @@ const handleViewDashboard = (mkdId: string) => {
 <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end">
   
   {/* 1. ส่วน Filter : ลบ flex-1 ออก */}
-  <div className="w-full lg:w-auto"> 
-    <Label className="text-sm font-medium text-gray-700 mb-2 block">
-      Filter : สายงาน
-    </Label>
-    <div className="relative w-80">
-      <Popover open={isMainComboboxOpen} onOpenChange={setIsMainComboboxOpen}>
-        <PopoverTrigger asChild>
-	          <Button
-	            variant="outline"
-	            role="combobox"
-	            aria-expanded={isMainComboboxOpen}
-	            className="w-full justify-between font-normal bg-white"
-	          >
-	            {selectedMainUnit
-	              ? lineOptions.find((unit) => unit.id === selectedMainUnit)?.unitText || selectedMainUnit
-	              : (isUnitsByRoleLoading ? "กำลังโหลดสายงาน..." : "เลือกสายงาน...")}
-	            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-	          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-[400px] p-0" align="start">
-          <Command>
-            <CommandInput placeholder="พิมพ์รหัสหรือชื่อสายงาน..." />
-            <CommandList>
-              <CommandEmpty>ไม่พบสายงาน</CommandEmpty>
-              <CommandGroup>
-                <CommandItem
-                  value=""
-                  onSelect={() => {
-                    setSelectedMainUnit('');
-                    setIsMainComboboxOpen(false);
-                  }}
-                >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      selectedMainUnit === '' ? "opacity-100" : "opacity-0"
-                    )}
-                  />
-                  ทั้งหมด
-                </CommandItem>
-	                {lineOptions.map((unit) => (
-	                  <CommandItem
-	                    key={unit.id}
-	                    value={`${unit.id} ${unit.unitText}`}
+  {!isGroupRestricted && (
+    <div className="w-full lg:w-auto"> 
+      <Label className="text-sm font-medium text-gray-700 mb-2 block">
+        Filter : สายงาน
+      </Label>
+      <div className="relative w-80">
+        <Popover open={isMainComboboxOpen} onOpenChange={setIsMainComboboxOpen}>
+          <PopoverTrigger asChild>
+  	          <Button
+  	            variant="outline"
+  	            role="combobox"
+  	            aria-expanded={isMainComboboxOpen}
+  	            className="w-full justify-between font-normal bg-white"
+  	          >
+  	            {selectedMainUnit
+  	              ? lineOptions.find((unit) => unit.id === selectedMainUnit)?.unitText || selectedMainUnit
+  	              : (isUnitsByRoleLoading ? "กำลังโหลดสายงาน..." : "เลือกสายงาน...")}
+  	            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+  	          </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[400px] p-0" align="start">
+            <Command>
+              <CommandInput placeholder="พิมพ์รหัสหรือชื่อสายงาน..." />
+              <CommandList>
+                <CommandEmpty>ไม่พบสายงาน</CommandEmpty>
+                <CommandGroup>
+                  <CommandItem
+                    value=""
                     onSelect={() => {
-                      setSelectedMainUnit(unit.id);
+                      setSelectedMainUnit('');
                       setIsMainComboboxOpen(false);
                     }}
                   >
                     <Check
                       className={cn(
                         "mr-2 h-4 w-4",
-                        selectedMainUnit === unit.id ? "opacity-100" : "opacity-0"
+                        selectedMainUnit === '' ? "opacity-100" : "opacity-0"
                       )}
                     />
-                    {unit.unitText}
+                    ทั้งหมด
                   </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
+  	                {lineOptions.map((unit) => (
+  	                  <CommandItem
+  	                    key={unit.id}
+  	                    value={`${unit.id} ${unit.unitText}`}
+                      onSelect={() => {
+                        setSelectedMainUnit(unit.id);
+                        setIsMainComboboxOpen(false);
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          selectedMainUnit === unit.id ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      {unit.unitText}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      </div>
     </div>
-  </div>
+  )}
 
   {/* 2. ส่วน Year : แยกออกมาทำโครงสร้างเหมือน Filter (Label อยู่บน Select) */}
   <div className="w-full lg:w-auto">
@@ -999,8 +1076,6 @@ const handleViewDashboard = (mkdId: string) => {
 </div>
           </CardContent>
         </Card>
-
-        {loading && <div className="text-center text-sm text-gray-500 py-4">Loading...</div>}
 
         {/* Table Section */}
         <Card className="bg-white border-0 shadow-sm">
@@ -1126,9 +1201,21 @@ const handleViewDashboard = (mkdId: string) => {
                   </tr>
                 </thead>
                 <tbody className="bg-white">
-
-                  {/* Data Rows */}
-                  {filteredRecords.map((record) => (
+                  {loading ? (
+                    <tr>
+                      <td colSpan={11} className="text-center py-8 text-sm text-gray-500">
+                        Loading...
+                      </td>
+                    </tr>
+                  ) : filteredRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="text-center py-8 text-sm text-gray-500">
+                        ไม่พบข้อมูล
+                      </td>
+                    </tr>
+                  ) : (
+                    /* Data Rows */
+                    filteredRecords.map((record) => (
                     <tr
                       key={record.no}
                       className="border-b hover:bg-gray-50 transition-colors"
@@ -1224,7 +1311,7 @@ const handleViewDashboard = (mkdId: string) => {
                           >
                             <Search className="h-5 w-5 text-blue-600 cursor-pointer" />
                           </button>
-                          {(record.manDriverStatus === 2 || record.manDriverStatus === 3) && (
+                          {(record.manDriverStatus === 2 || record.manDriverStatus === 3) && !isGroupRestricted && (
                             <button
                               onClick={() => handleViewDashboard(record.mkdID)}
                               className="p-1 hover:bg-gray-100 rounded transition-colors"
@@ -1236,7 +1323,8 @@ const handleViewDashboard = (mkdId: string) => {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1307,15 +1395,57 @@ const handleViewDashboard = (mkdId: string) => {
                 setIsNewModalOpen(false);
                 setSelectedOrgUnit('');
               }}
+              disabled={isCreatingNew}
             >
               CANCEL
             </Button>
             <Button
               className="bg-green-600 hover:bg-green-700 text-white"
               onClick={handleCreateNew}
-              disabled={!selectedOrgUnit || isUnitsByRoleLoading}
+              disabled={!selectedOrgUnit || isUnitsByRoleLoading || isCreatingNew}
             >
-              CREATE
+              {isCreatingNew ? 'PROCESSING...' : 'CREATE'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Duplicate Create Confirmation Dialog */}
+      <Dialog
+        open={isDuplicateCreateConfirmOpen}
+        onOpenChange={(open) => {
+          if (!isCreatingNew) {
+            setIsDuplicateCreateConfirmOpen(open);
+            if (!open) {
+              setPendingCreatePayload(null);
+            }
+          }
+        }}
+      >
+        <DialogContent className="max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>ยืนยันการสร้างรายการ</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 text-sm text-gray-700 space-y-2">
+            <p>มีการสร้างรายการสำหรับหน่วยงานนี้ในปีนี้แล้ว</p>
+            <p>ต้องการสร้างรายการต่อหรือไม่?</p>
+          </div>
+          <DialogFooter className="flex flex-row justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsDuplicateCreateConfirmOpen(false);
+                setPendingCreatePayload(null);
+              }}
+              disabled={isCreatingNew}
+            >
+              ยกเลิก
+            </Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={handleConfirmCreateWithDuplicate}
+              disabled={isCreatingNew}
+            >
+              {isCreatingNew ? 'กำลังสร้าง...' : 'ยืนยันสร้างต่อ'}
             </Button>
           </DialogFooter>
         </DialogContent>

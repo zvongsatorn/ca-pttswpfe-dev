@@ -148,7 +148,7 @@ const gapMetricConfigs = metricConfigs;
 const displayGroupOptions = [
     { value: 'unit_short', label: 'ชื่อย่อ' },
     { value: 'unit_code', label: 'รหัสหน่วยงาน' },
-    { value: 'unit_name', label: 'ชื่อเต็มหน่วยงาน' },
+    { value: 'unit_name', label: 'ชื่อหน่วยงาน' },
     { value: 'unit_level_name', label: 'ระดับ' },
     { value: 'business_unit', label: 'หน่วยธุรกิจ' },
     { value: 'frame', label: 'กรอบอัตรากำลัง' },
@@ -863,7 +863,7 @@ export default function Report7Page() {
                 onCell: getBasicCell
             }] : []),
             ...(metricVisibility.unit_name ? [{
-                title: 'ชื่อเต็มหน่วยงาน',
+                title: 'ชื่อหน่วยงาน',
                 dataIndex: 'unit_name',
                 key: 'unit_name',
                 width: 320,
@@ -1124,7 +1124,7 @@ export default function Report7Page() {
             addBaseColumn('รหัสหน่วยงาน', 'org_unit_no');
         }
         if (metricVisibility.unit_name) {
-            addBaseColumn('ชื่อเต็มหน่วยงาน', 'unit_name');
+            addBaseColumn('ชื่อหน่วยงาน', 'unit_name');
         }
         if (metricVisibility.unit_level_name) {
             addBaseColumn('ระดับ', 'unit_level_name');

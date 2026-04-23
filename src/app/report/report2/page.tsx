@@ -148,7 +148,7 @@ const columnOptions = [
     { label: 'คน New Biz', value: 'people_new_biz' },
     { label: 'รวม Actual', value: 'total_actual' },
     { label: 'รวม คน', value: 'total_people' },
-    { label: 'Contact Out', value: 'contact_out' },
+    { label: 'Contact Out สัญญาใหญ่', value: 'contact_out' },
     { label: 'Contact Out สัญญาย่อย', value: 'contact_out_sub' },
     { label: 'หมายเหตุ', value: 'remark' },
 ];
@@ -647,7 +647,7 @@ const report2MetricRows = [
     { key: 'people_new_biz', label: 'คน New Biz', showDiff: true, textClass: 'text-orange-700' },
     { key: 'total_actual', label: 'รวม Actual', showDiff: true, textClass: 'text-blue-700' },
     { key: 'total_people', label: 'รวม คน', showDiff: true, textClass: 'text-orange-700' },
-    { key: 'contact_out', label: 'Contact Out', showDiff: false, textClass: 'text-purple-700' },
+    { key: 'contact_out', label: 'Contact Out สัญญาใหญ่', showDiff: false, textClass: 'text-purple-700' },
     { key: 'contact_out_sub', label: 'Contact Out สัญญาย่อย', showDiff: false, textClass: 'text-purple-700' },
     { key: 'remark', label: 'หมายเหตุ', showDiff: false, isRemark: true, textClass: 'text-gray-700' },
 ] as const;
@@ -1219,7 +1219,7 @@ export default function Report2Page() {
             addNumeric('people_new_biz', 'คน New Biz', true);
             addNumeric('total_actual', 'รวม Actual', true);
             addNumeric('total_people', 'รวม คน', true);
-            addNumeric('contact_out', 'Contact Out', false);
+            addNumeric('contact_out', 'Contact Out สัญญาใหญ่', false);
             addNumeric('contact_out_sub', 'Contact Out สัญญาย่อย', false);
 
             if (visible('remark')) {
@@ -1476,7 +1476,7 @@ export default function Report2Page() {
 
             const createCol = (
                 key: string,
-                title: string,
+                title: React.ReactNode,
                 width: number,
                 bgHeader: string,
                 textHeader: string,
@@ -1542,8 +1542,34 @@ export default function Report2Page() {
                 createCol('people_new_biz', 'คน New Biz', 90, 'bg-orange-50!', 'text-orange-800!'),
                 createCol('total_actual', 'รวม Actual', 80, 'bg-blue-50!', 'text-blue-800!'),
                 createCol('total_people', 'รวม คน', 80, 'bg-orange-50!', 'text-orange-800!'),
-                createCol('contact_out', 'Contact Out', 110, 'bg-purple-200!', 'text-purple-900!', false),
-                createCol('contact_out_sub', 'Contact Out สัญญาย่อย', 130, 'bg-purple-200!', 'text-purple-900!', false),
+                createCol(
+                    'contact_out',
+                    (
+                        <span className="inline-block leading-tight text-center">
+                            Contact Out
+                            <br />
+                            สัญญาใหญ่
+                        </span>
+                    ),
+                    110,
+                    'bg-purple-200!',
+                    'text-purple-900!',
+                    false
+                ),
+                createCol(
+                    'contact_out_sub',
+                    (
+                        <span className="inline-block leading-tight text-center">
+                            Contact Out
+                            <br />
+                            สัญญาย่อย
+                        </span>
+                    ),
+                    130,
+                    'bg-purple-200!',
+                    'text-purple-900!',
+                    false
+                ),
             ];
 
             cols.forEach((col) => {
@@ -1554,16 +1580,16 @@ export default function Report2Page() {
 
             if (visible('remark') && monthGroup.children) {
                 monthGroup.children.push({
-                    title: 'หมายเหตุ',
+                    title: <div className="w-full text-center">หมายเหตุ</div>,
                     dataIndex: `remark_${monthKey}`,
                     key: `remark_${monthKey}`,
                     width: 220,
                     align: 'left',
                     className: 'bg-white',
-                    onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-800!' }),
+                    onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-800! !text-center' }),
                     render: (text: unknown, record: DataType) => {
                         if (isTotalUnit(record.unit)) return null;
-                        return <span className="text-xs text-gray-500">{String(text ?? '')}</span>;
+                        return <span className="text-[11px] leading-5 text-gray-500">{String(text ?? '')}</span>;
                     },
                 });
             }
@@ -1653,7 +1679,7 @@ export default function Report2Page() {
                     return <span className="font-semibold">{toNumber(value)}</span>;
                 }
                 if (rowType === 'remark') {
-                    return <span className="text-xs text-gray-500">{String(value ?? '')}</span>;
+                    return <span className="text-[11px] leading-5 text-gray-500">{String(value ?? '')}</span>;
                 }
                 if (rowType === 'diff') {
                     const diff = toNumber(value);
@@ -1936,8 +1962,8 @@ export default function Report2Page() {
                         <div
                             className={`${
                                 isFullscreen
-                                    ? 'h-[calc(100vh-210px)] min-h-0 overflow-auto'
-                                    : 'w-full max-w-[calc(100vw-2rem)] md:max-w-[calc(100vw-2rem)] overflow-auto'
+                                    ? 'h-[calc(100vh-210px)] min-h-0 overflow-hidden'
+                                    : 'w-full max-w-[calc(100vw-2rem)] md:max-w-[calc(100vw-2rem)] overflow-hidden'
                             }`}
                         >
                             <Table
@@ -1951,7 +1977,6 @@ export default function Report2Page() {
                                     y: isFullscreen ? 'calc(100vh - 270px)' : 600,
                                 }}
                                 pagination={false}
-                                sticky
                                 expandable={viewMode === 'normal' ? { defaultExpandAllRows: true } : undefined}
                                 rowClassName={(record) => {
                                     const rowType = String(record.transpose_row_type || '');
