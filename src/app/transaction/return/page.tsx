@@ -388,52 +388,55 @@ export default function ReturnPage() {
         setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'ไม่พบกลุ่มผู้ใช้ กรุณาเลือกสิทธิ์ก่อนทำรายการ', type: 'warning' });
         return;
       }
+      const isHrPolicy = isHrPolicyUserGroup(defaultUserGroup);
       const groupedReturns = getReturnsByDepartmentPair();
       const approversData: Record<string, ApproverUser[]> = {};
 
-      for (const [key, returnsList] of Object.entries(groupedReturns)) {
-        approversData[key] = [];
-        
-        for (const ret of returnsList) {
-          // TransactionType 6 equivalent for approvers? Usually standard approval for return. JobType = 7
-          const jobType = 7;
-          const userGroupReceive = defaultUserGroup;
-          const orgUnitNoReceive = ret.UnitReceive;
-          const orgUnitNoTransfer = ret.UnitTransfer;
-          const levelGroupNoFrom = ret.LevelGroupTo;
-          const levelGroupNoTo = ret.LevelGroupTo;
-          const effectiveDate = dayjs().format('YYYY-MM-DD');
+      if (!isHrPolicy) {
+        for (const [key, returnsList] of Object.entries(groupedReturns)) {
+          approversData[key] = [];
+          
+          for (const ret of returnsList) {
+            // TransactionType 6 equivalent for approvers? Usually standard approval for return. JobType = 7
+            const jobType = 7;
+            const userGroupReceive = defaultUserGroup;
+            const orgUnitNoReceive = ret.UnitReceive;
+            const orgUnitNoTransfer = ret.UnitTransfer;
+            const levelGroupNoFrom = ret.LevelGroupTo;
+            const levelGroupNoTo = ret.LevelGroupTo;
+            const effectiveDate = dayjs().format('YYYY-MM-DD');
 
-          const queryParams = new URLSearchParams({
-            jobType: jobType.toString(),
-            userGroupReceive,
-            orgUnitNoReceive,
-            levelGroupNoFrom,
-            ...(orgUnitNoTransfer ? { orgUnitNoTransfer } : {}),
-            levelGroupNoTo,
-            effectiveDate,
-            isRequirePolicy: '0'
-          });
+            const queryParams = new URLSearchParams({
+              jobType: jobType.toString(),
+              userGroupReceive,
+              orgUnitNoReceive,
+              levelGroupNoFrom,
+              ...(orgUnitNoTransfer ? { orgUnitNoTransfer } : {}),
+              levelGroupNoTo,
+              effectiveDate,
+              isRequirePolicy: '0'
+            });
 
-          const resp = await fetch(`/api/transactions/approvers?${queryParams}&_t=${Date.now()}`);
-          if (resp.ok) {
-            const data = await resp.json();
-            if (data.data?.length > 0) {
-              approversData[key] = [...approversData[key], ...data.data];
+            const resp = await fetch(`/api/transactions/approvers?${queryParams}&_t=${Date.now()}`);
+            if (resp.ok) {
+              const data = await resp.json();
+              if (data.data?.length > 0) {
+                approversData[key] = [...approversData[key], ...data.data];
+              }
             }
           }
+          
+          // Remove duplicates by EmployeeID
+          const uniqueSet = new Set();
+          approversData[key] = approversData[key].filter((item) => {
+            const isDuplicate = uniqueSet.has(item.EmployeeID);
+            uniqueSet.add(item.EmployeeID);
+            return !isDuplicate;
+          });
         }
-        
-        // Remove duplicates by EmployeeID
-        const uniqueSet = new Set();
-        approversData[key] = approversData[key].filter((item) => {
-          const isDuplicate = uniqueSet.has(item.EmployeeID);
-          uniqueSet.add(item.EmployeeID);
-          return !isDuplicate;
-        });
       }
 
-      setDynamicApprovers(approversData);
+      setDynamicApprovers(isHrPolicy ? {} : approversData);
       setIsRequestModalOpen(true);
     } catch (e) {
       console.error("Failed to load approvers", e);
@@ -944,6 +947,8 @@ export default function ReturnPage() {
     return true;
   });
 
+  const isHrPolicyRequest = isHrPolicyUserGroup(resolveUserContext().userGroupNo);
+
   return (
     <Main currentPath="/transaction/borrowreturn/return">
       <div className="space-y-4">
@@ -1254,7 +1259,9 @@ export default function ReturnPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="px-6 py-2 border-b bg-linear-to-r from-purple-200 to-purple-700 flex justify-between items-center">
-              <h2 className="text-lg font-bold text-purple-900">ยืนยันการส่งขออนุมัติคืน</h2>
+              <h2 className="text-lg font-bold text-purple-900">
+                {isHrPolicyRequest ? 'ยืนยันการอนุมัติคืน' : 'ยืนยันการส่งขออนุมัติคืน'}
+              </h2>
               <button onClick={() => setIsRequestModalOpen(false)} className="text-white hover:bg-white/20 rounded-full p-1"><X className="w-6 h-6" /></button>
             </div>
 
@@ -1300,9 +1307,9 @@ export default function ReturnPage() {
                       <span className="text-xs bg-white px-2 py-1 rounded border text-purple-700">{returns.length} รายการ</span>
                     </div>
 
-                    <div className="p-3 grid grid-cols-1 md:grid-cols-[60%_40%] gap-4">
+                    <div className={`p-3 grid gap-4 ${isHrPolicyRequest ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-[60%_40%]'}`}>
                       {/* LEFT: Return List */}
-                      <div className="space-y-2 border-r border-gray-100 pr-3">
+                      <div className={`space-y-2 ${isHrPolicyRequest ? '' : 'border-r border-gray-100 pr-3'}`}>
                         {returns.map((ret, idx) => {
                           const borrowRecord = borrowRecords.find(b => b.TransactionNo === ret.borrowId);
                           return (
@@ -1324,9 +1331,16 @@ export default function ReturnPage() {
                             </div>
                           );
                         })}
+
+                        {isHrPolicyRequest && (
+                          <div className="rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                            รายการคืนกลุ่ม HRPolicy เมื่อกด CONFIRM ระบบจะอนุมัติให้ทันที
+                          </div>
+                        )}
                       </div>
 
                       {/* RIGHT: Approver Selection */}
+                      {!isHrPolicyRequest && (
                       <div className="pl-2 space-y-4">
                         <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
                           <Users className="w-4 h-4" /> เลือกผู้อนุมัติ
@@ -1364,6 +1378,7 @@ export default function ReturnPage() {
                           ))
                         )}
                       </div>
+                      )}
                     </div>
                   </div>
                 );
