@@ -189,6 +189,7 @@ const readJsonSafely = async <T,>(response: Response): Promise<T | null> => {
 };
 
 const REPORT10_LEVEL_ORDER = ['1007', '1006', '1005', '1004'];
+const REPORT10_INCLUDED_LEVEL_GROUPS = new Set<Report10LevelGroup>(['010', '020_030', '040', '050']);
 
 const REPORT10_LEVEL_NAME_BY_CODE: Record<string, string> = {
     '1007': 'ปธบ./กผญ.',
@@ -290,7 +291,15 @@ const transformSummaryRows = (rows: Report10SummaryApiRow[]): Report10SummaryDat
         total_vac: toNumber(row.t3),
     }));
 
-    return transformed.sort((a, b) => {
+    return sortReport10SummaryRows(filterReport10SummaryRows(transformed));
+};
+
+const filterReport10SummaryRows = (rows: Report10SummaryDataType[]): Report10SummaryDataType[] => {
+    return rows.filter((row) => getReport10SummarySortRank(row.levelCode, row.position) < 99);
+};
+
+const sortReport10SummaryRows = (rows: Report10SummaryDataType[]): Report10SummaryDataType[] => {
+    return [...rows].sort((a, b) => {
         const rankA = getReport10SummarySortRank(a.levelCode, a.position);
         const rankB = getReport10SummarySortRank(b.levelCode, b.position);
         if (rankA !== rankB) return rankA - rankB;
@@ -350,6 +359,7 @@ const transformDetailRows = (rows: Report10DetailApiRow[]): Report10DetailDataTy
                 poolRsFlag,
             };
         })
+        .filter((row) => REPORT10_INCLUDED_LEVEL_GROUPS.has(row.levelGroup))
         .sort((a, b) => {
             if (levelSortOrder[a.levelGroup] !== levelSortOrder[b.levelGroup]) {
                 return levelSortOrder[a.levelGroup] - levelSortOrder[b.levelGroup];
