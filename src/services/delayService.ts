@@ -6,8 +6,12 @@ export interface DelayRetirementDataType {
     EmployeeID: string;
     EmployeeName: string;
     PosName: string;
+    UnitName?: string;
+    BUSupport?: string;
+    RetirementYear?: string;
     DelayYear: string;
     DelayStatus: number;
+    DelayType?: number;
 }
 
 export interface DelayEmployeeOptionType {
@@ -17,13 +21,16 @@ export interface DelayEmployeeOptionType {
     position: string;
     buSupport: string;
     unitName: string;
+    delayType: number;
 }
 
 export interface DelayUpsertPayload {
     EmployeeID: string;
     PosName: string;
+    RetirementYear?: string | number;
     DelayYear: string | number;
     DelayStatus: number;
+    DelayType?: number;
     UserID?: string;
 }
 

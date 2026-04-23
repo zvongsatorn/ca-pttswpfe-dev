@@ -106,6 +106,12 @@ interface SelectedReturn {
   LevelGroupToName: string;
   ParentDocumentNo: string;
   RefTransactionNo: string;
+  PoolRsFlag: number;
+  StrgFlag: number;
+  BSType: number;
+  SpecFlag: number;
+  LineStaffFlag: number;
+  Policyflag: number;
 }
 
 export interface ApproverUser {
@@ -330,7 +336,13 @@ export default function ReturnPage() {
           UnitReceiveName: record.UnitReceiveName,
           LevelGroupToName: record.LevelGroupToName,
           ParentDocumentNo: record.DocumentNo,
-          RefTransactionNo: record.TransactionNo
+          RefTransactionNo: record.TransactionNo,
+          PoolRsFlag: Number(record.PoolRsFlag || 0),
+          StrgFlag: Number(record.StrgFlag || 0),
+          BSType: Number(record.BSType || 0),
+          SpecFlag: Number(record.SpecFlag || 0),
+          LineStaffFlag: Number(record.LineStaffFlag || 0),
+          Policyflag: Number(record.Policyflag || 0),
         });
       }
       return next;
@@ -482,8 +494,15 @@ export default function ReturnPage() {
             transactionType: 7, // Return transaction
             effectiveMonth: THAI_MONTH_NAMES[dayjs().month()],
             effectiveYear: String(dayjs().year() + 543),
+            poolRsFlag: ret.PoolRsFlag,
+            strgFlag: ret.StrgFlag,
+            bsType: ret.BSType,
+            specFlag: ret.SpecFlag,
             unitReceive: ret.UnitReceive,
             unitTransfer: ret.UnitTransfer,
+            lineStaffFlag: ret.LineStaffFlag,
+            policyFlag: ret.Policyflag,
+            pastFlag: 0,
             levelGroupTo: ret.LevelGroupTo,
             levelGroupFrom: ret.LevelGroupTo,
             amount: Number(ret.returnCount),
@@ -717,6 +736,20 @@ export default function ReturnPage() {
     return 'None';
   };
 
+  const inheritBorrowFlag = (returnValue: unknown, borrowValue: unknown): unknown => {
+    const hasReturnValue = returnValue !== null && returnValue !== undefined && String(returnValue).trim() !== '';
+    if (!hasReturnValue) return borrowValue;
+
+    const normalizedReturn = toNumberOrDefault(returnValue, 0);
+    const normalizedBorrow = toNumberOrDefault(borrowValue, 0);
+
+    if (normalizedReturn === 0 && normalizedBorrow !== 0) {
+      return borrowValue;
+    }
+
+    return returnValue;
+  };
+
   const fetchReturnHistoryForExport = async (documentNo: string): Promise<ReturnRecord[]> => {
     const normalizedDocumentNo = String(documentNo || '').trim();
     if (!normalizedDocumentNo) return [];
@@ -791,7 +824,11 @@ export default function ReturnPage() {
         });
 
         returns.forEach((ret) => {
-          const returnPoolRsFlag = ret.PoolRsFlag ?? ret.PoolRSFlag;
+          const returnPoolRsFlag = inheritBorrowFlag(ret.PoolRsFlag ?? ret.PoolRSFlag, record.PoolRsFlag);
+          const returnStrgFlag = inheritBorrowFlag(ret.StrgFlag, record.StrgFlag);
+          const returnBsType = inheritBorrowFlag(ret.BSType, record.BSType);
+          const returnSpecFlag = inheritBorrowFlag(ret.SpecFlag, record.SpecFlag);
+          const returnLineStaffFlag = inheritBorrowFlag(ret.LineStaffFlag, record.LineStaffFlag);
           rows.push({
             no: rowNo++,
             transactionNo: String(ret.TransactionNo || ''),
@@ -806,10 +843,10 @@ export default function ReturnPage() {
             status: getReturnStatusLabel(Number(ret.Status || 0)),
             effectiveDate: formatDateCell(ret.EffectiveDate),
             poolRsFlag: mapPoolRsFlagLabel(returnPoolRsFlag),
-            strategicPosition: mapStrategicPositionLabel(ret.StrgFlag),
-            businessType: mapBusinessTypeLabel(ret.BSType),
-            specifically: mapSpecificallyLabel(ret.SpecFlag),
-            lineStaffFlag: mapLineStaffFlagLabel(ret.LineStaffFlag),
+            strategicPosition: mapStrategicPositionLabel(returnStrgFlag),
+            businessType: mapBusinessTypeLabel(returnBsType),
+            specifically: mapSpecificallyLabel(returnSpecFlag),
+            lineStaffFlag: mapLineStaffFlagLabel(returnLineStaffFlag),
             createDate: formatDateTimeCell(ret.CreateDate),
           });
         });

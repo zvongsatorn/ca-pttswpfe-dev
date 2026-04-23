@@ -218,13 +218,25 @@ const sapTypes = [
 // --- Helper Component: MultiSelect Filter ---
 interface MultiSelectFilterProps {
   label: string;
-  options: string[];
+  options: Array<{
+    value: string;
+    label: string;
+    searchText?: string;
+  }>;
   selectedValues: string[];
   onChange: (values: string[]) => void;
   width?: string;
+  dropdownWidth?: string;
 }
 
-function MultiSelectFilter({ label, options, selectedValues, onChange, width = "w-64" }: MultiSelectFilterProps) {
+function MultiSelectFilter({
+  label,
+  options,
+  selectedValues,
+  onChange,
+  width = "w-64",
+  dropdownWidth = "w-full",
+}: MultiSelectFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -240,15 +252,15 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = "
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const filteredOptions = options.filter(opt => 
-    opt.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredOptions = options.filter((opt) =>
+    (opt.searchText || opt.label).toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const toggleOption = (option: string) => {
-    if (selectedValues.includes(option)) {
-      onChange(selectedValues.filter(v => v !== option));
+  const toggleOption = (optionValue: string) => {
+    if (selectedValues.includes(optionValue)) {
+      onChange(selectedValues.filter(v => v !== optionValue));
     } else {
-      onChange([...selectedValues, option]);
+      onChange([...selectedValues, optionValue]);
     }
   };
 
@@ -256,7 +268,7 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = "
     if (selectedValues.length === options.length) {
       onChange([]);
     } else {
-      onChange(options);
+      onChange(options.map((option) => option.value));
     }
   };
 
@@ -281,7 +293,9 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = "
       </div>
 
       {isOpen && (
-        <div className="absolute left-0 top-full mt-1 w-72 bg-white rounded-lg shadow-xl border border-gray-200 z-[60] overflow-hidden">
+        <div
+          className={`absolute left-0 top-full mt-1 min-w-full ${dropdownWidth} max-w-[min(90vw,48rem)] bg-white rounded-lg shadow-xl border border-gray-200 z-[60] overflow-hidden`}
+        >
           <div className="p-2 border-b border-gray-100">
              <div className="relative">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -302,7 +316,7 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = "
                 className="flex items-center px-2 py-2 hover:bg-blue-50 rounded cursor-pointer mb-1 border-b border-gray-50"
                 onClick={handleSelectAll}
               >
-                <div className={`w-4 h-4 rounded border mr-2 flex items-center justify-center ${selectedValues.length === options.length && options.length > 0 ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
+                <div className={`w-4 h-4 min-w-4 min-h-4 shrink-0 rounded border mr-2 flex items-center justify-center ${selectedValues.length === options.length && options.length > 0 ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
                   {selectedValues.length === options.length && options.length > 0 && <Check className="h-3 w-3 text-white" />}
                 </div>
                 <span className="text-sm font-semibold text-blue-700">เลือกทั้งหมด</span>
@@ -310,17 +324,19 @@ function MultiSelectFilter({ label, options, selectedValues, onChange, width = "
             )}
 
             {filteredOptions.map(option => {
-              const isSelected = selectedValues.includes(option);
+              const isSelected = selectedValues.includes(option.value);
               return (
                 <div 
-                  key={option} 
+                  key={option.value}
                   className="flex items-center px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer"
-                  onClick={() => toggleOption(option)}
+                  onClick={() => toggleOption(option.value)}
                 >
-                  <div className={`w-4 h-4 rounded border mr-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
+                  <div className={`w-4 h-4 min-w-4 min-h-4 shrink-0 rounded border mr-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
                     {isSelected && <Check className="h-3 w-3 text-white" />}
                   </div>
-                  <span className="text-sm text-gray-700 truncate" title={option}>{option}</span>
+                  <span className="text-sm text-gray-700 leading-snug whitespace-normal break-words pr-2" title={option.label}>
+                    {option.label}
+                  </span>
                 </div>
               );
             })}
@@ -406,6 +422,19 @@ const normalizeSingleLineText = (value: unknown): string => {
     .replace(/\r?\n/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+};
+
+const formatDepartmentOptionLabel = (item: Pick<HRCenterItem, 'OrgUnitNo' | 'UnitName' | 'UnitAbbr'>): string => {
+  const orgUnitNo = normalizeText(item.OrgUnitNo);
+  const unitName = normalizeText(item.UnitName);
+  const unitAbbr = normalizeText(item.UnitAbbr);
+  const namePart = [orgUnitNo, unitName].filter(Boolean).join(' ');
+
+  if (unitAbbr) {
+    return `${namePart} (${unitAbbr})`.trim();
+  }
+
+  return namePart || orgUnitNo;
 };
 
 const toNumber = (value: unknown): number => {
@@ -852,12 +881,32 @@ export default function HRCenterPage() {
   // 1. Get Unique Options
   const businessUnitOptions = useMemo(() => {
     const units = new Set(departmentData.map(d => d.BGName).filter(Boolean));
-    return Array.from(units).sort();
+    return Array.from(units)
+      .sort()
+      .map((unit) => ({
+        value: unit,
+        label: unit,
+      }));
   }, [departmentData]);
 
   const departmentOptions = useMemo(() => {
-    const depts = new Set(departmentData.map(d => d.UnitName).filter(Boolean));
-    return Array.from(depts).sort();
+    const departmentMap = new Map<string, { value: string; label: string; searchText: string }>();
+
+    departmentData.forEach((item) => {
+      const orgUnitNo = normalizeText(item.OrgUnitNo);
+      if (!orgUnitNo) return;
+
+      departmentMap.set(orgUnitNo, {
+        value: orgUnitNo,
+        label: formatDepartmentOptionLabel(item),
+        searchText: [orgUnitNo, normalizeText(item.UnitName), normalizeText(item.UnitAbbr)]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase(),
+      });
+    });
+
+    return Array.from(departmentMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'th'));
   }, [departmentData]);
 
   const managementTypeOptions = useMemo(() => {
@@ -873,7 +922,7 @@ export default function HRCenterPage() {
         return false;
       }
       // Filter by Department
-      if (selectedDepartments.length > 0 && !selectedDepartments.includes(item.UnitName)) {
+      if (selectedDepartments.length > 0 && !selectedDepartments.includes(normalizeText(item.OrgUnitNo))) {
         return false;
       }
       // Filter by SAP Status
@@ -1345,6 +1394,7 @@ export default function HRCenterPage() {
                 selectedValues={selectedBusinessUnits}
                 onChange={setSelectedBusinessUnits}
                 width="w-48"
+                 dropdownWidth="w-[18rem]"
               />
             </div>
 
@@ -1358,7 +1408,8 @@ export default function HRCenterPage() {
                 options={departmentOptions}
                 selectedValues={selectedDepartments}
                 onChange={setSelectedDepartments}
-                width="w-80"
+                width="w-[20rem]"
+                dropdownWidth="w-[38rem]"
               />
             </div>
 

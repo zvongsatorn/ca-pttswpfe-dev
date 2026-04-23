@@ -45,6 +45,7 @@ function DelayRetirementContent() {
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [editingKey, setEditingKey] = useState<string | null>(null);
     const [tableLoading, setTableLoading] = useState(false);
+    const [saveLoading, setSaveLoading] = useState(false);
     const [tableData, setTableData] = useState<DelayRetirementDataType[]>([]);
     const [employeeOptions, setEmployeeOptions] = useState<DelayEmployeeOptionType[]>([]);
     const [retireYearOptions, setRetireYearOptions] = useState<Array<{ value: string; label: string }>>([]);
@@ -83,10 +84,6 @@ function DelayRetirementContent() {
             setSelectedYear((prev) => prev || String(CURRENT_BE_YEAR));
         }
     }, [fallbackRetireYearOptions, token]);
-    const selectedEmployeeIdSet = useMemo(
-        () => new Set(employeeOptions.map((item) => item.value)),
-        [employeeOptions]
-    );
     const employeeBuSupportById = useMemo(
         () => new Map(employeeOptions.map((item) => [item.value, item.buSupport || '-'])),
         [employeeOptions]
@@ -101,7 +98,7 @@ function DelayRetirementContent() {
         setTableLoading(true);
         try {
             const [dataRes, empRes] = await Promise.all([
-                getDelayRetirementData(token),
+                getDelayRetirementData(token, selectedYear),
                 getEmployeeOptions(token, selectedYear)
             ]);
 
@@ -141,11 +138,10 @@ function DelayRetirementContent() {
 
     const filteredData = useMemo(() => {
         return tableData.filter(item => {
-            const matchesRetireYear = selectedEmployeeIdSet.has(item.EmployeeID);
             const matchesSearch = item.EmployeeID.includes(searchText) || item.EmployeeName.includes(searchText) || item.PosName.includes(searchText);
-            return matchesRetireYear && matchesSearch;
+            return matchesSearch;
         });
-    }, [tableData, selectedEmployeeIdSet, searchText]);
+    }, [tableData, searchText]);
 
     const handleDelete = async (delayId: string) => {
         try {
@@ -180,12 +176,15 @@ function DelayRetirementContent() {
         try {
             const values = await form.validateFields();
             const selectedEmp = employeeOptions.find(opt => opt.value === values.EmployeeID);
+            setSaveLoading(true);
 
             const payload = {
                 EmployeeID: values.EmployeeID,
                 PosName: selectedEmp?.position || values.PosName || '',
+                RetirementYear: selectedYear,
                 DelayYear: String(values.DelayYear || '').trim(),
                 DelayStatus: 1,
+                DelayType: selectedEmp?.delayType || 1,
                 UserID: currentUser?.employeeID || 'SYSTEM'
             };
 
@@ -225,6 +224,8 @@ function DelayRetirementContent() {
 
             console.error('Save Delay failed:', error);
             notification.error({ title: 'ไม่สำเร็จ', description: 'เกิดข้อผิดพลาดระหว่างบันทึกข้อมูล' });
+        } finally {
+            setSaveLoading(false);
         }
     };
 
@@ -237,14 +238,22 @@ function DelayRetirementContent() {
             key: 'UnitName',
             width: 300,
             ellipsis: true,
-            render: (_, record) => <span className="block truncate text-slate-700">{employeeUnitNameById.get(record.EmployeeID) || '-'}</span>
+            render: (_, record) => <span className="block truncate text-slate-700">{record.UnitName || employeeUnitNameById.get(record.EmployeeID) || '-'}</span>
         },
         {
             title: 'BU/Support',
             key: 'BUSupport',
             align: 'center',
             width: 120,
-            render: (_, record) => employeeBuSupportById.get(record.EmployeeID) || '-'
+            render: (_, record) => {
+                if (record.BUSupport) {
+                    return record.BUSupport;
+                }
+                if (record.DelayType === 1 || record.DelayType === 2) {
+                    return record.DelayType === 2 ? 'Support' : 'Business';
+                }
+                return employeeBuSupportById.get(record.EmployeeID) || '-';
+            }
         },
         { title: 'ปีที่ทด', dataIndex: 'DelayYear', key: 'DelayYear', align: 'center', width: 100 },
         {
@@ -299,7 +308,14 @@ function DelayRetirementContent() {
             <Modal
                 title={<div className="font-bold text-lg border-b pb-3 mb-2">{editingKey ? 'แก้ไขข้อมูลพนักงานเกษียณ(ทด)' : 'เพิ่มพนักงานเกษียณ(ทด)'}</div>}
                 open={isModalVisible} onOk={handleSave} onCancel={() => setIsModalVisible(false)}
-                okText="บันทึกข้อมูล" okButtonProps={{ className: 'bg-blue-600 font-bold px-10 rounded-lg' }} cancelButtonProps={{ className: 'px-8 rounded-lg' }} width={550}
+                confirmLoading={saveLoading}
+                okText="บันทึกข้อมูล"
+                okButtonProps={{ className: 'bg-blue-600 font-bold px-10 rounded-lg' }}
+                cancelButtonProps={{ className: 'px-8 rounded-lg', disabled: saveLoading }}
+                closable={!saveLoading}
+                maskClosable={!saveLoading}
+                keyboard={!saveLoading}
+                width={550}
             >
                 <div className="py-6">
                     <Form form={form} layout="vertical" requiredMark={false}>
