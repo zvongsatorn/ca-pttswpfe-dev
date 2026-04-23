@@ -99,6 +99,22 @@ const toText = (value: unknown): string => {
     return String(value).trim();
 };
 
+const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, '');
+
+const getBackendBaseUrl = (): string => {
+    const envBaseUrl = normalizeBaseUrl((process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '').trim());
+    if (envBaseUrl) return envBaseUrl;
+
+    if (typeof window !== 'undefined') {
+        const { protocol, hostname } = window.location;
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            return `${protocol}//${hostname}:5000`;
+        }
+    }
+
+    return '';
+};
+
 const resolveEmployeeId = (): string => {
     if (typeof window === 'undefined') return 'SYSTEM';
 
@@ -310,7 +326,7 @@ function SapMonitorPageContent() {
     const downloadSapFile = useCallback((downloadPath?: string) => {
         const targetPath = toText(downloadPath) || '/api/transactions/hrcenter/sap-file';
         const separator = targetPath.includes('?') ? '&' : '?';
-        window.open(`${targetPath}${separator}t=${Date.now()}`, '_blank', 'noopener,noreferrer');
+        window.open(`${getBackendBaseUrl()}${targetPath}${separator}t=${Date.now()}`, '_blank', 'noopener,noreferrer');
     }, []);
 
     const loadGrid = useCallback(async () => {
@@ -408,7 +424,7 @@ function SapMonitorPageContent() {
 
             const monthLabel = MONTHS.find((item) => item.value === monthValue)?.label || MONTHS[0].label;
 
-            const response = await fetch('/api/transactions/hrcenter/send-to-sap', {
+            const response = await fetch(`${getBackendBaseUrl()}/api/transactions/hrcenter/send-to-sap`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

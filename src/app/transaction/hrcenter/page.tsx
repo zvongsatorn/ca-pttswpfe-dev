@@ -34,6 +34,22 @@ import { useState, useRef, useEffect, useMemo, useSyncExternalStore } from 'reac
 
 const months = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
 
+const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, '');
+
+const getBackendBaseUrl = (): string => {
+  const envBaseUrl = normalizeBaseUrl((process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '').trim());
+  if (envBaseUrl) return envBaseUrl;
+
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `${protocol}//${hostname}:5000`;
+    }
+  }
+
+  return '';
+};
+
 const getYears = () => {
   if (typeof window === 'undefined') return ['2568', '2569'];
   const startYearStr = localStorage.getItem('StartYear') || '2568';
@@ -1051,7 +1067,7 @@ export default function HRCenterPage() {
         orgUnits: Array.from(selectedOrgUnits)
       };
 
-      const response = await fetch('/api/transactions/hrcenter/send-to-sap', {
+      const response = await fetch(`${getBackendBaseUrl()}/api/transactions/hrcenter/send-to-sap`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1094,7 +1110,7 @@ export default function HRCenterPage() {
   };
 
   const handleDownloadSapFile = () => {
-    window.open(`/api/transactions/hrcenter/sap-file?t=${Date.now()}`, '_blank', 'noopener,noreferrer');
+    window.open(`${getBackendBaseUrl()}/api/transactions/hrcenter/sap-file?t=${Date.now()}`, '_blank', 'noopener,noreferrer');
   };
 
 
