@@ -131,7 +131,6 @@ function RetirementContent() {
     const [tableData, setTableData] = useState<RetirementDataType[]>([]);
     const [loading, setLoading] = useState(false);
 
-    const toAD = (year: string | number) => { const y = typeof year === 'string' ? parseInt(year) : year; return y > 2500 ? y - 543 : y; };
     const toBE = (year: string | number) => { const y = typeof year === 'string' ? parseInt(year) : year; return y < 2500 ? y + 543 : y; };
 
     const processRates = useCallback((rates: RateRecord[]) => {
@@ -158,7 +157,7 @@ function RetirementContent() {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await fetchRetirementRates(toAD(selectedYear), token) as RetirementApiResponse | null;
+            const res = await fetchRetirementRates(parseInt(selectedYear, 10), token) as RetirementApiResponse | null;
             if (res?.data) {
                 setRemark(res.data.remark || '');
                 setLevelGroupNo(String(res.data.levelGroupNo || '').trim());
@@ -189,7 +188,7 @@ function RetirementContent() {
                     const raw = row[yearBE.toString()] || '0:1';
                     const ratio = parseRatioCell(raw);
                     return {
-                        year: toAD(yearBE),
+                        year: yearBE,
                         rate: ratio.rate,
                         base: ratio.base,
                         typeRate,
@@ -201,7 +200,7 @@ function RetirementContent() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({
-                    effectiveYear: toAD(selectedYear),
+                    effectiveYear: startYearBE,
                     rates,
                     remark,
                     levelGroupNo,
@@ -228,7 +227,7 @@ function RetirementContent() {
                     const res = await fetch(`${API_BASE_URL}/api/retirement/copy`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ fromYear: toAD(lastYearBE), toYear: toAD(currentYearBE), user: currentUser?.employeeID || 'SYSTEM' }),
+                        body: JSON.stringify({ fromYear: lastYearBE, toYear: currentYearBE, user: currentUser?.employeeID || 'SYSTEM' }),
                     });
                     if (res.ok) { notification.success({ title: 'สำเร็จ', description: 'สำเนาข้อมูลเรียบร้อยแล้ว' }); fetchData(); }
                     else { const err = await res.json(); notification.error({ title: 'ข้อผิดพลาด', description: err.error || 'Failed to copy' }); }
