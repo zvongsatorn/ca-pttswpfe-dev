@@ -85,10 +85,18 @@ type ShapeRule =
     }
     | { type: 'sum'; fields: FormulaField[] };
 
-type GapRule = {
-    baseField: FormulaField;
-    shapeField: FormulaField;
-};
+type GapMetric = 'gap_vp' | 'gap_dm' | 'gap_sr' | 'gap_jr' | 'gap_total';
+
+type GapRule =
+    | {
+        type: 'ratio';
+        baseField: FormulaField;
+        shapeField: FormulaField;
+    }
+    | {
+        type: 'sum';
+        fields: GapMetric[];
+    };
 
 type FormulaConfig = {
     shape: Record<ShapeTarget, ShapeRule>;
@@ -120,8 +128,10 @@ type ShapeRuleBuilderForm = {
 };
 
 type GapRuleBuilderForm = {
+    type?: GapRule['type'];
     baseField?: FormulaField;
     shapeField?: FormulaField;
+    fields?: GapMetric[];
 };
 
 interface LandscapeFormulaFormValues {
@@ -169,9 +179,22 @@ const SHAPE_RULE_TYPE_OPTIONS = [
     { value: 'sum', label: 'Sum' }
 ] as const;
 
+const GAP_RULE_TYPE_OPTIONS = [
+    { value: 'ratio', label: 'Ratio' },
+    { value: 'sum', label: 'Sum' }
+] as const;
+
+const GAP_METRIC_OPTIONS: Array<{ value: GapMetric; label: string }> = [
+    { value: 'gap_vp', label: 'gap_vp' },
+    { value: 'gap_dm', label: 'gap_dm' },
+    { value: 'gap_sr', label: 'gap_sr' },
+    { value: 'gap_jr', label: 'gap_jr' },
+    { value: 'gap_total', label: 'gap_total' }
+];
+
 const DEFAULT_FORMULA_CONFIG: FormulaConfig = {
     shape: {
-        vp: { type: 'direct', field: 'mp_vp' },
+        vp: { type: 'direct', field: 'q_4' },
         dm: {
             type: 'ratio_x_sum',
             numerator: 'mp_dm',
@@ -180,13 +203,13 @@ const DEFAULT_FORMULA_CONFIG: FormulaConfig = {
         },
         sr: {
             type: 'ratio_x_sum',
-            numerator: 'mp_dm',
+            numerator: 'mp_sr',
             denominator: ['mp_dm', 'mp_sr', 'mp_jr'],
             multiplier: ['q_5', 'q_6', 'q_7']
         },
         jr: {
             type: 'ratio_x_sum',
-            numerator: 'mp_dm',
+            numerator: 'mp_jr',
             denominator: ['mp_dm', 'mp_sr', 'mp_jr'],
             multiplier: ['q_5', 'q_6', 'q_7']
         },
@@ -196,11 +219,11 @@ const DEFAULT_FORMULA_CONFIG: FormulaConfig = {
         }
     },
     gap: {
-        vp: { baseField: 'q_4', shapeField: 'shape_vp' },
-        dm: { baseField: 'q_4', shapeField: 'shape_dm' },
-        sr: { baseField: 'q_5', shapeField: 'shape_sr' },
-        jr: { baseField: 'q_5', shapeField: 'shape_jr' },
-        total: { baseField: 'q_6', shapeField: 'shape_total' }
+        vp: { type: 'ratio', baseField: 'q_4', shapeField: 'shape_vp' },
+        dm: { type: 'ratio', baseField: 'q_5', shapeField: 'shape_dm' },
+        sr: { type: 'ratio', baseField: 'q_6', shapeField: 'shape_sr' },
+        jr: { type: 'ratio', baseField: 'q_7', shapeField: 'shape_jr' },
+        total: { type: 'sum', fields: ['gap_vp', 'gap_dm', 'gap_sr', 'gap_jr'] }
     }
 };
 
@@ -251,6 +274,9 @@ const isPeriodOverlap = (aBegin: string, aEnd: string, bBegin: string, bEnd: str
 
 const isFormulaField = (value: unknown): value is FormulaField =>
     typeof value === 'string' && FORMULA_FIELDS.includes(value as FormulaField);
+
+const isGapMetric = (value: unknown): value is GapMetric =>
+    typeof value === 'string' && GAP_METRIC_OPTIONS.some((item) => item.value === value);
 
 const parseFormulaConfig = (value: unknown): FormulaConfig | null => {
     if (!value || typeof value !== 'object') return null;
@@ -304,12 +330,27 @@ const parseFormulaConfig = (value: unknown): FormulaConfig | null => {
     for (const target of GAP_TARGETS) {
         const rawRule = gapSource[target] as Record<string, unknown> | undefined;
         if (!rawRule || typeof rawRule !== 'object') return null;
-        if (!isFormulaField(rawRule.baseField)) return null;
-        if (!isFormulaField(rawRule.shapeField)) return null;
-        gap[target] = {
-            baseField: rawRule.baseField,
-            shapeField: rawRule.shapeField
-        };
+        // backward compatible: old payload with only baseField/shapeField
+        if ((rawRule.type === undefined || rawRule.type === null || rawRule.type === 'ratio')) {
+            if (!isFormulaField(rawRule.baseField)) return null;
+            if (!isFormulaField(rawRule.shapeField)) return null;
+            gap[target] = {
+                type: 'ratio',
+                baseField: rawRule.baseField,
+                shapeField: rawRule.shapeField
+            };
+            continue;
+        }
+        if (rawRule.type === 'sum') {
+            const fields = Array.isArray(rawRule.fields) ? rawRule.fields : [];
+            if (!fields.length || !fields.every((item) => isGapMetric(item))) return null;
+            gap[target] = {
+                type: 'sum',
+                fields: fields as GapMetric[]
+            };
+            continue;
+        }
+        return null;
     }
 
     return { shape, gap };
@@ -353,7 +394,15 @@ const buildBuilderValuesFromConfig = (config: FormulaConfig): Pick<LandscapeForm
     const gap: Partial<Record<GapTarget, GapRuleBuilderForm>> = {};
     GAP_TARGETS.forEach((target) => {
         const rule = config.gap[target];
+        if (rule.type === 'sum') {
+            gap[target] = {
+                type: 'sum',
+                fields: rule.fields
+            };
+            return;
+        }
         gap[target] = {
+            type: 'ratio',
             baseField: rule.baseField,
             shapeField: rule.shapeField
         };
@@ -411,15 +460,28 @@ const buildFormulaConfigFromForm = (values: LandscapeFormulaFormValues): { confi
     for (const target of GAP_TARGETS) {
         const rule = values.gap?.[target];
         if (!rule) return { error: `กรุณาระบุสูตร Gap ${target.toUpperCase()}` };
-        if (!isFormulaField(rule.baseField)) {
-            return { error: `กรุณาเลือก Base Field ของ Gap ${target.toUpperCase()}` };
+        if (!rule.type) return { error: `กรุณาเลือกชนิดสูตร Gap ${target.toUpperCase()}` };
+        if (rule.type === 'ratio') {
+            if (!isFormulaField(rule.baseField)) {
+                return { error: `กรุณาเลือก Base Field ของ Gap ${target.toUpperCase()}` };
+            }
+            if (!isFormulaField(rule.shapeField)) {
+                return { error: `กรุณาเลือก Shape Field ของ Gap ${target.toUpperCase()}` };
+            }
+            gap[target] = {
+                type: 'ratio',
+                baseField: rule.baseField,
+                shapeField: rule.shapeField
+            };
+            continue;
         }
-        if (!isFormulaField(rule.shapeField)) {
-            return { error: `กรุณาเลือก Shape Field ของ Gap ${target.toUpperCase()}` };
+        const fields = rule.fields || [];
+        if (!fields.length || !fields.every((item) => isGapMetric(item))) {
+            return { error: `กรุณาเลือกรายการ Sum ของ Gap ${target.toUpperCase()}` };
         }
         gap[target] = {
-            baseField: rule.baseField,
-            shapeField: rule.shapeField
+            type: 'sum',
+            fields
         };
     }
 
@@ -1273,18 +1335,52 @@ function LandscapeContent() {
                                 <div key={`gap-${target}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                                     <div className="text-sm font-semibold text-slate-700 mb-2">Gap {target.toUpperCase()}</div>
                                     <Form.Item
-                                        label="Base Field"
-                                        name={['gap', target, 'baseField']}
-                                        rules={[{ required: true, message: 'กรุณาเลือก Base Field' }]}
+                                        label="Rule Type"
+                                        name={['gap', target, 'type']}
+                                        rules={[{ required: true, message: 'กรุณาเลือก Rule Type' }]}
                                     >
-                                        <Select options={ALL_FIELD_OPTIONS} showSearch optionFilterProp="label" />
+                                        <Select options={GAP_RULE_TYPE_OPTIONS.map((item) => ({ value: item.value, label: item.label }))} />
                                     </Form.Item>
-                                    <Form.Item
-                                        label="Shape Field"
-                                        name={['gap', target, 'shapeField']}
-                                        rules={[{ required: true, message: 'กรุณาเลือก Shape Field' }]}
-                                    >
-                                        <Select options={SHAPE_FIELD_OPTIONS} showSearch optionFilterProp="label" />
+
+                                    <Form.Item noStyle shouldUpdate>
+                                        {() => {
+                                            const currentType = formulaForm.getFieldValue(['gap', target, 'type']) as GapRule['type'] | undefined;
+
+                                            if (currentType === 'ratio') {
+                                                return (
+                                                    <>
+                                                        <Form.Item
+                                                            label="Base Field"
+                                                            name={['gap', target, 'baseField']}
+                                                            rules={[{ required: true, message: 'กรุณาเลือก Base Field' }]}
+                                                        >
+                                                            <Select options={ALL_FIELD_OPTIONS} showSearch optionFilterProp="label" />
+                                                        </Form.Item>
+                                                        <Form.Item
+                                                            label="Shape Field"
+                                                            name={['gap', target, 'shapeField']}
+                                                            rules={[{ required: true, message: 'กรุณาเลือก Shape Field' }]}
+                                                        >
+                                                            <Select options={SHAPE_FIELD_OPTIONS} showSearch optionFilterProp="label" />
+                                                        </Form.Item>
+                                                    </>
+                                                );
+                                            }
+
+                                            if (currentType === 'sum') {
+                                                return (
+                                                    <Form.Item
+                                                        label="Fields (Sum)"
+                                                        name={['gap', target, 'fields']}
+                                                        rules={[{ required: true, message: 'กรุณาเลือกรายการ Sum' }]}
+                                                    >
+                                                        <Select mode="multiple" options={GAP_METRIC_OPTIONS} showSearch optionFilterProp="label" />
+                                                    </Form.Item>
+                                                );
+                                            }
+
+                                            return null;
+                                        }}
                                     </Form.Item>
                                 </div>
                             ))}

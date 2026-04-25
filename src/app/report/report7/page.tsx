@@ -120,8 +120,7 @@ interface Report7DataType {
     gap_vp: number; gap_dm: number; gap_sr: number; gap_jr: number; gap_total: number;
 
     remark: string;
-    children?: Report7DataType[];
-    [key: string]: string | number | Report7DataType[] | undefined;
+    [key: string]: string | number | undefined;
 }
 
 const levelConfigs = [
@@ -144,6 +143,15 @@ const metricConfigs = [
 ] as const;
 const mpShapeMetricConfigs = metricConfigs;
 const gapMetricConfigs = metricConfigs;
+
+const baseColumnWidths = {
+    unitShort: 112,
+    unitCode: 112,
+    unitName: 360,
+    unitLevel: 108,
+    businessUnit: 92,
+    remark: 220
+} as const;
 
 const displayGroupOptions = [
     { value: 'unit_short', label: 'ชื่อย่อ' },
@@ -181,6 +189,8 @@ const toText = (value: unknown): string => {
     if (value === null || value === undefined) return '';
     return String(value).trim();
 };
+
+const cleanUnitShort = (value: unknown): string => toText(value).replace(/\s*ขึ้นตรง\s*$/, '').trim();
 
 const normalizeFieldKey = (key: string): string => key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
 
@@ -275,6 +285,13 @@ const toLineOption = (row: Report7FilterItem): FilterOption | null => {
     return { value, label: `${value} - ${label}` };
 };
 
+const toUnitOption = (row: Report7FilterItem): FilterOption | null => {
+    const value = toText(row.OrgUnitNo);
+    const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
+    if (!value || !label) return null;
+    return { value, label: `${value} - ${label}` };
+};
+
 const transformRows = (rows: Report7ApiRow[]): Report7DataType[] => {
     const normalized = rows.map((raw, idx) => ({
         key: toText(raw.key) || `r7-${idx + 1}`,
@@ -314,7 +331,7 @@ const transformRows = (rows: Report7ApiRow[]): Report7DataType[] => {
                 'level'
             ])
         ),
-        unit_short: toText(
+        unit_short: cleanUnitShort(
             pickFieldValue(raw, ['unit_short', 'UnitShort', 'UnitAbbr', 'unit_abbr', 'OrgUnitAbbr'])
         ),
         unit_name: toText(
@@ -354,68 +371,6 @@ const transformRows = (rows: Report7ApiRow[]): Report7DataType[] => {
     }
 
     return normalized;
-};
-
-const buildTree = (rows: Report7DataType[]): Report7DataType[] => {
-    if (!rows.length) return [];
-
-    const byOrgUnit = new Map<string, Report7DataType>();
-    rows.forEach((row) => {
-        byOrgUnit.set(row.org_unit_no || row.key, { ...row, children: [] });
-    });
-
-    const roots: Report7DataType[] = [];
-
-    rows.forEach((row) => {
-        const key = row.org_unit_no || row.key;
-        const node = byOrgUnit.get(key);
-        if (!node) return;
-
-        const parentKey = row.parent_org_unit_no;
-        const parentNode = parentKey ? byOrgUnit.get(parentKey) : undefined;
-        const isRoot = !parentKey || parentKey === '-1' || !parentNode || parentKey === key;
-
-        if (isRoot) {
-            roots.push(node);
-            return;
-        }
-
-        parentNode.children = parentNode.children || [];
-        parentNode.children.push(node);
-    });
-
-    const sortRecursively = (items: Report7DataType[]) => {
-        items.sort((a, b) => {
-            const lvlDiff = a.lvl - b.lvl;
-            if (lvlDiff !== 0) return lvlDiff;
-            const aNum = Number(a.org_unit_no);
-            const bNum = Number(b.org_unit_no);
-            if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
-            return a.org_unit_no.localeCompare(b.org_unit_no);
-        });
-
-        items.forEach((item) => {
-            if (!item.children || item.children.length === 0) {
-                delete item.children;
-                return;
-            }
-            sortRecursively(item.children);
-        });
-    };
-
-    sortRecursively(roots);
-    return roots;
-};
-
-const flattenRows = (rows: Report7DataType[], depth = 0): Array<Report7DataType & { _depth: number }> => {
-    const output: Array<Report7DataType & { _depth: number }> = [];
-    rows.forEach((row) => {
-        output.push({ ...row, _depth: depth });
-        if (row.children?.length) {
-            output.push(...flattenRows(row.children, depth + 1));
-        }
-    });
-    return output;
 };
 
 interface MultiSelectFilterProps {
@@ -540,12 +495,13 @@ export default function Report7Page() {
 
     const [businessUnitOptions, setBusinessUnitOptions] = useState<FilterOption[]>([]);
     const [lineOfWorkOptions, setLineOfWorkOptions] = useState<FilterOption[]>([]);
+    const [orgUnitOptions, setOrgUnitOptions] = useState<FilterOption[]>([]);
 
     const [selectedBusinessUnits, setSelectedBusinessUnits] = useState<string[]>([]);
     const [selectedLinesOfWork, setSelectedLinesOfWork] = useState<string[]>([]);
+    const [selectedOrgUnits, setSelectedOrgUnits] = useState<string[]>([]);
 
     const [selectedDisplayGroups, setSelectedDisplayGroups] = useState<string[]>(defaultDisplayGroups);
-    const [expandedRowKeys, setExpandedRowKeys] = useState<readonly React.Key[]>([]);
 
     useEffect(() => {
         return () => {
@@ -555,7 +511,7 @@ export default function Report7Page() {
         };
     }, []);
 
-    const fetchFilterOptions = useCallback(async (effectiveDate: Dayjs, bgNo = '', signal?: AbortSignal) => {
+    const fetchFilterOptions = useCallback(async (effectiveDate: Dayjs, bgNo = '', division = '', signal?: AbortSignal) => {
         const { employeeId, userGroupNo } = resolveUserContext();
 
         try {
@@ -565,6 +521,7 @@ export default function Report7Page() {
                 userGroupNo
             });
             if (bgNo) query.set('bgNo', bgNo);
+            if (division) query.set('division', division);
 
             const res = await fetch(`/api/report/report7/filters?${query.toString()}`, { signal });
             const payload = await readJsonSafely<Report7FilterResponse>(res);
@@ -572,8 +529,10 @@ export default function Report7Page() {
             if (!res.ok || !payload || payload.status !== 200 || !payload.data) {
                 setBusinessUnitOptions([]);
                 setLineOfWorkOptions([]);
+                setOrgUnitOptions([]);
                 setSelectedBusinessUnits((prev) => (prev.length > 0 ? [] : prev));
                 setSelectedLinesOfWork((prev) => (prev.length > 0 ? [] : prev));
+                setSelectedOrgUnits((prev) => (prev.length > 0 ? [] : prev));
                 return;
             }
 
@@ -587,23 +546,32 @@ export default function Report7Page() {
                     .map(toLineOption)
                     .filter((item): item is FilterOption => item !== null)
             );
+            const nextOrgUnits = uniqueOptions(
+                payload.data.units
+                    .map(toUnitOption)
+                    .filter((item): item is FilterOption => item !== null)
+            );
 
             setBusinessUnitOptions(nextBusiness);
             setLineOfWorkOptions(nextLines);
+            setOrgUnitOptions(nextOrgUnits);
 
             setSelectedBusinessUnits((prev) => syncSelected(prev, nextBusiness));
             setSelectedLinesOfWork((prev) => syncSelected(prev, nextLines));
+            setSelectedOrgUnits((prev) => syncSelected(prev, nextOrgUnits));
         } catch (error) {
             if (signal?.aborted) return;
             console.error('Failed to fetch report7 filters:', error);
             setBusinessUnitOptions([]);
             setLineOfWorkOptions([]);
+            setOrgUnitOptions([]);
             setSelectedBusinessUnits((prev) => (prev.length > 0 ? [] : prev));
             setSelectedLinesOfWork((prev) => (prev.length > 0 ? [] : prev));
+            setSelectedOrgUnits((prev) => (prev.length > 0 ? [] : prev));
         }
     }, []);
 
-    const fetchReportData = useCallback(async (date: Dayjs, bgNo = '', division = '') => {
+    const fetchReportData = useCallback(async (date: Dayjs, bgNo = '', division = '', orgUnitNo = '') => {
         const { employeeId, userGroupNo } = resolveUserContext();
         setLoading(true);
 
@@ -615,6 +583,7 @@ export default function Report7Page() {
             });
             if (bgNo) query.set('bgNo', bgNo);
             if (division) query.set('division', division);
+            if (orgUnitNo) query.set('orgUnitNo', orgUnitNo);
 
             const res = await fetch(`/api/report/report7?${query.toString()}`);
             const payload = await readJsonSafely<Report7ApiResponse>(res);
@@ -625,8 +594,7 @@ export default function Report7Page() {
             }
 
             const normalized = transformRows(payload.data);
-            const tree = buildTree(normalized);
-            setAllData(tree);
+            setAllData(normalized);
             setHasSearched(true);
         } catch (error) {
             console.error('Failed to fetch report7 data:', error);
@@ -644,8 +612,9 @@ export default function Report7Page() {
 
         const bgNo = selectedBusinessUnits.join(',');
         const division = selectedLinesOfWork.join(',');
+        const orgUnitNo = selectedOrgUnits.join(',');
 
-        await fetchReportData(date, bgNo, division);
+        await fetchReportData(date, bgNo, division, orgUnitNo);
     };
 
     const toggleFullscreen = async () => {
@@ -691,18 +660,19 @@ export default function Report7Page() {
     }, [hasSearched, isFullscreen, selectedDisplayGroups, allData.length]);
 
     const selectedBusinessUnit = selectedBusinessUnits.length === 1 ? selectedBusinessUnits[0] : '';
+    const selectedLineOfWork = selectedLinesOfWork.length === 1 ? selectedLinesOfWork[0] : '';
 
     useEffect(() => {
         const controller = new AbortController();
         const timer = window.setTimeout(() => {
-            void fetchFilterOptions(filterDate, selectedBusinessUnit, controller.signal);
+            void fetchFilterOptions(filterDate, selectedBusinessUnit, selectedLineOfWork, controller.signal);
         }, 180);
 
         return () => {
             window.clearTimeout(timer);
             controller.abort();
         };
-    }, [filterDate, selectedBusinessUnit, fetchFilterOptions]);
+    }, [filterDate, selectedBusinessUnit, selectedLineOfWork, fetchFilterOptions]);
 
     const onBusinessChange = (values: string[]) => {
         setSelectedBusinessUnits(values);
@@ -710,6 +680,10 @@ export default function Report7Page() {
 
     const onLineChange = (values: string[]) => {
         setSelectedLinesOfWork(values);
+    };
+
+    const onUnitChange = (values: string[]) => {
+        setSelectedOrgUnits(values);
     };
 
     const onDisplayGroupsChange = (list: Array<string | number>) => {
@@ -727,7 +701,6 @@ export default function Report7Page() {
     const tableDataWithSummary = useMemo(() => {
         if (!allData.length) return [];
 
-        const flat = flattenRows(allData);
         const summary: Report7DataType = {
             key: 'TOTAL_SUMMARY',
             org_unit_no: '',
@@ -757,19 +730,12 @@ export default function Report7Page() {
             remark: ''
         };
 
-        flat.forEach((row) => {
+        allData.forEach((row) => {
             numericKeys.forEach((key) => {
                 summary[key] = toNumber(summary[key]) + toNumber(row[key]);
             });
         });
         return [...allData, summary];
-    }, [allData]);
-
-    useEffect(() => {
-        const keys = flattenRows(allData)
-            .filter((row) => Boolean(row.children && row.children.length))
-            .map((row) => row.key);
-        setExpandedRowKeys(keys);
     }, [allData]);
 
     const metricVisibility = useMemo(() => {
@@ -848,7 +814,8 @@ export default function Report7Page() {
                 title: 'ชื่อย่อ',
                 dataIndex: 'unit_short',
                 key: 'unit_short',
-                width: 150,
+                width: baseColumnWidths.unitShort,
+                ellipsis: true,
                 fixed: 'left' as const,
                 onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }),
                 onCell: getBasicCell
@@ -857,7 +824,8 @@ export default function Report7Page() {
                 title: 'รหัสหน่วยงาน',
                 dataIndex: 'org_unit_no',
                 key: 'org_unit_no',
-                width: 120,
+                width: baseColumnWidths.unitCode,
+                ellipsis: true,
                 fixed: 'left' as const,
                 onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }),
                 onCell: getBasicCell
@@ -866,7 +834,8 @@ export default function Report7Page() {
                 title: 'ชื่อหน่วยงาน',
                 dataIndex: 'unit_name',
                 key: 'unit_name',
-                width: 320,
+                width: baseColumnWidths.unitName,
+                ellipsis: true,
                 onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }),
                 onCell: getBasicCell
             }] : []),
@@ -874,7 +843,8 @@ export default function Report7Page() {
                 title: 'ระดับ',
                 dataIndex: 'unit_level_name',
                 key: 'unit_level_name',
-                width: 130,
+                width: baseColumnWidths.unitLevel,
+                ellipsis: true,
                 onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }),
                 onCell: getBasicCell
             }] : []),
@@ -882,7 +852,8 @@ export default function Report7Page() {
                 title: 'หน่วยธุรกิจ',
                 dataIndex: 'business_unit',
                 key: 'business_unit',
-                width: 120,
+                width: baseColumnWidths.businessUnit,
+                ellipsis: true,
                 onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }),
                 onCell: getBasicCell
             }] : [])
@@ -974,7 +945,8 @@ export default function Report7Page() {
                 title: 'หมายเหตุ',
                 dataIndex: 'remark',
                 key: 'remark',
-                width: 240,
+                width: baseColumnWidths.remark,
+                ellipsis: true,
                 onHeaderCell: () => ({ className: 'bg-gray-100! text-gray-900! font-bold' }),
                 onCell: getBasicCell
             }] : [])
@@ -1195,9 +1167,12 @@ export default function Report7Page() {
 
         worksheet.columns = dataKeys.map((key, index) => {
             const meta = columnMeta[index];
-            if (meta?.kind === 'remark') return { key, width: 28 };
-            if (index <= 2) return { key, width: 34 };
-            if (key === 'unit_level_name' || key === 'business_unit') return { key, width: 18 };
+            if (meta?.kind === 'remark') return { key, width: 24 };
+            if (key === 'unit_short') return { key, width: 16 };
+            if (key === 'org_unit_no') return { key, width: 14 };
+            if (key === 'unit_name') return { key, width: 42 };
+            if (key === 'unit_level_name') return { key, width: 16 };
+            if (key === 'business_unit') return { key, width: 12 };
             return { key, width: 14 };
         });
 
@@ -1255,10 +1230,8 @@ export default function Report7Page() {
             }
         }
 
-        const flat = flattenRows(allData);
-        flat.forEach((row) => {
+        allData.forEach((row) => {
             const rowData = dataKeys.map((key) => {
-                if (key === 'unit_short') return `${'    '.repeat(row._depth)}${row.unit_short || ''}`;
                 const value = row[key];
                 if (typeof value === 'number') {
                     if (key.startsWith('gap_') && !Number.isFinite(value)) return '';
@@ -1389,6 +1362,17 @@ export default function Report7Page() {
                             />
                         </div>
 
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm font-medium text-gray-700 whitespace-nowrap">หน่วยงาน</label>
+                            <MultiSelectFilter
+                                label="เลือกหน่วยงาน"
+                                options={orgUnitOptions}
+                                selectedValues={selectedOrgUnits}
+                                onChange={onUnitChange}
+                                width="w-48"
+                            />
+                        </div>
+
                         <Button type="primary" htmlType="submit" icon={<SearchOutlined />} loading={loading}>
                             ค้นหา
                         </Button>
@@ -1459,10 +1443,6 @@ export default function Report7Page() {
                                 sticky
                                 className="report7-table [&_.ant-table-cell]:text-[12px]! [&_.ant-table-cell]:py-1!"
                                 rowClassName={(record) => record.key === 'TOTAL_SUMMARY' ? 'font-bold' : 'bg-white'}
-                                expandable={{
-                                    expandedRowKeys,
-                                    onExpandedRowsChange: (keys) => setExpandedRowKeys([...keys]),
-                                }}
                             />
                         </div>
                     </div>
