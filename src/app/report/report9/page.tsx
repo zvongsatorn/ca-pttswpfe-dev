@@ -13,6 +13,7 @@ import 'dayjs/locale/th';
 import ExcelJS from 'exceljs';
 import { saveExcelFile } from '@/utils/fileDownload';
 import { fetchRetirementRates } from '@/services/retirementService';
+import { getUserFromToken } from '@/utils/auth';
 
 dayjs.locale('th');
 
@@ -31,6 +32,7 @@ interface Report9ApiResponse {
     status: number;
     data?: Report9DataType[];
     message?: string;
+    error?: string;
 }
 
 interface RateRecord {
@@ -78,6 +80,22 @@ const getAllExpandableKeys = (rows: Report9DataType[]): string[] => {
     return keys;
 };
 
+const normalizeEmployeeId = (value: string): string => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const match = raw.toUpperCase().match(/[A-Z]\d{7}/);
+    if (match) return match[0];
+    return raw.slice(0, 8).toUpperCase();
+};
+
+const normalizeUserGroupNo = (value: string): string => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (/^\d{1,2}$/.test(raw)) return raw.padStart(2, '0');
+    const match = raw.match(/\b(\d{1,2})\b/);
+    return match ? match[1].padStart(2, '0') : '';
+};
+
 const resolveUserContext = () => {
     let employeeId = 'SYSTEM';
     let userGroupNo = '';
@@ -120,9 +138,20 @@ const resolveUserContext = () => {
         } else {
             userGroupNo = selectedGroup;
         }
+
+        if (!userGroupNo) {
+            const tokenUser = getUserFromToken();
+            const tokenGroup = tokenUser?.userGroups?.[0]?.userGroupNo || '';
+            if (tokenGroup) {
+                userGroupNo = tokenGroup;
+            }
+        }
     }
 
-    return { employeeId, userGroupNo };
+    return {
+        employeeId: normalizeEmployeeId(employeeId || 'SYSTEM') || 'SYSTEM',
+        userGroupNo: normalizeUserGroupNo(userGroupNo)
+    };
 };
 
 const createDefaultRateLabelMap = (years: number[]) => {
@@ -176,24 +205,41 @@ export default function Report9Page() {
         setLoading(true);
         try {
             const { employeeId, userGroupNo } = resolveUserContext();
+            const token = getToken();
             const params = new URLSearchParams({
                 effectiveYear: String(effectiveYear),
                 employeeId,
                 userGroupNo
             });
 
-            const [res, retirementRes] = await Promise.all([
-                fetch(`/api/report/report9?${params.toString()}`),
-                fetchRetirementRates(toAD(effectiveYear), getToken()) as Promise<RetirementRateResponse | null>
-            ]);
-            const result = await res.json() as Report9ApiResponse;
-            if (!res.ok || result.status !== 200) {
-                throw new Error(result.message || 'Failed to load report9 data');
+            const res = await fetch(`/api/report/report9?${params.toString()}`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : undefined
+            });
+            const raw = await res.text();
+            let result: Report9ApiResponse | null = null;
+
+            try {
+                result = raw ? JSON.parse(raw) as Report9ApiResponse : null;
+            } catch {
+                result = null;
+            }
+
+            if (!res.ok || !result || result.status !== 200) {
+                const fallbackMessage = raw || `HTTP ${res.status}`;
+                throw new Error(result?.error || result?.message || fallbackMessage || 'Failed to load report9 data');
             }
 
             setTableData(Array.isArray(result.data) ? result.data : []);
-            setRateLabelByYear(buildRateLabelMap(displayYears, retirementRes?.data?.rates || []));
-        } catch {
+
+            try {
+                const retirementRes = await fetchRetirementRates(toAD(effectiveYear), getToken()) as RetirementRateResponse | null;
+                setRateLabelByYear(buildRateLabelMap(displayYears, retirementRes?.data?.rates || []));
+            } catch {
+                // Report data should still render even when rate labels are unavailable.
+                setRateLabelByYear(createDefaultRateLabelMap(displayYears));
+            }
+        } catch (error) {
+            console.error('Failed to load report9 data:', error);
             setTableData([]);
             setRateLabelByYear(createDefaultRateLabelMap(displayYears));
         } finally {

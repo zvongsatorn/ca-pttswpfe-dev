@@ -8,6 +8,10 @@ export function proxy(request: NextRequest) {
   try {
     // 1. Handle API + backend static upload proxying
     if (pathname.startsWith('/api/') || pathname.startsWith('/uploads/')) {
+      if (pathname === '/api/report/report9') {
+        return NextResponse.next();
+      }
+
       const rawUrl = (process.env.BACKEND_URL || 'http://localhost:5000').trim().replace(/^['"]|['"]$/g, '');
       const backendUrl = rawUrl.replace(/\/$/, '') || 'http://localhost:5000';
 
