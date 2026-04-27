@@ -545,6 +545,7 @@ const buildDetailWorkbook = async (
     buildSummaryWorksheet(workbook, summaryRows, effectiveDate);
     const headers = [
         'ลำดับที่',
+        'รหัสพนักงาน',
         'ชื่อ',
         'ชื่อตำแหน่งเต็ม',
         'ชื่อย่อตำแหน่ง',
@@ -559,8 +560,8 @@ const buildDetailWorkbook = async (
         'อัตราเฉพาะตัว',
     ];
 
-    const centerColumns = new Set([1, 7, 8, 9, 10, 11, 12, 13]);
-    const columnWidths = [10, 32, 34, 18, 25, 22, 10, 8, 16, 14, 12, 18, 14];
+    const centerColumns = new Set([1, 2, 8, 9, 10, 11, 12, 13, 14]);
+    const columnWidths = [10, 16, 32, 34, 18, 25, 22, 10, 8, 16, 14, 12, 18, 14];
 
     for (const sheetConfig of REPORT10_EXPORT_SHEETS) {
         const worksheet = workbook.addWorksheet(sheetConfig.name);
@@ -570,7 +571,7 @@ const buildDetailWorkbook = async (
         const sheetRows = sourceRows.filter(sheetConfig.filter);
         const title = `กรอบอัตรากำลังและผู้บริหาร ${sheetConfig.label} (${sheetRows.length} รายการ) ณ วันที่ ${effectiveDate.format('DD/MM/YYYY')}`;
 
-        worksheet.mergeCells('A1:M1');
+        worksheet.mergeCells('A1:N1');
         const titleCell = worksheet.getCell('A1');
         titleCell.value = title;
         titleCell.font = { name: 'Sarabun', bold: true, size: 12, color: { argb: 'FF000000' } };
@@ -594,6 +595,7 @@ const buildDetailWorkbook = async (
             const isVacant = !entry.employeeId;
             const values = [
                 index + 1,
+                entry.employeeId,
                 entry.name,
                 entry.positionNameFull,
                 entry.positionNameShort,
@@ -618,7 +620,7 @@ const buildDetailWorkbook = async (
                     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
                 }
 
-                if (isVacant && col === 2) {
+                if (isVacant && col === 3) {
                     cell.font = { name: 'Sarabun', color: { argb: 'FFFF0000' }, size: 11, bold: true };
                 }
             });
