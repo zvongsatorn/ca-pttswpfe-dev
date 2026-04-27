@@ -235,6 +235,12 @@ const mapLevelGroupByLevelCode = (rawLevelCode: unknown, fallbackLevelName: stri
     return mapLevelGroup(fallbackLevelName);
 };
 
+const normalizeReport10LevelGroup = (rawLevelGroup: unknown, levelCode: string, levelName: string): Report10LevelGroup => {
+    const levelGroup = toText(rawLevelGroup) as Report10LevelGroup;
+    if (REPORT10_INCLUDED_LEVEL_GROUPS.has(levelGroup)) return levelGroup;
+    return mapLevelGroupByLevelCode(levelCode, levelName);
+};
+
 const mapFrameType = (rawFrameType: unknown, rawOrgType: unknown, rawPoolRsFlag: unknown): string => {
     const frameType = toText(rawFrameType);
     if (frameType) return frameType;
@@ -332,8 +338,7 @@ const transformDetailRows = (rows: Report10DetailApiRow[]): Report10DetailDataTy
             const levelNameFallback =
                 toText(row.level_name) || toText(row.LevelName) || toText(row.unit_level_name) || toText(row.UnitLevelName);
             const levelName = resolveReport10LevelName(levelCode, levelNameFallback);
-            const levelGroupRaw = toText(row.level_group) as Report10LevelGroup;
-            const levelGroup = levelGroupRaw || mapLevelGroupByLevelCode(levelCode, levelName);
+            const levelGroup = normalizeReport10LevelGroup(row.level_group, levelCode, levelName);
             const orgType = toNumber(row.org_type ?? row.OrgType);
             const poolRsFlag = toNumber(row.pool_rs_flag ?? row.PoolRSFlag);
             const employeeId = toText(row.employee_id) || toText(row.EmployeeID);
@@ -359,7 +364,6 @@ const transformDetailRows = (rows: Report10DetailApiRow[]): Report10DetailDataTy
                 poolRsFlag,
             };
         })
-        .filter((row) => REPORT10_INCLUDED_LEVEL_GROUPS.has(row.levelGroup))
         .sort((a, b) => {
             if (levelSortOrder[a.levelGroup] !== levelSortOrder[b.levelGroup]) {
                 return levelSortOrder[a.levelGroup] - levelSortOrder[b.levelGroup];
@@ -428,8 +432,8 @@ const createSummaryBodyStyle = (cell: ExcelJS.Cell, horizontal: 'left' | 'center
 
 type SheetFilter = (row: Report10DetailDataType) => boolean;
 
-const REPORT10_EXPORT_SHEETS: Array<{ name: string; label: string; filter: SheetFilter }> = [
-    { name: 'รวม', label: 'รวม', filter: () => true },
+const REPORT10_EXPORT_SHEETS: Array<{ name: string; label: string; filter: SheetFilter; includeAllRows?: boolean }> = [
+    { name: 'รวม', label: 'รวม', filter: () => true, includeAllRows: true },
     { name: 'ปธบ', label: 'ปธบ', filter: (row) => row.levelGroup === '010' && !row.isSecondment },
     { name: 'ปธบ(sec)', label: 'ปธบ (sec)', filter: (row) => row.levelGroup === '010' && row.isSecondment },
     { name: 'รอง', label: 'รอง', filter: (row) => row.levelGroup === '020_030' && !row.isSecondment },
@@ -560,7 +564,10 @@ const buildDetailWorkbook = async (
 
     for (const sheetConfig of REPORT10_EXPORT_SHEETS) {
         const worksheet = workbook.addWorksheet(sheetConfig.name);
-        const sheetRows = rows.filter(sheetConfig.filter);
+        const sourceRows = sheetConfig.includeAllRows
+            ? rows
+            : rows.filter((row) => REPORT10_INCLUDED_LEVEL_GROUPS.has(row.levelGroup));
+        const sheetRows = sourceRows.filter(sheetConfig.filter);
         const title = `กรอบอัตรากำลังและผู้บริหาร ${sheetConfig.label} (${sheetRows.length} รายการ) ณ วันที่ ${effectiveDate.format('DD/MM/YYYY')}`;
 
         worksheet.mergeCells('A1:M1');
