@@ -68,6 +68,8 @@ interface Report10DetailApiRow {
     strg_flag?: unknown;
     bs_type?: unknown;
     spec_flag?: unknown;
+    sign_pos?: unknown;
+    SignPos?: unknown;
     frame_type?: unknown;
     strategic?: unknown;
     business_support?: unknown;
@@ -126,6 +128,7 @@ interface Report10DetailDataType {
     strategic: string;
     businessSupport: string;
     specificRate: string;
+    signPos: string;
     orgType: number;
     poolRsFlag: number;
 }
@@ -275,6 +278,34 @@ const mapSpecificRate = (rawSpecificRate: unknown, rawSpecFlag: unknown): string
     return toNumber(rawSpecFlag) === 1 ? 'Y' : 'N';
 };
 
+const normalizeSignPos = (value: unknown): string => {
+    const signPos = toText(value);
+    if (!signPos || signPos.toUpperCase() === 'NULL') return '';
+
+    const numericSignPos = Number(signPos);
+    if (Number.isFinite(numericSignPos)) {
+        if (numericSignPos === 100) return '100';
+        if (numericSignPos === 0) return '0';
+    }
+
+    return signPos;
+};
+
+const getSignPosSummaryText = (rows: Report10DetailDataType[]): string => {
+    const summary = rows.reduce(
+        (acc, row) => {
+            const signPos = normalizeSignPos(row.signPos);
+            if (signPos === '100') acc.sign100 += 1;
+            else if (signPos === '0') acc.sign0 += 1;
+            else acc.vacant += 1;
+            return acc;
+        },
+        { sign100: 0, sign0: 0, vacant: 0 }
+    );
+
+    return `100% ${summary.sign100} รายการ, 0% ${summary.sign0} รายการ, ว่าง ${summary.vacant} รายการ`;
+};
+
 const transformSummaryRows = (rows: Report10SummaryApiRow[]): Report10SummaryDataType[] => {
     const transformed = rows.map((row, index) => ({
         key: toText(row.key) || `r10-${index + 1}`,
@@ -360,6 +391,7 @@ const transformDetailRows = (rows: Report10DetailApiRow[]): Report10DetailDataTy
                 strategic: mapStrategic(row.strategic, row.strg_flag ?? row.StrgFlag),
                 businessSupport: mapBusinessSupport(row.business_support, row.bs_type ?? row.BSType),
                 specificRate: mapSpecificRate(row.specific_rate, row.spec_flag ?? row.SpecFlag),
+                signPos: normalizeSignPos(row.sign_pos ?? row.SignPos),
                 orgType,
                 poolRsFlag,
             };
@@ -558,10 +590,11 @@ const buildDetailWorkbook = async (
         'Strategic',
         'Business/Support',
         'อัตราเฉพาะตัว',
+        'SignPos',
     ];
 
-    const centerColumns = new Set([1, 2, 8, 9, 10, 11, 12, 13, 14]);
-    const columnWidths = [10, 16, 32, 34, 18, 25, 22, 10, 8, 16, 14, 12, 18, 14];
+    const centerColumns = new Set([1, 2, 8, 9, 10, 11, 12, 13, 14, 15]);
+    const columnWidths = [10, 16, 32, 34, 18, 25, 22, 10, 8, 16, 14, 12, 18, 14, 12];
 
     for (const sheetConfig of REPORT10_EXPORT_SHEETS) {
         const worksheet = workbook.addWorksheet(sheetConfig.name);
@@ -569,9 +602,10 @@ const buildDetailWorkbook = async (
             ? rows
             : rows.filter((row) => REPORT10_INCLUDED_LEVEL_GROUPS.has(row.levelGroup));
         const sheetRows = sourceRows.filter(sheetConfig.filter);
-        const title = `กรอบอัตรากำลังและผู้บริหาร ${sheetConfig.label} (${sheetRows.length} รายการ) ณ วันที่ ${effectiveDate.format('DD/MM/YYYY')}`;
+        const signPosSummaryText = getSignPosSummaryText(sheetRows);
+        const title = `กรอบอัตรากำลังและผู้บริหาร ${sheetConfig.label} (${sheetRows.length} รายการ) (${signPosSummaryText}) ณ วันที่ ${effectiveDate.format('DD/MM/YYYY')}`;
 
-        worksheet.mergeCells('A1:N1');
+        worksheet.mergeCells('A1:O1');
         const titleCell = worksheet.getCell('A1');
         titleCell.value = title;
         titleCell.font = { name: 'Sarabun', bold: true, size: 12, color: { argb: 'FF000000' } };
@@ -608,6 +642,7 @@ const buildDetailWorkbook = async (
                 entry.strategic,
                 entry.businessSupport,
                 entry.specificRate,
+                entry.signPos || 'ว่าง',
             ];
 
             values.forEach((value, idx) => {
