@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test:unit": "node --no-warnings --test tests/*.test.mts",
+    "test": "npm run test:unit && npm run typecheck"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.2",

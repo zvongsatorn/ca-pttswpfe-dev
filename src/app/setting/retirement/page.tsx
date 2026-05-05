@@ -7,17 +7,20 @@ import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
 import { fetchRetirementRates } from '@/services/retirementService';
 
+import {
+    BUSINESS_TYPE_RATE,
+    DISPLAY_YEAR_COUNT,
+    SUPPORT_TYPE_RATE,
+    createDefaultRows,
+    formatLevelGroupLabel,
+    normalizeBaseInput,
+    normalizeRateInput,
+    parseRatioCell,
+    splitRatioInput,
+    type RetirementDataType
+} from '@/lib/business/retirementRules';
+
 const API_BASE_URL = '';
-const DISPLAY_YEAR_COUNT = 5;
-const BUSINESS_TYPE_RATE = 1;
-const SUPPORT_TYPE_RATE = 2;
-
-interface RetirementDataType {
-    key: string;
-    typeLabel: string;
-    [year: string]: string;
-}
-
 interface RateRecord {
     BUSupportRateID: number;
     EffectiveYear: number;
@@ -47,13 +50,6 @@ interface BadgeProps {
     style?: React.CSSProperties;
 }
 
-const formatLevelGroupLabel = (levelGroupNo: string, levelGroupName?: string) => {
-    const normalizedNo = String(levelGroupNo || '').trim();
-    const normalizedName = String(levelGroupName || '').trim();
-    if (!normalizedNo) return '';
-    return normalizedName ? `${normalizedNo} - ${normalizedName}` : normalizedNo;
-};
-
 function getToken(): string {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem('auth_token') || '';
@@ -62,62 +58,6 @@ function getToken(): string {
 function Badge({ count, style }: BadgeProps) {
     return <span style={{ ...style, padding: '2px 10px', borderRadius: '15px', fontSize: '12px' }}>{count}</span>;
 }
-
-const createDefaultRows = (startYear: number): RetirementDataType[] => {
-    const businessRow: RetirementDataType = { key: `${BUSINESS_TYPE_RATE}`, typeLabel: 'Business' };
-    const supportRow: RetirementDataType = { key: `${SUPPORT_TYPE_RATE}`, typeLabel: 'Support' };
-
-    for (let i = 0; i < DISPLAY_YEAR_COUNT; i++) {
-        const year = (startYear + i).toString();
-        businessRow[year] = '0:1';
-        supportRow[year] = '0:1';
-    }
-
-    return [businessRow, supportRow];
-};
-
-const normalizeRateInput = (value: string): string => {
-    const cleaned = value.replace(/[^0-9.]/g, '');
-    const [intPart, ...decimalParts] = cleaned.split('.');
-    if (!decimalParts.length) return intPart;
-    return `${intPart}.${decimalParts.join('')}`;
-};
-
-const normalizeBaseInput = (value: string): string => {
-    return value.replace(/[^0-9]/g, '');
-};
-
-const splitRatioInput = (value: string): { rateText: string; baseText: string } => {
-    const raw = String(value || '').trim();
-    if (!raw) return { rateText: '0', baseText: '1' };
-
-    const colonIndex = raw.indexOf(':');
-    if (colonIndex < 0) {
-        return {
-            rateText: normalizeRateInput(raw),
-            baseText: '1'
-        };
-    }
-
-    return {
-        rateText: normalizeRateInput(raw.slice(0, colonIndex)),
-        baseText: normalizeBaseInput(raw.slice(colonIndex + 1))
-    };
-};
-
-const parseRatioCell = (value: string): { rate: number; base: number } => {
-    const raw = String(value || '').trim();
-    if (!raw) return { rate: 0, base: 1 };
-
-    const [rateRaw, baseRaw] = raw.split(':');
-    const parsedRate = Number.parseFloat(rateRaw);
-    const parsedBase = Number.parseInt(baseRaw, 10);
-
-    return {
-        rate: Number.isFinite(parsedRate) ? parsedRate : 0,
-        base: Number.isFinite(parsedBase) && parsedBase > 0 ? parsedBase : 1
-    };
-};
 
 function RetirementContent() {
     const { notification, modal } = App.useApp();
