@@ -257,3 +257,9 @@ export const copyMKD = async (id: string, data: { copyFromId: number, employeeId
 export const getMKDHistory = async (employeeId: string, token?: string) => {
     return await fetchWithAuth(`/api/mkd/history-copy?employeeId=${employeeId}`, token);
 };
+
+export const cancelMKD = async (id: string, token?: string) => {
+    return await fetchWithAuth(`/api/mkd/${id}/cancel`, token, {
+        method: 'PUT'
+    });
+};

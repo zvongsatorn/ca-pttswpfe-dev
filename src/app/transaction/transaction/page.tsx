@@ -3,7 +3,7 @@
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { CheckCircle, Trash2, X, Save, Menu, LogOut, ChevronDown, ChevronUp, Check, ChevronsUpDown, AlertCircle, ArrowRight, UserCircle, FileText, User, ShieldCheck, Users, LucideIcon, Info
+import { CheckCircle, Trash2, X, Save, Menu, LogOut, ChevronDown, ChevronUp, Check, ChevronsUpDown, AlertCircle, ArrowRight, UserCircle, FileText, User, ShieldCheck, Users, LucideIcon, Info, Loader2
 } from 'lucide-react';
 import { useState, useEffect, useRef, useSyncExternalStore, useMemo } from 'react'; // Added useSyncExternalStore
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -411,6 +411,7 @@ export default function TransactionPage() {
   // State for Request Modal
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   // Store selected approver IDs per request group (Department + Flow)
   const [selectedApprovers, setSelectedApprovers] = useState<Record<string, string[]>>({});
   // Dynamic approvers from CheckFlow API (Record keyed by Department + Flow)
@@ -1335,11 +1336,16 @@ export default function TransactionPage() {
   };
 
   const handleSave = async () => {
+    if (isSavingDraft) {
+      return;
+    }
+
     if (!ensureCalendarReadyForAction()) {
       return;
     }
 
     try {
+      setIsSavingDraft(true);
       // Get employeeId (username) from localStorage user_data
       let employeeId = 'SYSTEM';
       const userDataStr = localStorage.getItem('user_data');
@@ -1460,6 +1466,8 @@ export default function TransactionPage() {
         ? `เกิดข้อผิดพลาดในการบันทึกข้อมูล: ${error.message}`
         : 'เกิดข้อผิดพลาดในการบันทึกข้อมูล';
       setAlertInfo({ show: true, title: 'เกิดข้อผิดพลาด', message: errorMessage, type: 'error' });
+    } finally {
+      setIsSavingDraft(false);
     }
   };
 
@@ -2014,7 +2022,7 @@ export default function TransactionPage() {
                   </div>
                   <div className="mt-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {activeTab === 6 ? 'หน่วยงานรับยืม' : (activeTab === 5 ? 'หน่วยงาน' : 'หน่วยงานที่รับโอน')} <span className="text-red-500">*</span>
+                        {activeTab === 6 ? 'หน่วยงานรับยืม' : (activeTab === 5 || activeTab === 3 || activeTab === 4 ? 'หน่วยงาน' : 'หน่วยงานที่รับโอน')} <span className="text-red-500">*</span>
                     </label>
                     <Popover open={openUnitReceive} onOpenChange={setOpenUnitReceive}>
                       <PopoverTrigger asChild>
@@ -2393,8 +2401,9 @@ export default function TransactionPage() {
                     )}
 
                     <div className="pt-4">
-                      <Button onClick={handleSave} disabled={!isFormValid()} className="w-full px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                        <Save className="h-5 w-5" /><span>SAVE</span>
+                      <Button onClick={handleSave} disabled={isSavingDraft || !isFormValid()} className="w-full px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                        {isSavingDraft ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
+                        <span>{isSavingDraft ? 'SAVING...' : 'SAVE'}</span>
                       </Button>
                     </div>
                   </>

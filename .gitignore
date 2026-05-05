@@ -56,8 +56,5 @@ bun-debug.log*
 # OS
 Thumbs.db
 
-# Docker
-.dockerignore
-
 # Local assistant/agent notes
 .agents/

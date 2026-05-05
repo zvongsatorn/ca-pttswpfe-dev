@@ -46,7 +46,9 @@ interface Report3RawRow {
     amount_6?: number | string;
     amount_7?: number | string;
     amount_8?: number | string;
+    amount_10?: number | string;
     amount_subcontract?: number | string;
+    amount_subcontact?: number | string;
     total_amount?: number | string;
 
     hc_line_1?: number | string;
@@ -365,7 +367,7 @@ const transformRows = (rawRows: Report3RawRow[]): Report3DataType[] => {
             specific: toText(row.SpecFlagName),
 
             frame_contract: toNumber(row.amount_8),
-            frame_sub_contract: toNumber(row.amount_subcontract),
+            frame_sub_contract: toNumber(row.amount_subcontract ?? row.amount_subcontact ?? row.amount_10),
             frame_21: toNumber(row.amount_1),
             frame_18_20: toNumber(row.amount_2),
             frame_16_17: toNumber(row.amount_3),

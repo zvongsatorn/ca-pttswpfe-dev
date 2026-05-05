@@ -1,7 +1,14 @@
+import { fileURLToPath } from "node:url";
+
+const ensurePostcssFromPlugin = fileURLToPath(
+  new URL("./postcss-ensure-from.cjs", import.meta.url)
+);
+
 const config = {
-  plugins: {
-    "@tailwindcss/postcss": {},
-  },
+  plugins: [
+    [ensurePostcssFromPlugin, {}],
+    ["@tailwindcss/postcss", {}],
+  ],
 };
 
 export default config;

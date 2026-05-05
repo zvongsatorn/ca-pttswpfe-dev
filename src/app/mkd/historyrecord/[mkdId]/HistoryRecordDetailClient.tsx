@@ -21,7 +21,7 @@ import {
     ArrowLeft, FileSpreadsheet, FileText, Container, 
     Info, Users, CheckCircle, Plus, Edit, Trash2, Check, X, Upload
 } from 'lucide-react';
-import { updateManDriverStatus, saveMainKey, saveDetailKey, deleteMainKey, getMKDDetails, getMKDHeadcount, uploadMKDFile, deleteMKDFile, saveMKDHeadcount, updateMKDNote } from '@/services/mkdService';
+import { updateManDriverStatus, saveMainKey, saveDetailKey, deleteMainKey, getMKDDetails, getMKDHeadcount, uploadMKDFile, deleteMKDFile, saveMKDHeadcount, updateMKDNote, cancelMKD } from '@/services/mkdService';
 
 interface MKDKey {
     ManDriverKeyID: number;
@@ -225,6 +225,7 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
     const currentStatus = Number(header.ManDriverStatus);
     const canShowEdit = currentStatus === 2;
     const canConfirm = currentStatus === 1;
+    const canCancel = currentStatus !== 0;
     const isReadOnly = currentStatus !== 1;
 
     const allYears = useMemo(() => {
@@ -620,6 +621,28 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
         }
     };
 
+    const handleCancelMKD = () => {
+        if (!canCancel) return;
+
+        openConfirm('ยืนยันการยกเลิกรายการ', 'ต้องการยกเลิกรายการนี้ใช่หรือไม่?', async () => {
+            try {
+                setIsSubmitting(true);
+                const res = await cancelMKD(mkdId, token);
+                if (res?.success) {
+                    toast.success('ยกเลิกรายการเรียบร้อยแล้ว');
+                    router.push('/mkd/historyrecord');
+                } else {
+                    throw new Error(res?.message || 'ไม่สามารถยกเลิกรายการได้');
+                }
+            } catch (err: unknown) {
+                const error = err as Error;
+                toast.error(error.message || 'เกิดข้อผิดพลาดในการยกเลิกรายการ');
+            } finally {
+                setIsSubmitting(false);
+            }
+        });
+    };
+
     const handleExportExcel = async () => {
         try {
             const workbook = new ExcelJS.Workbook();
@@ -707,6 +730,16 @@ export default function HistoryRecordDetailClient({ mkdId, token, currentUser, i
                         >
                             {isSubmitting ? <span className="animate-spin mr-2">⏳</span> : <CheckCircle className="w-4 h-4 mr-2" />}
                             Confirm
+                        </Button>
+                    )}
+                    {canCancel && (
+                        <Button
+                            className="bg-red-600 hover:bg-red-700 font-medium min-w-max shadow-sm transition-all text-white h-full"
+                            onClick={handleCancelMKD}
+                            disabled={loading || isSubmitting}
+                        >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Cancel
                         </Button>
                     )}
                     <Button variant="outline" className="text-white bg-slate-500 hover:bg-slate-600 hover:text-white border-slate-300 font-medium min-w-max shadow-sm transition-all h-full" onClick={() => router.back()}>

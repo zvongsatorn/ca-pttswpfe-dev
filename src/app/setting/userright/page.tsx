@@ -390,7 +390,10 @@ const FlowInner = ({
                 }}
             >
                 <Background color="#f1f5f9" gap={20} />
-                <Controls className="bg-white border-none shadow-lg rounded-xl overflow-hidden" />
+                <Controls
+                    showInteractive={false}
+                    className="bg-white border-none shadow-lg rounded-xl overflow-hidden"
+                />
             </ReactFlow>
 
             {/* Reverting to Floating Summary Tool on the Left side as requested */}

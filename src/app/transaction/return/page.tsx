@@ -9,6 +9,7 @@ import MultiSelectFilter from '@/components/filters/MultiSelectFilter';
 import { saveExcelFile } from '@/utils/fileDownload';
 import {
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   CheckCircle,
   X,
@@ -230,6 +231,7 @@ export default function ReturnPage() {
   // State for Request Modal & Approvers
   const [selectedApprovers, setSelectedApprovers] = useState<Record<string, string[]>>({});
   const [dynamicApprovers, setDynamicApprovers] = useState<Record<string, ApproverUser[]>>({});
+  const [collapsedReturnGroups, setCollapsedReturnGroups] = useState<Record<string, boolean>>({});
   const [alertInfo, setAlertInfo] = useState<{ show: boolean, title: string, message: string, type: 'success' | 'error' | 'warning' | 'info' }>({
     show: false,
     title: '',
@@ -239,6 +241,23 @@ export default function ReturnPage() {
   const closeAlert = () => setAlertInfo((prev) => ({ ...prev, show: false }));
   const getDepartmentName = (id: string, resolvedName?: string) =>
     resolvedName || departments.find(d => d.id === id)?.name || id;
+
+  const isApproverSelectionComplete = (
+    key: string,
+    selectedMap: Record<string, string[]> = selectedApprovers
+  ) => {
+    const dynamicList = dynamicApprovers[key] || [];
+    const groupKeys = Array.from(new Set(dynamicList.map((u) => `${u.UnitSide}-${u.PermissionOrder}`)));
+
+    return groupKeys.length > 0 && groupKeys.every((groupKey) => {
+      const groupUsers = dynamicList.filter((u) => `${u.UnitSide}-${u.PermissionOrder}` === groupKey);
+      return groupUsers.some((user) => selectedMap[key]?.includes(user.EmployeeID));
+    });
+  };
+
+  const toggleReturnGroupCollapse = (key: string) => {
+    setCollapsedReturnGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
 
   useEffect(() => {
@@ -437,6 +456,7 @@ export default function ReturnPage() {
       }
 
       setDynamicApprovers(isHrPolicy ? {} : approversData);
+      setCollapsedReturnGroups({});
       setIsRequestModalOpen(true);
     } catch (e) {
       console.error("Failed to load approvers", e);
@@ -450,10 +470,10 @@ export default function ReturnPage() {
     const groups = getReturnsByDepartmentPair();
     const missingGroups = isHrPolicy
       ? []
-      : Object.keys(groups).filter(key => !selectedApprovers[key] || selectedApprovers[key].length === 0);
+      : Object.keys(groups).filter(key => !isApproverSelectionComplete(key));
 
     if (missingGroups.length > 0) {
-      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาเลือกผู้ตรวจสอบสำหรับทุกกลุ่ม', type: 'warning' });
+      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาเลือกผู้อนุมัติให้ครบทุกกลุ่ม', type: 'warning' });
       return;
     }
 
@@ -636,6 +656,7 @@ export default function ReturnPage() {
       setIsRequestModalOpen(false);
       setSelectedReturns(new Map());
       setSelectedApprovers({});
+      setCollapsedReturnGroups({});
     } catch (error) {
       console.error('Error submitting request:', error);
       const errorMessage = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการดำเนินการ';
@@ -652,22 +673,31 @@ export default function ReturnPage() {
     const groups = getReturnsByDepartmentPair();
     const missingGroups = isHrPolicy
       ? []
-      : Object.keys(groups).filter(key => !selectedApprovers[key] || selectedApprovers[key].length === 0);
+      : Object.keys(groups).filter(key => !isApproverSelectionComplete(key));
     if (missingGroups.length > 0) {
-      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาเลือกผู้ตรวจสอบสำหรับทุกกลุ่ม', type: 'warning' });
+      setAlertInfo({ show: true, title: 'แจ้งเตือน', message: 'กรุณาเลือกผู้อนุมัติให้ครบทุกกลุ่ม', type: 'warning' });
       return;
     }
     setIsSubmitConfirmModalOpen(true);
   };
 
-  const toggleApprover = (groupKey: string, approverId: string) => {
+  const toggleApprover = (groupKey: string, approverId: string, groupUserIds: string[]) => {
     setSelectedApprovers((prev) => {
       const currentList = prev[groupKey] || [];
+      let nextList: string[];
+
       if (currentList.includes(approverId)) {
-        return { ...prev, [groupKey]: currentList.filter((id) => id !== approverId) };
+        nextList = currentList.filter((id) => id !== approverId);
       } else {
-        return { ...prev, [groupKey]: [...currentList, approverId] };
+        const filteredCurrent = currentList.filter((id) => !groupUserIds.includes(id));
+        nextList = [...filteredCurrent, approverId];
       }
+
+      const nextSelectedApprovers = { ...prev, [groupKey]: nextList };
+      const isComplete = isApproverSelectionComplete(groupKey, nextSelectedApprovers);
+      setCollapsedReturnGroups((collapsedPrev) => ({ ...collapsedPrev, [groupKey]: isComplete }));
+
+      return nextSelectedApprovers;
     });
   };
 
@@ -1298,16 +1328,29 @@ export default function ReturnPage() {
                     };
                 });
 
+                const isAllGroupsSelected = !isHrPolicyRequest && isApproverSelectionComplete(key);
+                const isCollapsed = collapsedReturnGroups[key] === true;
+
                 return (
                   <div key={key} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-                    <div className="bg-purple-100 px-4 py-2 border-b border-purple-200 flex justify-between items-center">
+                    <div
+                      className="bg-purple-100 px-4 py-2 border-b border-purple-200 flex justify-between items-center cursor-pointer hover:bg-purple-200 transition-colors select-none"
+                      onClick={() => toggleReturnGroupCollapse(key)}
+                    >
                       <span className="font-semibold text-sm text-purple-900 flex items-center gap-2">
+                        {isCollapsed ? <ChevronDown className="w-5 h-5 text-purple-500" /> : <ChevronUp className="w-5 h-5 text-purple-500" />}
                         🔄 คืน : {returns[0]?.UnitReceiveName} → {returns[0]?.UnitTransferName}
+                        {isAllGroupsSelected && (
+                          <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-green-100 text-green-700 font-bold border border-green-300 ml-2 animate-in fade-in zoom-in duration-300">
+                            <CheckCircle className="h-4 w-4" /> เลือกครบถ้วน
+                          </span>
+                        )}
                       </span>
                       <span className="text-xs bg-white px-2 py-1 rounded border text-purple-700">{returns.length} รายการ</span>
                     </div>
 
-                    <div className={`p-3 grid gap-4 ${isHrPolicyRequest ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-[60%_40%]'}`}>
+                    {!isCollapsed && (
+                    <div className={`p-3 grid gap-4 animate-in slide-in-from-top-2 duration-200 ${isHrPolicyRequest ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-[60%_40%]'}`}>
                       {/* LEFT: Return List */}
                       <div className={`space-y-2 ${isHrPolicyRequest ? '' : 'border-r border-gray-100 pr-3'}`}>
                         {returns.map((ret, idx) => {
@@ -1343,7 +1386,7 @@ export default function ReturnPage() {
                       {!isHrPolicyRequest && (
                       <div className="pl-2 space-y-4">
                         <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                          <Users className="w-4 h-4" /> เลือกผู้อนุมัติ
+                          <Users className="w-4 h-4" /> เลือกผู้อนุมัติ (กลุ่มละ 1 คน)
                         </h3>
                         
                         {approverGroups.length === 0 ? (
@@ -1365,7 +1408,12 @@ export default function ReturnPage() {
                                         ${isSelected ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}>
                                         {isSelected && <CheckCircle className="w-3 h-3 text-white" />}
                                       </div>
-                                      <input type="checkbox" className="hidden" checked={isSelected} onChange={() => toggleApprover(key, user.EmployeeID)} />
+                                      <input
+                                        type="checkbox"
+                                        className="hidden"
+                                        checked={isSelected}
+                                        onChange={() => toggleApprover(key, user.EmployeeID, group.users.map((u) => u.EmployeeID))}
+                                      />
                                       <div className="min-w-0">
                                         <p className="text-sm font-medium text-gray-700 truncate">{user.FullName}</p>
                                         <p className="text-[10px] text-gray-400">{user.UserGroupName || user.UserGroupRole}</p>
@@ -1380,6 +1428,7 @@ export default function ReturnPage() {
                       </div>
                       )}
                     </div>
+                    )}
                   </div>
                 );
               })}
