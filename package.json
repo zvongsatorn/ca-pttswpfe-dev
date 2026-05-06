@@ -57,6 +57,11 @@
     "unrs-resolver"
   ],
   "overrides": {
-    "postcss": "8.5.14"
+    "postcss": "8.5.14",
+    "exceljs": {
+      "archiver": "7.0.1",
+      "uuid": "14.0.0",
+      "unzipper": "0.12.1"
+    }
   }
 }
