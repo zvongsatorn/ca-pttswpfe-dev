@@ -1,10 +1,11 @@
 'use client';
 
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import ReactFlow, { 
-    Background, 
-    Controls, 
-    useNodesState, 
+import ReactFlow, {
+    Background,
+    Controls,
+    useNodesState,
     useEdgesState,
     ConnectionLineType,
     MarkerType,
@@ -18,22 +19,22 @@ import ReactFlow, {
     OnEdgesChange
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { 
-    Card, 
-    Button, 
-    Typography, 
-    Select, 
-    App, 
-    Modal, 
-    Form, 
+import {
+    Card,
+    Button,
+    Typography,
+    Select,
+    App,
+    Modal,
+    Form,
     Divider,
     Empty,
     Tag,
     Avatar,
     Tooltip
 } from 'antd';
-import { 
-    SearchOutlined, 
+import {
+    SearchOutlined,
     ApartmentOutlined,
     InfoCircleOutlined,
     TeamOutlined,
@@ -48,7 +49,7 @@ import ExcelJS from 'exceljs';
 import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
 import { saveExcelFile } from '@/utils/fileDownload';
-import { 
+import {
     fetchOrgUnitsInGroup,
     fetchUserGroups,
     fetchAllUnits,
@@ -176,16 +177,15 @@ function getToken(): string {
     return localStorage.getItem('auth_token') || '';
 }
 
-function getAuthHeader(): Record<string, string> {
-    const token = getToken();
-    return token ? { 'Authorization': `Bearer ${token}` } : {};
+function getAuthHeader(): Headers {
+    return buildAuthHeaders(getToken());
 }
 
 async function addUserToUnit(data: { UserGroupNo: string, EmployeeID: string, OrgUnitNo: string, CreateBy: string }) {
     // Legacy behavior: add selected unit together with its descendant units.
-    const res = await fetch(`${API_BASE_URL}/api/user-rights/add-belong-units`, {
+    const res = await fetchApi(API_BASE_URL, '/api/user-rights/add-belong-units', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        headers: buildAuthHeaders(getToken(), { 'Content-Type': 'application/json' }),
         body: JSON.stringify(data),
     });
     if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed to add user rights'); }
@@ -193,9 +193,9 @@ async function addUserToUnit(data: { UserGroupNo: string, EmployeeID: string, Or
 }
 
 async function removeUserFromUnit(data: { UserGroupNo: string, EmployeeID: string, OrgUnitNo: string, UpdateBy: string }) {
-    const res = await fetch(`${API_BASE_URL}/api/user-rights/remove-user-from-unit`, {
+    const res = await fetchApi(API_BASE_URL, '/api/user-rights/remove-user-from-unit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        headers: buildAuthHeaders(getToken(), { 'Content-Type': 'application/json' }),
         body: JSON.stringify(data),
     });
     if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed to remove user from unit'); }
@@ -209,7 +209,7 @@ function buildTree(flatUnits: RawOrgUnit[]): InternalTreeNode | null {
   flatUnits.forEach(u => {
     const id = String(u.OrgUnitNo || u.orgUnitNo || u.id || '').trim();
     const pCode = (u.ParentOrgUnitNo || u.parentOrgUnitNo) ? String(u.ParentOrgUnitNo || u.parentOrgUnitNo).trim() : null;
-    
+
     // Extracting Function (สายงาน) from common fields
     const functionNo = u.FunctionNo || u.SectionNo || u.DeptNo || u.functionNo || u.sectionNo || u.deptNo || null;
 
@@ -217,7 +217,7 @@ function buildTree(flatUnits: RawOrgUnit[]): InternalTreeNode | null {
       code: id,
       name: String(u.UnitName || u.unitName || u.OrgUnitName || u.orgUnitName || u.UnitText || u.unitText || u.id || '').trim(),
       shortName: String(u.unitAbbr || u.UnitAbbr || u.shortName || ''),
-      level: 0, 
+      level: 0,
       parentCode: pCode,
       children: [],
       BGNo: u.BGNo ? String(u.BGNo).trim() : null,
@@ -241,9 +241,9 @@ function buildTree(flatUnits: RawOrgUnit[]): InternalTreeNode | null {
 
 const OrgTreeNode = ({ data }: { data: OrgTreeNodeData }) => {
     const isHighlighted = data.isHighlighted;
-    const theme = data.theme || { 
-        color: '#3b82f6', 
-        light: '#eff6ff', 
+    const theme = data.theme || {
+        color: '#3b82f6',
+        light: '#eff6ff',
         gradient: 'from-blue-600 to-blue-400',
         border: 'border-blue-100',
         text: 'text-blue-600'
@@ -262,12 +262,12 @@ const OrgTreeNode = ({ data }: { data: OrgTreeNodeData }) => {
                 </div>
             )}
 
-            <Handle 
-                type="target" 
-                position={Position.Top} 
-                className="w-3 h-3 bg-blue-400 border-2 border-white -translate-y-1.5 rounded-full" 
+            <Handle
+                type="target"
+                position={Position.Top}
+                className="w-3 h-3 bg-blue-400 border-2 border-white -translate-y-1.5 rounded-full"
             />
-            
+
             <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between mb-1">
                     <Tag style={{ backgroundColor: theme.color }} className="m-0 text-white! border-none rounded-lg font-bold text-[12px] px-2 py-0.5">
@@ -275,7 +275,7 @@ const OrgTreeNode = ({ data }: { data: OrgTreeNodeData }) => {
                     </Tag>
                     <Text className="text-[10px] text-slate-400 font-mono">#{data.id}</Text>
                 </div>
-                
+
                 <div className="flex items-center gap-3">
                     <div className={`
                         p-2.5 rounded-xl shadow-inner shrink-0
@@ -298,10 +298,10 @@ const OrgTreeNode = ({ data }: { data: OrgTreeNodeData }) => {
                     </div>
                     <div className="flex gap-1">
                         <Tooltip title="View Users">
-                            <Button 
-                                size="small" 
-                                shape="circle" 
-                                icon={<EyeOutlined className="text-[10px]" />} 
+                            <Button
+                                size="small"
+                                shape="circle"
+                                icon={<EyeOutlined className="text-[10px]" />}
                                 className="bg-slate-50 border-none text-slate-400 hover:text-blue-600"
                                 onClick={(e) => {
                                     e.stopPropagation();
@@ -310,10 +310,10 @@ const OrgTreeNode = ({ data }: { data: OrgTreeNodeData }) => {
                             />
                         </Tooltip>
                         <Tooltip title="Add User">
-                            <Button 
-                                size="small" 
-                                shape="circle" 
-                                icon={<PlusOutlined className="text-[10px]" />} 
+                            <Button
+                                size="small"
+                                shape="circle"
+                                icon={<PlusOutlined className="text-[10px]" />}
                                 className="bg-emerald-50 border-none text-emerald-600 hover:bg-emerald-100"
                                 onClick={(e) => {
                                     e.stopPropagation();
@@ -325,10 +325,10 @@ const OrgTreeNode = ({ data }: { data: OrgTreeNodeData }) => {
                 </div>
             </div>
 
-            <Handle 
-                type="source" 
-                position={Position.Bottom} 
-                className="w-3 h-3 border-2 border-white translate-y-1.5 rounded-full" 
+            <Handle
+                type="source"
+                position={Position.Bottom}
+                className="w-3 h-3 border-2 border-white translate-y-1.5 rounded-full"
                 style={{ backgroundColor: theme.color }}
             />
         </div>
@@ -354,8 +354,8 @@ interface FlowInnerProps {
     handleSearch: (id: string | string[] | null, zoom?: number, type?: 'user' | 'search') => void;
 }
 
-const FlowInner = ({ 
-    nodes, edges, onNodesChange, onEdgesChange, 
+const FlowInner = ({
+    nodes, edges, onNodesChange, onEdgesChange,
     isChartVisible, summaryUsers, isSummaryOpen, setIsSummaryOpen,
     groupTheme, handleSearch
 }: FlowInnerProps) => {
@@ -398,9 +398,9 @@ const FlowInner = ({
 
             {/* Reverting to Floating Summary Tool on the Left side as requested */}
             <div className="absolute top-6 left-6 z-10 flex flex-col gap-3">
-                <Button 
-                    type="primary" 
-                    icon={<TeamOutlined />} 
+                <Button
+                    type="primary"
+                    icon={<TeamOutlined />}
                     size="large"
                     style={{ backgroundColor: groupTheme.color, border: 'none' }}
                     className="h-14 w-14 rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 transition-transform"
@@ -487,14 +487,14 @@ const FlowInner = ({
                                     </div>
                                 </div>
                             </div>
-                            <Button 
-                                size="small" 
+                            <Button
+                                size="small"
                                 type="primary"
                                 onClick={() => {
                                     handleSearch(user.unitIds, 0.5, 'user');
                                     setIsSummaryOpen(false);
                                 }}
-                                icon={<EyeOutlined />} 
+                                icon={<EyeOutlined />}
                                 className="shadow-sm font-bold text-[10px] h-9 rounded-xl flex items-center gap-1 group-hover:scale-105 transition-transform"
                                 style={{ backgroundColor: groupTheme.color, border: 'none' }}
                             >
@@ -516,7 +516,7 @@ function UserRightContent() {
     const [form] = Form.useForm();
     const token = getToken();
     const currentUser = getUserFromToken();
-    
+
     // Initial data
     const [initialData, setInitialData] = useState<{
         userGroupOptions: { value: string; label: React.ReactNode }[];
@@ -544,7 +544,7 @@ function UserRightContent() {
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [isSavingAssignment, setIsSavingAssignment] = useState(false);
     const isSavingAssignmentRef = useRef(false);
-    
+
     // Selection State
     const [selectedUserGroup, setSelectedUserGroup] = useState<string | undefined>(undefined);
     const [selectedBG, setSelectedBG] = useState<string | null>(null);
@@ -552,7 +552,7 @@ function UserRightContent() {
     const [selectedUnitHead, setSelectedUnitHead] = useState<string | null>(null);
     const [activeUnit, setActiveUnit] = useState<{ code: string; name: string } | null>(null);
     const [activeUsers, setActiveUsers] = useState<RawEmployee[]>([]);
-    
+
     // Flow State
     const [nodes, setNodes, onNodesChange] = useNodesState<OrgTreeNodeData>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -594,7 +594,7 @@ function UserRightContent() {
     }, [normalizeUserGroupNo]);
 
     const getGroupTheme = useCallback((groupNo: string | undefined | null): GroupTheme => {
-        const defaultTheme: GroupTheme = { 
+        const defaultTheme: GroupTheme = {
             color: '#0284c7', // sky-600
             light: '#f0f9ff', // sky-50
             gradient: 'from-sky-600 to-sky-400',
@@ -603,7 +603,7 @@ function UserRightContent() {
         };
 
         if (!groupNo) return defaultTheme;
-        
+
         const themes: Record<string, GroupTheme> = {
             '01': { color: '#dc2626', light: '#fef2f2', gradient: 'from-red-600 to-red-400', border: 'border-red-100', text: 'text-red-600' },
             '02': { color: '#2563eb', light: '#eff6ff', gradient: 'from-blue-600 to-blue-400', border: 'border-blue-100', text: 'text-blue-600' },
@@ -613,7 +613,7 @@ function UserRightContent() {
             '06': { color: '#0d9488', light: '#f0fdfa', gradient: 'from-teal-600 to-teal-400', border: 'border-teal-100', text: 'text-teal-600' },
             '07': { color: '#0284c7', light: '#f0f9ff', gradient: 'from-sky-600 to-sky-400', border: 'border-sky-100', text: 'text-sky-600' },
         };
-        
+
         return themes[groupNo] || defaultTheme;
     }, []);
 
@@ -621,13 +621,13 @@ function UserRightContent() {
         const targetIds = Array.isArray(nodeId) ? nodeId : (nodeId ? [nodeId] : []);
         setNodes(nds => nds.map(n => ({
             ...n,
-            data: { 
-                ...n.data, 
+            data: {
+                ...n.data,
                 isHighlighted: targetIds.includes(n.id),
                 highlightType: targetIds.includes(n.id) ? type : undefined
             }
         })));
-        
+
         if (targetIds.length > 0) {
             const firstNode = nodes.find(n => n.id === targetIds[0]);
             if (firstNode) {
@@ -705,11 +705,11 @@ function UserRightContent() {
 
         const loadLines = async () => {
             const lines = await fetchLineCombo(
-                new Date().getMonth() + 1 + '', 
-                new Date().getFullYear() + '', 
+                new Date().getMonth() + 1 + '',
+                new Date().getFullYear() + '',
                 token
             );
-            
+
             if (lines) {
                 const options = lines.map((l: RawOrgUnit) => ({
                     value: l.OrgUnitNo || '',
@@ -723,14 +723,14 @@ function UserRightContent() {
     const groupTheme = useMemo(() => getGroupTheme(selectedUserGroup), [getGroupTheme, selectedUserGroup]);
 
     const buildTreeNodes = useCallback((
-        root: InternalTreeNode | null, 
-        usersInGroup: OrgDataInGroup[], 
+        root: InternalTreeNode | null,
+        usersInGroup: OrgDataInGroup[],
         filters: { bg: string | null; func: string | null; unit: string | null }
     ): { newNodes: Node<OrgTreeNodeData>[]; newEdges: Edge[]; uniqueUsers: SummaryUser[] } => {
         const newNodes: Node<OrgTreeNodeData>[] = [];
         const newEdges: Edge[] = [];
         const summaryMap = new Map<string, SummaryUser>();
-        
+
         const HORIZONTAL_SPACING = 450;
         const VERTICAL_SPACING = 280;
 
@@ -744,10 +744,10 @@ function UserRightContent() {
             // Does node or ancestor match broad filters?
             const isBgMatch = !filters.bg || ancestorBgMatch || node.code === filters.bg || node.BGNo === filters.bg;
             const isFuncMatch = !filters.func || ancestorFuncMatch || node.code === filters.func || node.FunctionNo === filters.func;
-            
+
             // For broad match, it must satisfy both active broad filters
             const isBroadMatch = (filters.bg || filters.func) ? (isBgMatch && isFuncMatch) : true;
-            
+
             // Unit match check
             const isExactUnit = !!filters.unit && node.code === filters.unit;
 
@@ -790,7 +790,7 @@ function UserRightContent() {
                 node.__subtreeWidth = 0;
                 return 0;
             }
-            
+
             let totalWidth = 0;
             node.children.forEach(child => {
                 totalWidth += computeWidth(child);
@@ -806,10 +806,10 @@ function UserRightContent() {
             const nodeId = node.code;
             const subtreeWidth = node.__subtreeWidth || 0;
             const xPos = startX + (subtreeWidth * HORIZONTAL_SPACING) / 2;
-            
+
             const unitData = (usersInGroup || []).find(u => u.OrgUnitID === nodeId);
             const users: RawEmployee[] = dedupeEmployeesById(unitData?.users || []);
-            
+
             // Collect summary users ONLY for visible matching nodes
             if (node.__isVisible) {
                 users.forEach(u => {
@@ -830,8 +830,8 @@ function UserRightContent() {
             newNodes.push({
                 id: nodeId,
                 type: 'orgTree',
-                data: { 
-                    label: node.name, 
+                data: {
+                    label: node.name,
                     shortName: node.shortName,
                     id: nodeId,
                     userCount: users.length,
@@ -883,23 +883,23 @@ function UserRightContent() {
             traverse(root, 0, 0, null);
         }
 
-        return { 
-            newNodes, 
-            newEdges, 
-            uniqueUsers: Array.from(summaryMap.values()) 
+        return {
+            newNodes,
+            newEdges,
+            uniqueUsers: Array.from(summaryMap.values())
         };
     }, [form, groupTheme]);
 
     // Auto-rebuild chart when filters change
     useEffect(() => {
         if (!isChartVisible || !initialData.orgStructure) return;
-        
+
         const { newNodes, newEdges, uniqueUsers } = buildTreeNodes(
-            initialData.orgStructure, 
-            fetchedOrgData, 
+            initialData.orgStructure,
+            fetchedOrgData,
             { bg: selectedBG, func: selectedFunction, unit: selectedUnitHead }
         );
-        
+
         setNodes(newNodes);
         setEdges(newEdges);
         setSummaryUsers(uniqueUsers);
@@ -1073,7 +1073,7 @@ function UserRightContent() {
     const handleAddUser = async (values: { employeeId: string; unitId: string }) => {
         if (!selectedUserGroup) return;
         if (isSavingAssignmentRef.current) return;
-        
+
         isSavingAssignmentRef.current = true;
         setIsSavingAssignment(true);
         try {
@@ -1113,9 +1113,9 @@ function UserRightContent() {
                         {/* Search & Group - Center */}
                         <div className="flex items-center gap-3 bg-white/10 backdrop-blur-lg p-2 rounded-3xl border border-white/20 shadow-inner flex-1 justify-center max-w-[42rem]">
                             <div className="flex flex-col gap-0.5 px-3 shrink-0">
-                           
-                                <Select 
-                                    placeholder="-- เลือกกลุ่มสิทธิ์ --" 
+
+                                <Select
+                                    placeholder="-- เลือกกลุ่มสิทธิ์ --"
                                     className="w-48 custom-select-header-white"
                                     options={initialData.userGroupOptions}
                                     value={selectedUserGroup}
@@ -1123,9 +1123,9 @@ function UserRightContent() {
                                     allowClear
                                 />
                             </div>
-                            <Button 
-                                type="primary" 
-                                size="large" 
+                            <Button
+                                type="primary"
+                                size="large"
                                 icon={<SearchOutlined />}
                                 onClick={handleSearch}
                                 loading={loading}
@@ -1153,9 +1153,9 @@ function UserRightContent() {
                                 <div className="flex items-center gap-1.5 bg-white p-1 rounded-3xl shadow-lg border border-white/40">
                                     {/* BG Filter */}
                                     <div className="flex flex-col gap-0 px-3 border-r border-slate-100">
-                                    
-                                        <Select 
-                                            placeholder="-- BU --" 
+
+                                        <Select
+                                            placeholder="-- BU --"
                                             className="w-28 custom-select-v2-header"
                                             variant="borderless"
                                             allowClear
@@ -1166,9 +1166,9 @@ function UserRightContent() {
                                     </div>
                                     {/* Function Filter (สายงาน) */}
                                     <div className="flex flex-col gap-0 px-3 border-r border-slate-100">
-                                       
-                                        <Select 
-                                            placeholder="-- สายงาน --" 
+
+                                        <Select
+                                            placeholder="-- สายงาน --"
                                             className="w-40 custom-select-v2-header"
                                             variant="borderless"
                                             allowClear
@@ -1180,8 +1180,8 @@ function UserRightContent() {
                                     </div>
                                     {/* Unit Focus */}
                                     <div className="flex flex-col gap-0 px-3 pr-4">
-                                      
-                                        <Select 
+
+                                        <Select
                                             showSearch
                                             placeholder="-- หน่วยงาน --"
                                             className="w-40 custom-select-v2-header"
@@ -1203,7 +1203,7 @@ function UserRightContent() {
 
 
                 {/* Content Area */}
-                <Card 
+                <Card
                     className="h-[calc(100vh-250px)] rounded-[3rem] shadow-2xl border-0 overflow-hidden relative"
                     styles={{ body: { padding: 0, height: '100%' } }}
                 >
@@ -1216,7 +1216,7 @@ function UserRightContent() {
                             <Text className="text-slate-300 mt-2">ระบบจะสร้างผังโครงสร้างสายงานที่เป็นลำดับชั้นเพื่อให้คุณจัดการสิทธิ์ได้ทันที</Text>
                         </div>
                     ) : (
-                        <FlowInner 
+                        <FlowInner
                             nodes={nodes}
                             edges={edges}
                             onNodesChange={onNodesChange}
@@ -1250,10 +1250,10 @@ function UserRightContent() {
                                         <span className="text-slate-400 text-xs">Employee ID: {user.EmployeeID || user.employeeID || '-'}</span>
                                     </div>
                                 </div>
-                                <Button 
-                                    type="text" 
-                                    danger 
-                                    icon={<DeleteOutlined />} 
+                                <Button
+                                    type="text"
+                                    danger
+                                    icon={<DeleteOutlined />}
                                     onClick={() => handleRemoveUser(user.employeeID || user.EmployeeID || '')}
                                 />
                             </div>
@@ -1282,7 +1282,7 @@ function UserRightContent() {
                             <Select options={initialData.unitOptions} showSearch className="custom-select-v2 h-12" disabled />
                         </Form.Item>
                         <Form.Item name="employeeId" label="พนักงาน" rules={[{ required: true }]}>
-                            <Select 
+                            <Select
                                 options={initialData.employees.map(e => ({ value: e.userId, label: `${e.userCode} - ${e.userName}` }))}
                                 showSearch
                                 placeholder="ค้นหารายชื่อพนักงาน..."
@@ -1339,7 +1339,7 @@ function UserRightContent() {
                     border-radius: 36px !important;
                     padding: 40px !important;
                 }
-                 .custom-select-v2-header .ant-select-selection-item, 
+                 .custom-select-v2-header .ant-select-selection-item,
                 .custom-select-v2-header .ant-select-selection-placeholder {
                     color: #334155 !important;
                     font-weight: 800 !important;
@@ -1353,7 +1353,7 @@ function UserRightContent() {
                 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
                 .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
                 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-                
+
                 .custom-modal-v2 .ant-modal-content {
                     border-radius: 32px !important;
                     padding: 24px !important;

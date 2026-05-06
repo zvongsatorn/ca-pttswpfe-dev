@@ -1,5 +1,6 @@
 'use client';
 
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Table, Modal, Button, Select, App, AutoComplete, Input } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -7,11 +8,11 @@ import { TeamOutlined, SearchOutlined, CloseOutlined } from '@ant-design/icons';
 import { SquareUser } from 'lucide-react';
 import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
-import { 
+import {
     getUserGroups,
-    getLevelsInGroup, 
-    getLevelCombo, 
-    getMembersInGroup, 
+    getLevelsInGroup,
+    getLevelCombo,
+    getMembersInGroup,
     getAllUsersCombo,
     UserGroup,
     Level,
@@ -40,13 +41,12 @@ function getToken(): string {
 
 async function apiCall(url: string, options: RequestInit = {}) {
     const token = getToken();
-    const response = await fetch(`${API_URL}${url}`, {
+    const response = await fetchApi(API_URL, url, {
         ...options,
-        headers: {
+        headers: buildAuthHeaders(token, {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
             ...(options.headers || {})
-        }
+        })
     });
     if (!response.ok) {
         const message = await response.text();
@@ -267,50 +267,50 @@ function UserGroupsContent() {
                 <h1 className="text-xl font-bold m-0 text-white">จัดการกลุ่มผู้ใช้งาน</h1>
             </div>
 
-            <Table 
-                columns={mainColumns} 
-                dataSource={userGroups} 
-                rowKey="userGroupNo" 
-                pagination={false} 
+            <Table
+                columns={mainColumns}
+                dataSource={userGroups}
+                rowKey="userGroupNo"
+                pagination={false}
                 loading={loading}
             />
 
             {/* --- Modal 1: Manage Levels --- */}
             <Modal
                 title={<div className="text-blue-600 font-bold">{selectedGroup?.userGroupName} - จัดการระดับ</div>}
-                open={isLevelModalOpen} 
+                open={isLevelModalOpen}
                 onCancel={() => { setIsLevelModalOpen(false); setShowInsertLevel(false); }}
-                footer={null} 
-                width={600} 
+                footer={null}
+                width={600}
                 centered
             >
                 <div className="flex flex-col gap-4 min-h-[300px]">
                     <Button type="primary" onClick={() => setShowInsertLevel(true)} className="w-fit">เพิ่มรายการ</Button>
                     {showInsertLevel && (
                         <div className="flex gap-2 p-3 bg-gray-50 border rounded-md">
-                            <Select 
-                                className="flex-1" 
+                            <Select
+                                className="flex-1"
                                 placeholder="เลือกรายการ"
                                 options={availableLevels.map(l => ({ label: l.nameAll, value: l.levelGroupNo }))}
-                                onChange={setSelectedLevelToAdd} 
+                                onChange={setSelectedLevelToAdd}
                             />
                             <Button type="primary" onClick={handleAddLevel}>ยืนยัน</Button>
                             <Button onClick={() => setShowInsertLevel(false)}>ยกเลิก</Button>
                         </div>
                     )}
-                    <Table 
-                        size="small" 
-                        dataSource={levelsInGroup} 
-                        rowKey="levelGroupNo" 
+                    <Table
+                        size="small"
+                        dataSource={levelsInGroup}
+                        rowKey="levelGroupNo"
                         pagination={false}
                         loading={loading}
                         columns={[
                             { title: 'ลำดับ', align: 'center', render: (_, __, i) => i + 1 },
                             { title: 'ระดับ', render: (_, r) => r.nameAll },
-                            { 
-                                title: '', 
-                                align: 'center', 
-                                render: (_, r) => <CloseOutlined className="text-red-500 cursor-pointer" onClick={() => handleDeleteLevel(r.levelGroupNo)} /> 
+                            {
+                                title: '',
+                                align: 'center',
+                                render: (_, r) => <CloseOutlined className="text-red-500 cursor-pointer" onClick={() => handleDeleteLevel(r.levelGroupNo)} />
                             }
                         ]}
                     />
@@ -320,23 +320,23 @@ function UserGroupsContent() {
             {/* --- Modal 2: Manage Users --- */}
             <Modal
                 title={<div className="text-blue-600 font-bold">{selectedGroup?.userGroupName} - จัดการสมาชิก</div>}
-                open={isUserModalOpen} 
+                open={isUserModalOpen}
                 onCancel={() => { setIsUserModalOpen(false); setShowInsertUser(false); }}
-                footer={null} 
-                width={700} 
+                footer={null}
+                width={700}
                 centered
             >
                 <div className="flex flex-col gap-4 min-h-[400px]">
                     <Button type="primary" onClick={() => setShowInsertUser(true)} className="w-fit">เพิ่มรายการ</Button>
                     {showInsertUser && (
                         <div className="flex gap-2 p-3 bg-blue-50 border border-blue-100 rounded-md">
-                            <AutoComplete 
-                                className="flex-1" 
+                            <AutoComplete
+                                className="flex-1"
                                 placeholder="พิมพ์รหัสหรือชื่อผู้ใช้งาน..."
                                 options={allUsersList}
                                 onSelect={setSelectedUserToAdd}
                                 onChange={setSelectedUserToAdd}
-                                filterOption={(input, opt) => (opt?.label ?? '').includes(input)} 
+                                filterOption={(input, opt) => (opt?.label ?? '').includes(input)}
                             />
                             <Button type="primary" onClick={handleAddUser}>ยืนยัน</Button>
                             <Button onClick={() => setShowInsertUser(false)}>ยกเลิก</Button>
@@ -349,7 +349,7 @@ function UserGroupsContent() {
                         onChange={(e) => { setSearchText(e.target.value); setMemberPage(1); }}
                         allowClear
                     />
-                    <Table 
+                    <Table
                         size="small"
                         loading={loading}
                         dataSource={membersInGroup.filter(r =>

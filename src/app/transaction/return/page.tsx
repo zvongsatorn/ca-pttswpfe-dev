@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPath, buildApiPathFromSearch } from '@/utils/security';
 import React, { useState, useEffect } from 'react';
 import ExcelJS from 'exceljs';
 import Main from '@/components/layout/main';
@@ -134,19 +135,19 @@ export default function ReturnPage() {
   const [selectedBusinessUnits, setSelectedBusinessUnits] = useState<string[]>([]);
   const [selectedFromDepts, setSelectedFromDepts] = useState<string[]>([]);
   const [isExporting, setIsExporting] = useState(false);
-  
+
   // Table column filters
   const [filterInbox, setFilterInbox] = useState('');
   const [filterEffectiveDate, setFilterEffectiveDate] = useState('');
   const [filterResolution, setFilterResolution] = useState('');
-  
+
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [selectedReturns, setSelectedReturns] = useState<Map<string, SelectedReturn>>(new Map());
   const [returnCounts, setReturnCounts] = useState<Record<string, number | ''>>({});
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isSubmitConfirmModalOpen, setIsSubmitConfirmModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+
   const [borrowRecords, setBorrowRecords] = useState<BorrowRecord[]>([]);
 
   const normalizeOptionValue = (...values: unknown[]) => {
@@ -273,7 +274,7 @@ export default function ReturnPage() {
         setDepartments([]);
         return;
       }
-      const res = await fetch(`/api/transactions/borrow-records?employeeId=${employeeId}`);
+      const res = await fetch(buildApiPath('/api/transactions/borrow-records', { employeeId }));
       if (res.ok) {
         const result = await res.json();
         setBorrowRecords(result.data || []);
@@ -306,7 +307,7 @@ export default function ReturnPage() {
   const fetchReturnHistory = async (borrowId: string, documentNo: string) => {
     try {
       setBorrowRecords(prev => prev.map(r => r.TransactionNo === borrowId ? { ...r, isFetchingReturns: true } : r));
-      const res = await fetch(`/api/transactions/return-history/${documentNo}?_t=${Date.now()}`);
+      const res = await fetch(buildApiPath(`/api/transactions/return-history/${encodeURIComponent(String(documentNo))}`, { _t: Date.now() }));
       if (res.ok) {
         const result = await res.json();
         setBorrowRecords(prev => prev.map(r => r.TransactionNo === borrowId ? { ...r, returns: result.data || [], isFetchingReturns: false } : r));
@@ -414,7 +415,7 @@ export default function ReturnPage() {
       if (!isHrPolicy) {
         for (const [key, returnsList] of Object.entries(groupedReturns)) {
           approversData[key] = [];
-          
+
           for (const ret of returnsList) {
             // TransactionType 6 equivalent for approvers? Usually standard approval for return. JobType = 7
             const jobType = 7;
@@ -436,7 +437,7 @@ export default function ReturnPage() {
               isRequirePolicy: '0'
             });
 
-            const resp = await fetch(`/api/transactions/approvers?${queryParams}&_t=${Date.now()}`);
+            const resp = await fetch(buildApiPathFromSearch('/api/transactions/approvers', new URLSearchParams({ ...Object.fromEntries(queryParams), _t: String(Date.now()) })));
             if (resp.ok) {
               const data = await resp.json();
               if (data.data?.length > 0) {
@@ -444,7 +445,7 @@ export default function ReturnPage() {
               }
             }
           }
-          
+
           // Remove duplicates by EmployeeID
           const uniqueSet = new Set();
           approversData[key] = approversData[key].filter((item) => {
@@ -489,7 +490,7 @@ export default function ReturnPage() {
 
           const itemApproversList = selectedEmpIds.map(empId => groupApprovers.find((a: ApproverUser) => a.EmployeeID === empId))
           .filter((a): a is ApproverUser => !!a);
-          
+
         itemApproversList.sort((a, b) => {
              if (a!.PermissionOrder !== b!.PermissionOrder) {
                  return a!.PermissionOrder - b!.PermissionOrder;
@@ -498,7 +499,7 @@ export default function ReturnPage() {
              if (a!.UnitSide !== 'UnitReceive' && b!.UnitSide === 'UnitReceive') return 1;
              return 0;
         });
-        
+
         const itemApprovers = itemApproversList.map((a, index) => ({
             seqno: index + 1,
             employeeId: a!.EmployeeID,
@@ -703,13 +704,13 @@ export default function ReturnPage() {
 
   const getReturnsByDepartmentPair = () => {
     const grouped: Record<string, SelectedReturn[]> = {};
-    
+
     Array.from(selectedReturns.values()).forEach((ret) => {
       const key = `${ret.UnitReceive}-${ret.UnitTransfer}`;
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push(ret);
     });
-    
+
     return grouped;
   };
 
@@ -788,7 +789,7 @@ export default function ReturnPage() {
     if (!normalizedDocumentNo) return [];
 
     try {
-      const res = await fetch(`/api/transactions/return-history/${encodeURIComponent(normalizedDocumentNo)}?_t=${Date.now()}`);
+      const res = await fetch(buildApiPath(`/api/transactions/return-history/${encodeURIComponent(normalizedDocumentNo)}`, { _t: Date.now() }));
       if (!res.ok) return [];
       const result = await res.json();
       return Array.isArray(result?.data) ? (result.data as ReturnRecord[]) : [];
@@ -950,7 +951,7 @@ export default function ReturnPage() {
     const isFullyReturned = record.RemainingCount <= 0;
     if (selectedStatus === 'borrowed' && isFullyReturned) return false;
     if (selectedStatus === 'fully_returned' && !isFullyReturned) return false;
-    
+
     // Dropdown filters
     if (selectedBusinessUnits.length > 0) {
       const recordBuIds = getBusinessUnitOptionsFromRecord(record).map((item) => item.id);
@@ -961,7 +962,7 @@ export default function ReturnPage() {
       const hasSelectedDept = selectedFromDepts.includes(record.UnitTransfer) || selectedFromDepts.includes(record.UnitReceive);
       if (!hasSelectedDept) return false;
     }
-    
+
     // Table column filters
     if (filterInbox && !record.DocumentNo.toLowerCase().includes(filterInbox.toLowerCase())) return false;
     // EffectiveDate is a Datetime string from DB, we can format it if needed, or search as-is
@@ -973,7 +974,7 @@ export default function ReturnPage() {
     //   if (!fromDept.includes(searchTerm) && !toDept.includes(searchTerm)) return false;
     // }
     if (filterResolution && !record.TransactionDesc.toLowerCase().includes(filterResolution.toLowerCase())) return false;
-    
+
     return true;
   });
 
@@ -982,7 +983,7 @@ export default function ReturnPage() {
   return (
     <Main currentPath="/transaction/borrowreturn/return">
       <div className="space-y-4">
-        
+
         {/* 1. HEADER */}
         <Card className="border-0 shadow-md rounded-lg overflow-hidden py-0">
           <div className="bg-linear-to-r from-blue-200 to-blue-500 px-6 py-3 flex items-center justify-between shadow-lg rounded-t-lg border-b border-blue-500/30">
@@ -999,8 +1000,8 @@ export default function ReturnPage() {
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-700 whitespace-nowrap">สถานะ :</label>
             <div className="relative">
-              <select 
-                value={selectedStatus} 
+              <select
+                value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
                 className="w-40 pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 transition-shadow appearance-none bg-white"
               >
@@ -1036,7 +1037,7 @@ export default function ReturnPage() {
             />
           </div>
 
-          
+
 
           <div className="flex-1"></div>
 
@@ -1076,13 +1077,13 @@ export default function ReturnPage() {
                     <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap w-[120px]">สถานะ</th>
                     <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap w-[100px]">Action</th>
                   </tr>
-                  
+
                   {/* Filter Row */}
                   <tr className="bg-white border-b border-gray-100">
                     <th className="px-4 py-2"></th>
                     <th className="px-4 py-2">
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={filterInbox}
                         onChange={(e) => setFilterInbox(e.target.value)}
                         placeholder=""
@@ -1090,8 +1091,8 @@ export default function ReturnPage() {
                       />
                     </th>
                     <th className="px-4 py-2">
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={filterEffectiveDate}
                         onChange={(e) => setFilterEffectiveDate(e.target.value)}
                         placeholder=""
@@ -1099,8 +1100,8 @@ export default function ReturnPage() {
                       />
                     </th>
                     {/* <th className="px-4 py-2">
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={filterDepartment}
                         onChange={(e) => setFilterDepartment(e.target.value)}
                         placeholder=""
@@ -1108,8 +1109,8 @@ export default function ReturnPage() {
                       />
                     </th> */}
                     <th className="px-4 py-2">
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={filterResolution}
                         onChange={(e) => setFilterResolution(e.target.value)}
                         placeholder=""
@@ -1119,7 +1120,7 @@ export default function ReturnPage() {
                     <th className="px-4 py-2" colSpan={6}></th>
                   </tr>
                 </thead>
-                
+
                 <tbody>
                   {filteredRecords.map((record, index) => {
                     const isExpanded = expandedRows.has(record.TransactionNo);
@@ -1178,8 +1179,8 @@ export default function ReturnPage() {
                                   onChange={(e) => updateReturnCount(record, e.target.value)}
                                   disabled={isSelected}
                                   className={`w-16 px-2 py-1 text-sm text-center border rounded transition-all ${
-                                    isSelected 
-                                      ? 'border-purple-300 bg-gray-50 text-gray-700 cursor-not-allowed font-semibold' 
+                                    isSelected
+                                      ? 'border-purple-300 bg-gray-50 text-gray-700 cursor-not-allowed font-semibold'
                                       : 'border-gray-300 bg-white focus:border-purple-500 focus:ring-2 focus:ring-purple-200 hover:border-gray-400'
                                   }`}
                                 />
@@ -1190,8 +1191,8 @@ export default function ReturnPage() {
                           </td>
                           <td className="px-4 py-4 text-center">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              record.RemainingCount <= 0 
-                                ? 'bg-green-100 text-green-800 border border-green-200' 
+                              record.RemainingCount <= 0
+                                ? 'bg-green-100 text-green-800 border border-green-200'
                                 : 'bg-orange-100 text-orange-800 border border-orange-200'
                             }`}>
                               {record.RemainingCount <= 0 ? 'คืนหมดแล้ว' : 'ยืมอยู่'}
@@ -1199,13 +1200,13 @@ export default function ReturnPage() {
                           </td>
                           <td className="px-4 py-4 text-center">
                             {canReturn ? (
-                              <Button 
-                                variant="outline" 
+                              <Button
+                                variant="outline"
                                 size="sm"
                                 onClick={() => toggleSelection(record.TransactionNo, record)}
                                 className={`h-8 text-xs font-semibold transition-all shadow-sm ${
-                                  isSelected 
-                                    ? 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700' 
+                                  isSelected
+                                    ? 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700'
                                     : 'text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-300'
                                 }`}
                               >
@@ -1362,8 +1363,8 @@ export default function ReturnPage() {
                                 <span className="font-bold uppercase text-purple-700">คืนกรอบอัตรากำลัง</span>
                               </div>
                               <span className="text-xs leading-relaxed opacity-90">
-                                คืนกรอบอัตรากำลัง จำนวน <span className="font-bold">{ret.returnCount}</span> อัตรา 
-                                ของ {ret.LevelGroupToName || ret.LevelGroupTo} 
+                                คืนกรอบอัตรากำลัง จำนวน <span className="font-bold">{ret.returnCount}</span> อัตรา
+                                ของ {ret.LevelGroupToName || ret.LevelGroupTo}
                                 จาก {ret.UnitReceiveName} คืนให้ {ret.UnitTransferName}
                               </span>
                               {borrowRecord && (
@@ -1388,7 +1389,7 @@ export default function ReturnPage() {
                         <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
                           <Users className="w-4 h-4" /> เลือกผู้อนุมัติ (กลุ่มละ 1 คน)
                         </h3>
-                        
+
                         {approverGroups.length === 0 ? (
                           <div className="text-red-500 text-sm p-4 bg-red-50 rounded text-center">ไม่พบรายชื่อผู้อนุมัติที่เกี่ยวข้อง</div>
                         ) : (

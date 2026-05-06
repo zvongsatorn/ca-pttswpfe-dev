@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPathFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Table, DatePicker, Button, Form, Checkbox, Popover } from 'antd';
@@ -386,7 +387,7 @@ export default function Report8Page() {
             });
             if (bgNo) query.set('bgNo', bgNo);
 
-            const res = await fetch(`/api/report/report6/filters?${query.toString()}`, { signal });
+            const res = await fetch(buildApiPathFromSearch('/api/report/report6/filters', query), { signal });
             let payload: Report8FilterResponse | null = null;
             try {
                 payload = await res.json();
@@ -444,7 +445,7 @@ export default function Report8Page() {
             if (bgNo) params.set('bgNo', bgNo);
             if (division) params.set('division', division);
 
-            const res = await fetch(`/api/report/report8?${params.toString()}`);
+            const res = await fetch(buildApiPathFromSearch('/api/report/report8', params));
             const payload: Report8ApiResponse = await res.json();
 
             if (!res.ok || payload.status !== 200 || !payload.data) {

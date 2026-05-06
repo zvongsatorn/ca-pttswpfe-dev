@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiFileHref, buildApiPath } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -85,18 +86,18 @@ interface ApprovalLogItem {
 
 interface TransactionProgressItem {
   id: string;            // DocumentNo
-  inboxNumber: string;   
+  inboxNumber: string;
   hasRejectedItem: boolean;
   hasDocumentRejected?: boolean;
   hasTransactionRejected?: boolean;
   allRejected?: boolean;
   effectiveDate: string;
-  category: string;      
-  resolution: string;    
-  statusLabel: string;   
+  category: string;
+  resolution: string;
+  statusLabel: string;
   processStage: 1 | 2 | 3;
   createdDate: string;
-  typeCategory: TypeColorKey; 
+  typeCategory: TypeColorKey;
   businessUnitId: string;
   businessUnitName: string;
   divisionId: string;
@@ -303,7 +304,7 @@ export default function TransactionProgressPage() {
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [appliedMonth, setAppliedMonth] = useState(currentMonth);
   const [appliedYear, setAppliedYear] = useState(currentYear);
-  
+
   // Filter States
   const [selectedBusinessUnits, setSelectedBusinessUnits] = useState<string[]>([]);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
@@ -660,7 +661,7 @@ export default function TransactionProgressPage() {
       };
 
       const fetchDocs = async (path: string): Promise<APIDocumentSummary[] | null> => {
-        const res = await fetch(`${path}?employeeId=${employeeId}`);
+        const res = await fetch(buildApiPath(path, { employeeId }));
         if (!res.ok) return null;
         const json = await res.json();
         return Array.isArray(json?.data) ? (json.data as APIDocumentSummary[]) : [];
@@ -826,7 +827,7 @@ export default function TransactionProgressPage() {
   };
   const fetchRejectableItemOptions = async (documentNo: string): Promise<RejectableItemOption[]> => {
     const employeeId = getEmployeeId();
-    const res = await fetch(`/api/documents/${documentNo}?employeeId=${employeeId}`);
+    const res = await fetch(buildApiPath(`/api/documents/${encodeURIComponent(String(documentNo))}`, { employeeId }));
     if (!res.ok) return [];
     const detailJson = await res.json().catch(() => null);
     if (!detailJson?.data) return [];
@@ -901,7 +902,7 @@ export default function TransactionProgressPage() {
 
     try {
       const employeeId = getEmployeeId();
-      const res = await fetch(`/api/documents/${item.id}?employeeId=${employeeId}`);
+      const res = await fetch(buildApiPath(`/api/documents/${encodeURIComponent(String(item.id))}`, { employeeId }));
       if (res.ok) {
         const detailJson = await res.json();
         if (detailJson.data) {
@@ -929,10 +930,10 @@ export default function TransactionProgressPage() {
           const items: TransactionDetail[] = dedupedItems.map((i) => ({
             ...((): { rejectedBy?: string; rejectedRole?: string; rejectedAt?: string; rejectionReason?: string } => {
               const rejectLog = latestRejectByItem.get(normalizeItemId(i.ItemID)) || latestRejectGlobal;
-              
+
               const rawReason = String(i.RejectionReason || '').trim();
               const actorMatch = rawReason.match(/\(Rejected by ([^)]+)(?: at ([^)]+))?\)\s*$/i);
-              
+
               let extractedActor: string | undefined;
               let extractedDate: string | undefined;
               if (actorMatch) {
@@ -1179,7 +1180,7 @@ export default function TransactionProgressPage() {
   return (
     <Main currentPath="/transaction/progress">
       <div className="space-y-4">
-        
+
         {/* 1. HEADER GRADIENT */}
         <Card className="border-0 shadow-md rounded-lg overflow-hidden py-0">
           <div className="bg-linear-to-r from-blue-200 to-blue-500 px-6 py-3 flex items-center justify-between shadow-lg rounded-t-lg border-b border-blue-500/30">
@@ -1286,7 +1287,7 @@ export default function TransactionProgressPage() {
                     <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap w-[200px] border-b border-gray-200">สถานะ</th>
                     <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap border-b border-gray-200">Action</th>
                   </tr>
-                  
+
                   {/* 3.2 Column Filters */}
                   <tr className="bg-gray-50 shadow-[0_4px_6px_-1px_rgba(0,0,0,0.05)] border-b border-gray-200 relative z-10">
                     <th className="px-4 py-2 border-b border-gray-200 font-normal">
@@ -1319,7 +1320,7 @@ export default function TransactionProgressPage() {
                     <th className="px-4 py-2 border-b border-gray-200"></th>
                   </tr>
                 </thead>
-                
+
                 <tbody>
                   {isLoading ? (
                     <tr>
@@ -1427,9 +1428,9 @@ export default function TransactionProgressPage() {
                             >
                               <XCircle className="w-3.5 h-3.5 mr-1.5" />Reject Item
                             </Button>
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
+                            <Button
+                              variant="outline"
+                              size="sm"
                               className="h-8 text-xs text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300 transition-all shadow-sm"
                               onClick={() => handleOpenReject(item)}
                             >
@@ -1520,7 +1521,7 @@ export default function TransactionProgressPage() {
       {isViewModalOpen && selectedTransaction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 pt-10 pl-20 animate-in fade-in">
           <div className="bg-gray-50 rounded-xl shadow-2xl w-full max-w-[95vw] h-[90vh] flex flex-col overflow-hidden border-t-8 border-blue-600">
-            
+
             {/* HEADER with Stepper */}
             <div className="bg-blue-50 shadow-sm shrink-0 relative z-20 border-b px-6 py-2 flex items-center justify-between gap-8 h-[80px]">
                 {/* Title */}
@@ -1538,9 +1539,9 @@ export default function TransactionProgressPage() {
                 <div className="flex-1 flex justify-center max-w-lg">
                     <div className="flex items-center w-full relative">
                         <div className="absolute top-1/2 left-0 w-full h-1 bg-gray-100 -z-10 -translate-y-1/2 rounded"></div>
-                        <div className="absolute top-1/2 left-0 h-1 bg-green-500 -z-10 transition-all duration-500 -translate-y-1/2 rounded" 
+                        <div className="absolute top-1/2 left-0 h-1 bg-green-500 -z-10 transition-all duration-500 -translate-y-1/2 rounded"
                                 style={{ width: selectedTransaction.processStage === 1 ? '0%' : selectedTransaction.processStage === 2 ? '50%' : '100%' }}></div>
-                        
+
                         {['สร้าง', 'รออนุมัติ', 'สมบูรณ์'].map((label, idx) => {
                              const stepNum = idx + 1;
                              const isCompleted = selectedTransaction.processStage > stepNum;
@@ -1548,8 +1549,8 @@ export default function TransactionProgressPage() {
                              return (
                                 <div key={stepNum} className="flex-1 flex flex-col items-center z-10 cursor-default">
                                     <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 text-xs font-bold transition-all
-                                        ${isCompleted ? 'bg-white border-green-500 text-green-600' : 
-                                        isCurrent ? 'bg-blue-600 border-blue-600 text-white shadow-md scale-110' : 
+                                        ${isCompleted ? 'bg-white border-green-500 text-green-600' :
+                                        isCurrent ? 'bg-blue-600 border-blue-600 text-white shadow-md scale-110' :
                                         'bg-white border-gray-300 text-gray-400'}`}>
                                         {isCompleted ? <Check size={12}/> : stepNum}
                                     </div>
@@ -1570,7 +1571,7 @@ export default function TransactionProgressPage() {
 
             {/* BODY */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                
+
                 {viewLoading ? (
                   <div className="py-14">
                     <div className="mx-auto max-w-md rounded-lg border border-blue-100 bg-blue-50/70 p-5 text-center shadow-sm">
@@ -1617,7 +1618,7 @@ export default function TransactionProgressPage() {
                                                 )}
                                                 {item.rejectionReason && (
                                                     <div className="mt-2 text-xs text-red-700 bg-white border border-red-200 p-2 rounded shadow-sm flex items-start gap-2">
-                                                        <XCircle size={14} className="mt-0.5 shrink-0"/> 
+                                                        <XCircle size={14} className="mt-0.5 shrink-0"/>
                                                         <span>
                                                           {showRejectReasonText && (
                                                             <span><b>Reject Reason:</b> {rejectReasonDisplay}</span>
@@ -1635,7 +1636,7 @@ export default function TransactionProgressPage() {
                                             </td>
                                             <td className="p-4 text-center align-top">
                                                 {item.hasFile && item.fileUrl ? (
-                                                    <a href={`/api/${item.fileUrl}`} target="_blank" rel="noopener noreferrer" className="inline-block p-2 hover:bg-blue-100 rounded-full text-blue-600 transition-colors">
+                                                    <a href={buildApiFileHref(item.fileUrl)} target="_blank" rel="noopener noreferrer" className="inline-block p-2 hover:bg-blue-100 rounded-full text-blue-600 transition-colors">
                                                         <FileIcon size={18} />
                                                     </a>
                                                 ) : item.hasFile ? (
@@ -1663,13 +1664,13 @@ export default function TransactionProgressPage() {
                             <div className="p-0">
                                 <div className="divide-y divide-gray-100">
                                 {selectedTransaction.logs.map((log, index) => (
-                                    <div key={index} className={`flex items-center px-6 py-4 text-sm transition-colors 
+                                    <div key={index} className={`flex items-center px-6 py-4 text-sm transition-colors
                                         ${log.status === 'current' ? 'bg-blue-50/60' : 'bg-white'}`}>
                                         <div className="w-32 shrink-0">
                                             <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-medium border w-28
                                                 ${log.status === 'success' ? 'bg-green-100 text-green-700 border-green-200 shadow-sm' :
-                                                  log.status === 'completed' ? 'bg-white text-green-600 border-green-600' : 
-                                                  log.status === 'current' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 
+                                                  log.status === 'completed' ? 'bg-white text-green-600 border-green-600' :
+                                                  log.status === 'current' ? 'bg-blue-600 text-white border-blue-600 shadow-md' :
                                                   'bg-gray-100 text-gray-400 border-gray-200'}`}>
                                                 {log.status === 'current' && <ArrowRight size={10} className="mr-1 animate-pulse"/>}
                                                 {log.action}
@@ -1797,20 +1798,20 @@ export default function TransactionProgressPage() {
                 Ref: <span className="font-bold text-gray-800">{rejectTarget.inboxNumber}</span>
               </div>
               <label className="block text-sm font-medium text-gray-700 mb-2">ระบุเหตุผลในการยกเลิกรายการ <span className="text-red-500">*</span></label>
-              <textarea 
+              <textarea
                 value={rejectRemark}
                 onChange={(e) => setRejectRemark(e.target.value)}
                 rows={4}
                 autoFocus
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none" 
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
                 placeholder=""
               />
             </div>
             <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">
               <Button variant="outline" onClick={() => setIsRejectModalOpen(false)}>ยกเลิก</Button>
-              <Button 
-                onClick={handleConfirmReject} 
-                className="bg-red-600 hover:bg-red-700 text-white" 
+              <Button
+                onClick={handleConfirmReject}
+                className="bg-red-600 hover:bg-red-700 text-white"
                 disabled={rejectLoading || !rejectRemark.trim()}
               >
                 {rejectLoading ? 'Processing...' : 'ยืนยัน Reject'}

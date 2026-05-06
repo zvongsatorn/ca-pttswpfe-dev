@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPath, buildApiPathFromSearch, buildAuthHeaders } from '@/utils/security';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -157,10 +158,10 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
      return (dayjs().year() + 543).toString();
   });
   const [statusFilter, setStatusFilter] = useState('ทั้งหมด');
-  
+
   const [records, setRecords] = useState<MKDRecord[]>([]);
   const [loading, setLoading] = useState(false);
-  
+
   const [isMainComboboxOpen, setIsMainComboboxOpen] = useState(false);
   const [selectedMainUnit, setSelectedMainUnit] = useState(() => {
      if (typeof window !== 'undefined') {
@@ -200,7 +201,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
     try {
       let employeeId = '';
       let userGroupNo = '';
-      
+
       if (currentUser) {
           employeeId = currentUser.employeeID || '';
           userGroupNo = localStorage.getItem('selected_usergroup') || currentUser.userGroupNo || currentUser.roleId || '';
@@ -214,23 +215,23 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
 
       const query = new URLSearchParams({
         EffectiveYear: ceYear,
-        division: selectedMainUnit, 
+        division: selectedMainUnit,
         EmployeeID: employeeId,
         UserGroupNo: userGroupNo
       });
 
-      const res = await fetch(`/api/mkd/history-approve?${query}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+      const res = await fetch(buildApiPathFromSearch('/api/mkd/history-approve', query), {
+          headers: buildAuthHeaders(token)
       });
       const result = await res.json();
       if (result.success) {
         const mapped = result.data.map((item: RawMKDRecord, index: number) => {
           const str = (v: unknown): string => (v === null || v === undefined) ? '' : String(v);
           const manStatus = Number(item.ManDriverStatus) || 0;
-          const appHistStatus = item.ApproveHistStatus !== null && item.ApproveHistStatus !== undefined 
-            ? Number(item.ApproveHistStatus) 
+          const appHistStatus = item.ApproveHistStatus !== null && item.ApproveHistStatus !== undefined
+            ? Number(item.ApproveHistStatus)
             : (str(item.AppStatusName).trim() === 'ไม่เห็นชอบ' ? -1 : (str(item.AppStatusName).trim() === 'เห็นชอบ' ? 1 : null));
-          
+
           let statusLabel = str(item.AppStatusName) || str(item.StatusName) || 'รอขออนุมัติ';
 
           if (manStatus === 2) {
@@ -243,7 +244,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
           } else if (manStatus === 0) {
             statusLabel = 'ยกเลิก';
           }
-          
+
           let displayDate = '-';
           if (item.datebd) {
               const d = new Date(item.datebd as string | number | Date);
@@ -309,8 +310,8 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
     setFlowLoading(true);
     setIsFlowModalOpen(true);
     try {
-      const res = await fetch(`/api/mkd/${mkdID}/flow-history?approveId=${approveID}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+      const res = await fetch(buildApiPath(`/api/mkd/${encodeURIComponent(String(mkdID))}/flow-history`, { approveId: approveID }), {
+          headers: buildAuthHeaders(token)
       });
       const result = await res.json();
       if (result.success) setFlowData(result.data);
@@ -330,7 +331,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
       if (filterReqNo && !r.reqNo.toLowerCase().includes(filterReqNo.toLowerCase())) return false;
-      if (filterReqDate && !r.reqDate.includes(filterReqDate)) return false; 
+      if (filterReqDate && !r.reqDate.includes(filterReqDate)) return false;
       if (filterBU && !r.bu.toLowerCase().includes(filterBU.toLowerCase())) return false;
       if (filterOrgUnit && !(r.orgUnitCode + r.orgUnitOnly).toLowerCase().includes(filterOrgUnit.toLowerCase())) return false;
       if (filterCreateBy && !r.createBy.toLowerCase().includes(filterCreateBy.toLowerCase())) return false;
@@ -370,7 +371,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
       <Card className="bg-white border-0 shadow-sm py-2">
         <CardContent className="p-4">
           <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end">
-            <div className="w-full lg:w-auto"> 
+            <div className="w-full lg:w-auto">
               <Label className="text-sm font-medium text-gray-700 mb-2 block">
                 Filter : สายงาน
               </Label>
@@ -506,17 +507,17 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                 <tr className="bg-blue-50 border-b z-20 shadow-sm">
                   <th className="px-4 py-3"></th>
                   <th className="px-4 py-3 w-40">
-                    <Input 
-                      className="bg-white h-9 text-xs" 
+                    <Input
+                      className="bg-white h-9 text-xs"
                       value={filterReqNo}
                       onChange={(e) => setFilterReqNo(e.target.value)}
                       placeholder=""
                     />
                   </th>
                   <th className="px-4 py-3 w-40">
-                    <BDatePicker 
+                    <BDatePicker
                       locale={customLocale}
-                      className="w-full h-9 text-xs" 
+                      className="w-full h-9 text-xs"
                       format="DD/MM/BBBB"
                       placeholder=""
                       value={filterReqDate ? dayjs(filterReqDate, 'DD/MM/BBBB') : null}
@@ -527,24 +528,24 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                     />
                   </th>
                   <th className="px-4 py-3">
-                    <Input 
-                      className="bg-white h-9 text-xs w-20" 
+                    <Input
+                      className="bg-white h-9 text-xs w-20"
                       value={filterBU}
                       onChange={(e) => setFilterBU(e.target.value)}
                       placeholder=""
                     />
                   </th>
                   <th className="px-4 py-3">
-                    <Input 
-                      className="bg-white h-9 text-xs" 
+                    <Input
+                      className="bg-white h-9 text-xs"
                       value={filterOrgUnit}
                       onChange={(e) => setFilterOrgUnit(e.target.value)}
                       placeholder=""
                     />
                   </th>
                   <th className="px-4 py-3">
-                    <Input 
-                      className="bg-white h-9 text-xs" 
+                    <Input
+                      className="bg-white h-9 text-xs"
                       value={filterCreateBy}
                       onChange={(e) => setFilterCreateBy(e.target.value)}
                       placeholder=""
@@ -552,8 +553,8 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                   </th>
                   <th className="px-4 py-3"></th>
                   <th className="px-4 py-3">
-                    <Input 
-                      className="bg-white h-9 text-xs" 
+                    <Input
+                      className="bg-white h-9 text-xs"
                       value={filterConclusion}
                       onChange={(e) => setFilterConclusion(e.target.value)}
                       placeholder=""

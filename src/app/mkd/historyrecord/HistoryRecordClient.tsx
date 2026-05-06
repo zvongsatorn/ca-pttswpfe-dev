@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPathFromSearch, buildAuthHeaders } from '@/utils/security';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
@@ -31,8 +32,8 @@ const customGenerateConfig = {
 };
 
 const BDatePicker = generatePicker<dayjs.Dayjs>(customGenerateConfig);
-import { 
-    Search, 
+import {
+    Search,
     BarChart3
 } from 'lucide-react';
 
@@ -140,17 +141,17 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
             const resolvedUserGroupNo = normalizeUserGroupNo(userGroupNo);
             const employeeId = currentUser.employeeID || currentUser.EmployeeID || 'SYSTEM';
             const canViewAllRecords = resolvedUserGroupNo === '04';
-            
+
             const query = new URLSearchParams({
                 EffectiveYear: ceYear,
                 EmployeeID: canViewAllRecords ? '' : employeeId,
                 UserGroupNo: resolvedUserGroupNo,
-                OrgUnitNo: '', 
-                RequestType: '2' 
+                OrgUnitNo: '',
+                RequestType: '2'
             });
 
-            const res = await fetch(`/api/mkd/history?${query}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
+            const res = await fetch(buildApiPathFromSearch('/api/mkd/history', query), {
+                headers: buildAuthHeaders(token)
             });
             const result = (await res.json()) as { success: boolean; data: Omit<HistoryRecord, 'no' | 'status' | 'manStatus'>[] };
             if (result.success) {
@@ -197,13 +198,13 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
             setLoading(true);
             const numericYear = parseInt(selectedYear);
             const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : selectedYear;
-            
+
             // 1. Create New
             const res = await fetch('/api/mkd', {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
+                    ...Object.fromEntries(buildAuthHeaders(token))
                 },
                 body: JSON.stringify({
                     EffectiveYear: ceYear,
@@ -326,9 +327,9 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                                             <Input className="bg-white h-9 text-xs" value={filterReqNo} onChange={e => setFilterReqNo(e.target.value)} placeholder="" />
                                         </th>
                                         <th className="px-4 py-3">
-                                            <BDatePicker 
+                                            <BDatePicker
                                                 locale={customLocale}
-                                                className="w-full h-9 text-xs" 
+                                                className="w-full h-9 text-xs"
                                                 format="DD/MM/BBBB"
                                                 placeholder=""
                                                 value={filterReqDate ? dayjs(filterReqDate, 'DD/MM/BBBB') : null}
@@ -417,9 +418,9 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                     <div className="py-6 space-y-6">
                         <div>
                             <Label htmlFor="unitName" className="text-sm font-semibold text-gray-600 mb-2 block">หน่วยงาน (Unit Name)</Label>
-                            <Input 
+                            <Input
                                 id="unitName"
-                                placeholder="ระบุชื่อหน่วยงาน..." 
+                                placeholder="ระบุชื่อหน่วยงาน..."
                                 value={newUnitName}
                                 onChange={e => setNewUnitName(e.target.value)}
                                 className="h-11 border-gray-200 focus:border-blue-400 focus:ring-blue-400"

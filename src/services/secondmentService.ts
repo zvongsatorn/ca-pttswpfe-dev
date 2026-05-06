@@ -1,3 +1,5 @@
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
+
 const API_BASE_URL = '';
 
 export interface SecondmentPool {
@@ -13,12 +15,9 @@ export interface UnitCombo {
 }
 
 async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
-    const headers = new Headers(options.headers);
-    if (token) {
-        headers.set('Authorization', `Bearer ${token}`);
-    }
+    const headers = buildAuthHeaders(token, options.headers);
 
-    const res = await fetch(`${API_BASE_URL}${url}`, {
+    const res = await fetchApi(API_BASE_URL, url, {
         ...options,
         headers,
     });

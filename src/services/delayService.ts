@@ -1,3 +1,5 @@
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
+
 const API_BASE_URL = '';
 
 export interface DelayRetirementDataType {
@@ -41,14 +43,9 @@ interface DelayServiceResponse<T> {
 }
 
 async function fetchWithAuth<T>(url: string, token?: string, options: RequestInit = {}): Promise<DelayServiceResponse<T>> {
-    const headers = new Headers(options.headers);
-    if (token) {
-        headers.set('Authorization', `Bearer ${token}`);
-    }
-
-    const response = await fetch(`${API_BASE_URL}${url}`, {
+    const response = await fetchApi(API_BASE_URL, url, {
         ...options,
-        headers
+        headers: buildAuthHeaders(token, options.headers)
     });
 
     const payload = await response.json().catch(() => null);

@@ -1,3 +1,5 @@
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
+
 const API_BASE_URL = '';
 
 export interface StructureRemarkDebugPayload {
@@ -32,15 +34,9 @@ export const debugGenerateStructureRemarks = async (
     payload: StructureRemarkDebugPayload,
     token?: string
 ): Promise<StructureRemarkDebugResult> => {
-    const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
-    };
+    const headers = buildAuthHeaders(token, { 'Content-Type': 'application/json' });
 
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${API_BASE_URL}/api/transactions/debug/structure-remarks`, {
+    const response = await fetchApi(API_BASE_URL, '/api/transactions/debug/structure-remarks', {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)

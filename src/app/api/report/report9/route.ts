@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { buildApiPathFromSearch, fetchApi, toSafeHeaderValue } from '@/utils/security';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,21 +11,20 @@ const getBackendBaseUrl = () => {
 };
 
 export async function GET(request: NextRequest) {
-  const backendUrl = `${getBackendBaseUrl()}/api/report/report9${request.nextUrl.search}`;
   const headers = new Headers();
 
   const authorization = request.headers.get('authorization');
   const cookie = request.headers.get('cookie');
 
   if (authorization) {
-    headers.set('authorization', authorization);
+    headers.set('authorization', toSafeHeaderValue(authorization));
   }
   if (cookie) {
-    headers.set('cookie', cookie);
+    headers.set('cookie', toSafeHeaderValue(cookie));
   }
 
   try {
-    const response = await fetch(backendUrl, {
+    const response = await fetchApi(getBackendBaseUrl(), buildApiPathFromSearch('/api/report/report9', request.nextUrl.searchParams), {
       method: 'GET',
       headers,
       cache: 'no-store'

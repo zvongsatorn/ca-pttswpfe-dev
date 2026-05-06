@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPathFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Table, DatePicker, Button, Form, Popover, Checkbox, Select } from 'antd';
@@ -308,7 +309,7 @@ const filterTree = (nodes: Report6DataType[], allowedUnits: string[]): Report6Da
     const dfs = (node: Report6DataType, isParentMatched: boolean): Report6DataType | null => {
         const isMatched = allowedUnits.includes(String(node.bg_no || '')) || allowedUnits.includes(String(node.org_unit_no || ''));
         const effectiveMatched = isParentMatched || isMatched;
-        
+
         const newChildren: Report6DataType[] = [];
         if (node.children) {
             for (const child of node.children) {
@@ -318,7 +319,7 @@ const filterTree = (nodes: Report6DataType[], allowedUnits: string[]): Report6Da
                 }
             }
         }
-        
+
         if (effectiveMatched || newChildren.length > 0) {
             return {
                 ...node,
@@ -365,7 +366,7 @@ export default function Report6Page() {
         if (filterType === 'BU') return businessUnitOptions;
         if (filterType === 'LINE') return lineOfWorkOptions;
         if (filterType === 'UNIT') return orgUnitOptions;
-        
+
         const all = [...businessUnitOptions, ...lineOfWorkOptions, ...orgUnitOptions];
         const unique = new Map(all.map(item => [item.value, item]));
         return Array.from(unique.values());
@@ -388,7 +389,7 @@ export default function Report6Page() {
                 userGroupNo
             });
 
-            const res = await fetch(`/api/report/report6/filters?${query.toString()}`, { signal });
+            const res = await fetch(buildApiPathFromSearch('/api/report/report6/filters', query), { signal });
             let payload: Report6FilterResponse | null = null;
             try {
                 payload = await res.json();
@@ -442,7 +443,7 @@ export default function Report6Page() {
                 userGroupNo
             });
 
-            const res = await fetch(`/api/report/report6?${query.toString()}`);
+            const res = await fetch(buildApiPathFromSearch('/api/report/report6', query));
             const payload: Report6ApiResponse = await res.json();
 
             if (!res.ok || payload.status !== 200 || !Array.isArray(payload.data)) {

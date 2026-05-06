@@ -5,6 +5,7 @@ import { getStartYear } from '@/services/mkdService';
 import { App as AntdApp } from 'antd';
 import HistoryApproveClient from './HistoryApproveClient';
 import Main from '@/components/layout/main';
+import { buildApiPath, buildAuthHeaders, fetchApi } from '@/utils/security';
 
 export default async function HistoryApprovePage() {
     const cookieStore = await cookies();
@@ -14,7 +15,7 @@ export default async function HistoryApprovePage() {
     // Fetch initial data
     const startYearRes = await getStartYear(token);
     const startYear = startYearRes?.success ? parseInt(startYearRes.data) : (dayjs().year() + 543 - 5);
-    
+
     const currentYear = new Date().getFullYear() + 543;
     const availableYears: string[] = [];
     for (let y = currentYear + 1; y >= startYear; y--) {
@@ -23,10 +24,8 @@ export default async function HistoryApprovePage() {
 
     // Fetch units (server-side fetch from own API)
     const baseUrl = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
-    const unitsRes = await fetch(`${baseUrl}/api/units/all?effectiveDate=${new Date().toISOString().split('T')[0]}`, {
-        headers: {
-            'Authorization': `Bearer ${token}`
-        }
+    const unitsRes = await fetchApi(baseUrl, buildApiPath('/api/units/all', { effectiveDate: new Date().toISOString().split('T')[0] }), {
+        headers: buildAuthHeaders(token)
     });
     const unitsData = await unitsRes.json();
     const availableUnits = unitsData.success ? unitsData.data : [];
@@ -34,7 +33,7 @@ export default async function HistoryApprovePage() {
     return (
         <Main currentPath="/mkd/transaction">
             <AntdApp>
-                <HistoryApproveClient 
+                <HistoryApproveClient
                     token={token}
                     currentUser={user}
                     initialYears={availableYears}

@@ -19,6 +19,7 @@ import { useMsal } from '@azure/msal-react';
 import { loginRequest } from '@/lib/msalConfig';
 import { b2cInstance, b2cLoginRequest } from '@/lib/msalB2CConfig';
 import type { RedirectRequest } from '@azure/msal-browser';
+import { buildApiPath, buildAuthHeaders, isSecureSubmissionContext, setAuthCookie, setSessionJson } from '@/utils/security';
 
 const toText = (value: unknown): string => String(value ?? '').trim();
 
@@ -100,7 +101,7 @@ export default function LoginForm() {
   });
   const [isAdminToggleEnabled, setIsAdminToggleEnabled] = useState(false);
   const [isSignupB2CEnabled, setIsSignupB2CEnabled] = useState(false);
-  
+
   const { instance } = useMsal();
   const hasAttemptedSSO = useRef(false);
 
@@ -109,7 +110,7 @@ export default function LoginForm() {
     const processRedirect = async () => {
       if (hasAttemptedSSO.current) return;
       hasAttemptedSSO.current = true;
-      
+
       try {
         await b2cInstance.initialize().catch(e => console.warn("B2C already initialized or error", e));
 
@@ -136,9 +137,9 @@ export default function LoginForm() {
         if (currentResponse && currentResponse.accessToken) {
           setIsLoading(true);
           const resolvedEmail = currentResponse.account?.username || '';
-          
+
           const apiPayload = {
-              employeeID: isB2C ? resolvedEmail : (resolvedEmail.split('@')[0] || ''), 
+              employeeID: isB2C ? resolvedEmail : (resolvedEmail.split('@')[0] || ''),
               email: resolvedEmail,
               accessToken: currentResponse.accessToken,
               type: isB2C ? 'B2C' : 'AD'
@@ -153,11 +154,11 @@ export default function LoginForm() {
           if (apiRes.ok) {
               const data = await apiRes.json();
               const { user: userData, token } = data;
-      
-              document.cookie = `auth_token=${token}; path=/; max-age=86400; SameSite=Strict`;
+
+              setAuthCookie(token);
               localStorage.setItem('auth_token', token);
               localStorage.setItem('user_data', JSON.stringify(userData));
-              
+
               if (data.config?.startYear) {
                   localStorage.setItem('StartYear', data.config.startYear);
               }
@@ -176,8 +177,8 @@ export default function LoginForm() {
               }
               clearUnitsCacheKeys();
               if (employeeId && defaultRole) {
-                fetch(`/api/units/by-role?empId=${employeeId}&roleId=${defaultRole}`, {
-                  headers: { 'Authorization': `Bearer ${token}` }
+                fetch(buildApiPath('/api/units/by-role', { empId: employeeId, roleId: defaultRole }), {
+                  headers: buildAuthHeaders(token)
                 })
                   .then(async (res) => {
                     const { json: unitData, text } = await readJsonOrText<{ success?: boolean; data?: unknown[]; message?: string; error?: string }>(res);
@@ -186,7 +187,7 @@ export default function LoginForm() {
                       return;
                     }
                     if (unitData?.success && Array.isArray(unitData.data)) {
-                      sessionStorage.setItem(buildUnitsCacheKey(employeeId, defaultRole), JSON.stringify(unitData.data));
+                      setSessionJson(buildUnitsCacheKey(employeeId, defaultRole), unitData.data);
                     }
                   })
                   .catch(() => {});
@@ -247,8 +248,8 @@ export default function LoginForm() {
       };
 
       if (formData.username) {
-          redirectConfig.loginHint = formData.username.includes('@') 
-              ? formData.username 
+          redirectConfig.loginHint = formData.username.includes('@')
+              ? formData.username
               : `${formData.username}@pttplctest01.onmicrosoft.com`;
       }
 
@@ -271,8 +272,8 @@ export default function LoginForm() {
             prompt: "select_account"
         };
         if (formData.username) {
-             redirectConfig.loginHint = formData.username.includes('@') 
-              ? formData.username 
+             redirectConfig.loginHint = formData.username.includes('@')
+              ? formData.username
               : `${formData.username}@pttplcb2ctest01.onmicrosoft.com`; // External domain hint
         }
         await b2cInstance.loginRedirect(redirectConfig);
@@ -296,6 +297,15 @@ export default function LoginForm() {
     }
 
     setIsLoading(true);
+
+    if (!isSecureSubmissionContext()) {
+      toast.error('ไม่สามารถส่งรหัสผ่านผ่านการเชื่อมต่อที่ไม่ปลอดภัยได้', {
+        description: 'กรุณาเข้าใช้งานผ่าน HTTPS',
+        duration: 3000,
+      });
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const response = await fetch('/api/auth/login', {
@@ -323,7 +333,7 @@ export default function LoginForm() {
         // Redirect based on user type (หลังจาก 1.5 วินาที)
         setTimeout(() => {
           // Set auth_token cookie
-          document.cookie = `auth_token=${token}; path=/; max-age=86400; SameSite=Strict`;
+          setAuthCookie(token);
 
           // Store token and user data
           localStorage.setItem('auth_token', token);
@@ -348,10 +358,8 @@ export default function LoginForm() {
           }
           clearUnitsCacheKeys();
           if (employeeId && defaultRole) {
-            fetch(`/api/units/by-role?empId=${employeeId}&roleId=${defaultRole}`, {
-              headers: {
-                'Authorization': `Bearer ${token}`
-              }
+            fetch(buildApiPath('/api/units/by-role', { empId: employeeId, roleId: defaultRole }), {
+              headers: buildAuthHeaders(token)
             })
               .then(async (res) => {
                 const { json: unitData, text } = await readJsonOrText<{ success?: boolean; data?: unknown[]; message?: string; error?: string }>(res);
@@ -360,7 +368,7 @@ export default function LoginForm() {
                   return;
                 }
                 if (unitData?.success && Array.isArray(unitData.data)) {
-                  sessionStorage.setItem(buildUnitsCacheKey(employeeId, defaultRole), JSON.stringify(unitData.data));
+                  setSessionJson(buildUnitsCacheKey(employeeId, defaultRole), unitData.data);
                 }
               })
               .catch(err => console.error("Failed to prefetch units:", err));
@@ -444,9 +452,9 @@ export default function LoginForm() {
               <Image
                 src="/images/logoptt.png"
                 alt="PTT Logo"
-                width={150}
-                height={150}
-                className="object-contain w-auto h-auto"
+                width={482}
+                height={220}
+                className="h-auto w-[220px] max-w-full object-contain"
                 priority
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
@@ -509,7 +517,7 @@ export default function LoginForm() {
             {/* Admin Login Toggle */}
             {isAdminToggleEnabled && (
               <div className="flex justify-center mt-6">
-                <button 
+                <button
                   onClick={() => setShowAdminLogin(!showAdminLogin)}
                   className="text-sm text-slate-400 hover:text-slate-600 transition-colors underline-offset-4 hover:underline"
                 >

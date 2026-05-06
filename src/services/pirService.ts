@@ -1,13 +1,11 @@
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
+
 const API_BASE_URL = '';
 
 async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
-    const authHeader: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
-    const res = await fetch(`${API_BASE_URL}${url}`, {
+    const res = await fetchApi(API_BASE_URL, url, {
         ...options,
-        headers: {
-            ...options.headers,
-            ...authHeader,
-        },
+        headers: buildAuthHeaders(token, options.headers),
     });
 
     const contentType = res.headers.get('content-type') || '';
@@ -80,10 +78,9 @@ export const uploadFilePIR = async (file: File, fileName: string, effYear: strin
     formData.append('effYear', effYear);
     formData.append('user', user);
 
-    const authHeader: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
-    const res = await fetch(`${API_BASE_URL}/api/pir/file/upload`, {
+    const res = await fetchApi(API_BASE_URL, '/api/pir/file/upload', {
         method: 'POST',
-        headers: { ...authHeader },
+        headers: buildAuthHeaders(token),
         body: formData
     });
 
@@ -126,14 +123,13 @@ export const exportExcel = async (params: { effectiveMonth?: string, effectiveYe
     Object.entries(params).forEach(([key, value]) => {
         if (value) queryParams.append(key, value);
     });
-    
+
     return await fetchWithAuth(`/api/pir/export?${queryParams.toString()}`, token);
 };
 
 export const downloadPIRTemplate = async (token?: string) => {
-    const authHeader: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
-    const res = await fetch(`${API_BASE_URL}/api/pir/template`, {
-        headers: { ...authHeader }
+    const res = await fetchApi(API_BASE_URL, '/api/pir/template', {
+        headers: buildAuthHeaders(token)
     });
     if (!res.ok) return null;
     return await res.blob();

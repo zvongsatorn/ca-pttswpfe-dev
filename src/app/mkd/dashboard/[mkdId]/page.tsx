@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FileSpreadsheet, Edit2, Save, X } from "lucide-react";
 import { toast } from "sonner";
+import { buildApiPath } from '@/utils/security';
 
 export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: string }> }) {
   const { mkdId } = React.use(params);
@@ -19,7 +20,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
   const [headerInfo, setHeaderInfo] = useState({ reqNo: "-", date: "-", orgUnit: "-" });
   const [effYear, setEffYear] = useState<number>(0);
   const [years, setYears] = useState<{ ad: number; label: string; th: number }[]>([]);
-  
+
   interface SummaryRow {
     title: string;
     isTotal: boolean;
@@ -71,8 +72,8 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
       try {
         setIsLoading(true);
         const [detailRes, dashRes] = await Promise.all([
-          fetch(`/api/mkd/${mkdId}/details`).then(r => r.json()),
-          fetch(`/api/mkd/${mkdId}/dashboard`).then(r => r.json())
+          fetch(buildApiPath(`/api/mkd/${encodeURIComponent(String(mkdId))}/details`)).then(r => r.json()),
+          fetch(buildApiPath(`/api/mkd/${encodeURIComponent(String(mkdId))}/dashboard`)).then(r => r.json())
         ]);
 
         let currentEffYear = 0;
@@ -90,12 +91,12 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
 
         if (dashRes.success && dashRes.data) {
             const { chart, chartDetail, chartDetailCal } = dashRes.data;
-            
+
             const allYears = Array.from(new Set([
                 ...(chartDetail || []).map((x: RawDashItem) => Number(x.KeyYear)),
                 ...(chartDetailCal || []).map((x: RawDashItem) => Number(x.KeyYear))
             ])).sort((a, b) => (a as number) - (b as number));
-            
+
             const yearObjs = allYears.map((y) => {
                 const yearTh = y + 543;
                 let label = yearTh.toString();
@@ -143,7 +144,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
                 const y = Number(item.KeyYear);
                 const id = Number(item.ManDriverKeyID);
                 if (isNaN(id)) return;
-                
+
                 if (!driverMap[id]) {
                     driverMap[id] = {
                         id,
@@ -177,7 +178,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
               year: year.toString(),
               amount: Number(amount)
           }));
-          const res = await fetch(`/api/mkd/${mkdId}/dashboard/rate`, {
+          const res = await fetch(buildApiPath(`/api/mkd/${encodeURIComponent(String(mkdId))}/dashboard/rate`), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ data: payload })
@@ -214,13 +215,13 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
 
   const SimpleBarChart = () => {
     const maxVal = Math.max(...chartData.map(d => d.value), 4);
-    
+
     return (
       <div className="w-full h-[400px] bg-white p-4 relative mt-4">
         <div className="absolute top-0 text-sm text-gray-500 flex items-center gap-2">
              <div className="w-8 h-4 bg-gray-300 opacity-50"></div> # of HeadCount
         </div>
-        
+
         <div className="h-[300px] flex items-end justify-between pl-12 pr-4 border-l border-b relative top-10">
             {/* Y-Axis Grid Lines */}
             {[0, 0.25, 0.5, 0.75, 1.0].map((ratio) => (
@@ -238,8 +239,8 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
                 return (
                     <div key={idx} className="flex flex-col items-center justify-end h-full w-full mx-2 group">
                         <span className="mb-2 text-xs font-bold text-gray-600">{item.value > 0 ? item.value : '0'}</span>
-                        <div 
-                            className={`w-full max-w-[60px] transition-all duration-500 ${bgColor} hover:opacity-80`} 
+                        <div
+                            className={`w-full max-w-[60px] transition-all duration-500 ${bgColor} hover:opacity-80`}
                             style={{ height: `${heightPercent}%` }}
                         ></div>
                         <span className="mt-4 text-xs text-gray-500">{item.year}</span>
@@ -264,8 +265,8 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
         </TableHeader>
         <TableBody>
           {summaryRows.map((row, index) => (
-            <TableRow 
-                key={index} 
+            <TableRow
+                key={index}
                 className={row.isTotal ? "bg-orange-50/50 border-t font-bold hover:bg-orange-100/50" : "hover:bg-gray-50"}
             >
               <TableCell className={row.isTotal ? "font-bold text-black" : "font-bold text-blue-600"}>
@@ -304,7 +305,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
             <Input value={headerInfo.orgUnit} readOnly className="bg-gray-50 mt-1" />
           </div>
           <div className="md:col-span-2 text-right">
-            <Button 
+            <Button
                 className="bg-gray-500 hover:bg-gray-600 text-white min-w-[100px]"
                 onClick={() => router.back()}
             >
@@ -318,8 +319,8 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
             <button
               onClick={() => setActiveTab("CHART")}
               className={`pb-3 font-semibold text-sm transition-colors relative ${
-                activeTab === "CHART" 
-                ? "text-blue-500 after:absolute after:bottom-0 after:left-0 after:w-full after:h-1 after:bg-pink-500" 
+                activeTab === "CHART"
+                ? "text-blue-500 after:absolute after:bottom-0 after:left-0 after:w-full after:h-1 after:bg-pink-500"
                 : "text-gray-500 hover:text-gray-700"
               }`}
             >
@@ -328,8 +329,8 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
             <button
               onClick={() => setActiveTab("DETAIL")}
               className={`pb-3 font-semibold text-sm transition-colors relative ${
-                activeTab === "DETAIL" 
-                ? "text-blue-500 after:absolute after:bottom-0 after:left-0 after:w-full after:h-1 after:bg-pink-500" 
+                activeTab === "DETAIL"
+                ? "text-blue-500 after:absolute after:bottom-0 after:left-0 after:w-full after:h-1 after:bg-pink-500"
                 : "text-gray-500 hover:text-gray-700"
               }`}
             >
@@ -353,7 +354,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
 
                 {activeTab === "DETAIL" && (
                 <div className="animate-in fade-in duration-300">
-                    
+
                     <div className="flex justify-end mb-4">
                         <div className="w-full md:w-1/2 lg:w-5/12">
                             <Table>
@@ -381,7 +382,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
                                         {years.filter(y => y.ad > effYear).map(y => (
                                             <TableCell key={y.ad} className="text-center text-xs">
                                                 {isEditingRate ? (
-                                                    <Input 
+                                                    <Input
                                                         type="number"
                                                         className="w-16 h-8 text-center text-xs"
                                                         value={editRateValues[y.ad] !== undefined ? editRateValues[y.ad] : ''}

@@ -18,6 +18,7 @@ import { saveExcelFile } from '@/utils/fileDownload';
 import { ACTION_LOG, insertActionLog, setSelectedSubjectContext } from '@/services/actionLogService';
 import { ApiMenuItem } from '../../types/menu';
 import { getAuthToken } from '../../utils/auth';
+import { buildApiPath, buildAuthHeaders } from '@/utils/security';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -63,13 +64,11 @@ export default function Sidebar({
       setDownloading(true);
       const token = getAuthToken();
       const response = await fetch('/api/mkd/export-list', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: buildAuthHeaders(token || undefined)
       });
 
       if (!response.ok) throw new Error('Failed to fetch MKD list');
-      
+
       const result = await response.json();
       const data = result.data;
 
@@ -134,10 +133,8 @@ export default function Sidebar({
           }
         }
 
-        const response = await fetch(`/api/menu`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+        const response = await fetch('/api/menu', {
+          headers: buildAuthHeaders(token || undefined)
         });
 
         if (!response.ok) {
@@ -150,10 +147,8 @@ export default function Sidebar({
         // Fetch inbox count
         let inboxCount = 0;
         try {
-          const countRes = await fetch(`/api/documents/inbox/count?employeeId=${employeeId}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
+          const countRes = await fetch(buildApiPath('/api/documents/inbox/count', { employeeId }), {
+            headers: buildAuthHeaders(token || undefined)
           });
           if (countRes.ok) {
             const countData = await countRes.json();
@@ -179,7 +174,7 @@ export default function Sidebar({
           defaultExpanded: item.Expanded,
           badgeCount: item.ShowCounter ? (item.MenuKey === 'inbox' || item.MenuPath?.includes('inbox') || item.MenuName.toLowerCase().includes('inbox') ? inboxCount : 0) : undefined,
         }));
-        
+
         setMenuItems(transformedItems);
       } catch (error) {
         console.error("Error loading menu:", error);
@@ -355,8 +350,8 @@ export default function Sidebar({
           }`}
         onClick={() => {
           if (
-            item.key === 'download-mkd' || 
-            item.path === 'mkd/download' || 
+            item.key === 'download-mkd' ||
+            item.path === 'mkd/download' ||
             item.path === '/mkd/download'
           ) {
             if (item.menuId > 0) {

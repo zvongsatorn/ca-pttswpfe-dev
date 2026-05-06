@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPath, buildApiPathFromSearch, buildApiUrl, buildAuthHeaders, fetchApi, setSessionJson } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -351,15 +352,31 @@ const normalizeBaseUrl = (value: string): string => {
   return trimmed;
 };
 
+const isSafeFileHref = (href: string): boolean => {
+  if (!href) return false;
+  if (href.startsWith('/')) return true;
+
+  try {
+    const parsed = new URL(href);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
 const resolveFileUrl = (fileUpload: string): string => {
   const normalized = String(fileUpload || '').trim();
   if (!normalized) return '';
-  if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
-  if (normalized.startsWith('/api/')) return normalized.replace(/^\/api\//, '/');
-  if (normalized.startsWith('/uploads/')) return normalized;
-  if (normalized.startsWith('uploads/')) return `/${normalized}`;
-  if (normalized.includes('/')) return `/${normalized.replace(/^\/+/, '')}`;
-  return `/uploads/transactions/${normalized}`;
+
+  let resolved = '';
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) resolved = normalized;
+  else if (normalized.startsWith('/api/')) resolved = normalized.replace(/^\/api\//, '/');
+  else if (normalized.startsWith('/uploads/')) resolved = normalized;
+  else if (normalized.startsWith('uploads/')) resolved = `/${normalized}`;
+  else if (normalized.includes('/')) resolved = `/${normalized.replace(/^\/+/, '')}`;
+  else resolved = `/uploads/transactions/${normalized}`;
+
+  return isSafeFileHref(resolved) ? resolved : '';
 };
 
 // Helper to generate years
@@ -581,7 +598,7 @@ export default function TransactionPage() {
         setUnits(normalizedUnits);
         const { employeeId, userGroupNo } = resolveUserContext();
         if (employeeId && userGroupNo) {
-          sessionStorage.setItem(buildUnitsCacheKey(employeeId, userGroupNo), JSON.stringify(normalizedUnits));
+          setSessionJson(buildUnitsCacheKey(employeeId, userGroupNo), normalizedUnits);
         }
         // Clear active selection if the previous selection is no longer valid
         setDetailFormData(prev => ({
@@ -592,26 +609,33 @@ export default function TransactionPage() {
     };
 
     window.addEventListener('user-units-changed', handleUnitsChanged);
-    
+
     // Always fetch fresh units on mount to ensure IsAssistant/IsUnder fields are present
     const userContext = resolveUserContext();
     const employeeId = userContext.employeeId;
     const defaultGroup = userContext.userGroupNo || normalizeUserGroupNo(String(localStorage.getItem('selected_usergroup') || '').trim()) || '02';
     if (employeeId) {
       const token = localStorage.getItem('auth_token');
-      const query = `roleId=${encodeURIComponent(defaultGroup)}&empId=${encodeURIComponent(employeeId)}`;
-      const proxyUrl = `/api/units/by-role?${query}`;
+      const unitsPath = buildApiPath('/api/units/by-role', { roleId: defaultGroup, empId: employeeId });
       const publicApiBase = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_URL || '');
-      const directUrl = publicApiBase ? `${publicApiBase}/api/units/by-role?${query}` : '';
-      const fetchTargets = Array.from(new Set([proxyUrl, directUrl].filter(Boolean)));
+      const fetchTargets = [
+        {
+          label: unitsPath,
+          request: (headers?: HeadersInit) => fetch(unitsPath, { headers })
+        },
+        ...(publicApiBase ? [{
+          label: buildApiUrl(publicApiBase, unitsPath),
+          request: (headers?: HeadersInit) => fetchApi(publicApiBase, unitsPath, { headers })
+        }] : [])
+      ];
 
       const fetchInitialUnits = async () => {
         const errors: string[] = [];
-        const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+        const headers = token ? buildAuthHeaders(token) : undefined;
 
-        for (const url of fetchTargets) {
+        for (const target of fetchTargets) {
           try {
-            const res = await fetch(url, { headers });
+            const res = await target.request(headers);
             const { json: data, text } = await readApiBody<{
               status?: number;
               success?: boolean;
@@ -621,12 +645,12 @@ export default function TransactionPage() {
             }>(res);
 
             if (!res.ok) {
-              errors.push(`${url} -> ${resolveApiErrorMessage(data, `HTTP ${res.status}`, text)}`);
+              errors.push(`${target.label} -> ${resolveApiErrorMessage(data, `HTTP ${res.status}`, text)}`);
               continue;
             }
 
             if (!data) {
-              errors.push(`${url} -> non-JSON response (${text || `HTTP ${res.status}`})`);
+              errors.push(`${target.label} -> non-JSON response (${text || `HTTP ${res.status}`})`);
               continue;
             }
 
@@ -634,14 +658,14 @@ export default function TransactionPage() {
               const fetchedUnits = data.data.map((u: Record<string, unknown>) => normalizeUnitOption(u));
               setUnits(fetchedUnits);
               clearUnitsCacheKeys();
-              sessionStorage.setItem(buildUnitsCacheKey(employeeId, defaultGroup), JSON.stringify(fetchedUnits));
+              setSessionJson(buildUnitsCacheKey(employeeId, defaultGroup), fetchedUnits);
               return;
             }
 
-            errors.push(`${url} -> unexpected payload shape`);
+            errors.push(`${target.label} -> unexpected payload shape`);
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            errors.push(`${url} -> ${message}`);
+            errors.push(`${target.label} -> ${message}`);
           }
         }
 
@@ -686,7 +710,7 @@ export default function TransactionPage() {
       try {
         const token = localStorage.getItem('auth_token');
         const response = await fetch('/api/calendar', {
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
+          headers: buildAuthHeaders(token || undefined)
         });
 
         if (!response.ok) {
@@ -799,8 +823,12 @@ export default function TransactionPage() {
 
         if (employeeId === 'SYSTEM') return; // Don't fetch if not logged in properly
 
-        const url = `/api/transactions/drafts?employeeId=${employeeId}&effectiveMonth=${encodeURIComponent(formData.effectiveMonth)}&effectiveYear=${formData.effectiveYear}`;
-        const res = await fetch(url);
+        const query = new URLSearchParams({
+          employeeId,
+          effectiveMonth: formData.effectiveMonth,
+          effectiveYear: formData.effectiveYear,
+        });
+        const res = await fetch(buildApiPathFromSearch('/api/transactions/drafts', query));
         if (res.ok) {
           const { json: data, text } = await readApiBody<{ status?: number; data?: Array<{
             TransactionNo: string;
@@ -867,7 +895,7 @@ export default function TransactionPage() {
               },
               createdAt: new Date(item.CreateDate || Date.now()),
             }));
-            
+
             setSavedTransactions(uniqueSavedTransactions(loadedDrafts));
           } else {
             // No drafts for this month, clear list
@@ -892,7 +920,7 @@ export default function TransactionPage() {
 
       const fetchAllUnits = async () => {
         try {
-          const res = await fetch(`/api/units/all?effectiveDate=${effectiveDate}`);
+          const res = await fetch(buildApiPath('/api/units/all', { effectiveDate }));
           const { json: data, text } = await readApiBody<{ success?: boolean; data?: Record<string, unknown>[] }>(res);
           if (!data) {
             console.error('Error fetching all units: non-JSON response', text || `HTTP ${res.status}`);
@@ -1003,7 +1031,7 @@ export default function TransactionPage() {
             selectType: '0'
           });
 
-          const res = await fetch(`/api/units/transfer-by-receive?${query.toString()}`);
+          const res = await fetch(buildApiPathFromSearch('/api/units/transfer-by-receive', query));
           const { json: data, text } = await readApiBody<{ success?: boolean; data?: Record<string, unknown>[] }>(res);
           if (!data) {
             console.error('Error fetching transfer units by receive: non-JSON response', text || `HTTP ${res.status}`);
@@ -1051,8 +1079,12 @@ export default function TransactionPage() {
 
           if (empId === 'SYSTEM') return; // Don't fetch if not logged in properly
 
-          const url = `/api/transactions/files?effectiveMonth=${encodeURIComponent(formData.effectiveMonth)}&effectiveYear=${formData.effectiveYear}&employeeId=${empId}`;
-          const res = await fetch(url);
+          const query = new URLSearchParams({
+            effectiveMonth: formData.effectiveMonth,
+            effectiveYear: formData.effectiveYear,
+            employeeId: empId,
+          });
+          const res = await fetch(buildApiPathFromSearch('/api/transactions/files', query));
           if (res.ok) {
             const { json: data, text } = await readApiBody<{ status?: number; data?: Array<{ id: string; name: string; conclusionNo: string; fileUrl: string }> }>(res);
             if (!data) {
@@ -1084,14 +1116,18 @@ export default function TransactionPage() {
           const yearNum = parseInt(formData.effectiveYear) - 543;
           const monthIndex = months.indexOf(formData.effectiveMonth) + 1;
           const monthStr = monthIndex.toString().padStart(2, '0');
-          const checkDate = `${yearNum}${monthStr}01`; 
-          
+          const checkDate = `${yearNum}${monthStr}01`;
+
           const unit = selectedTransferUnit;
           const { userGroupNo } = resolveUserContext();
           const effectiveUserGroupNo = userGroupNo || '04';
 
-          const url = `/api/units/levels?checkDate=${checkDate}&unit=${unit}&userGroupNo=${effectiveUserGroupNo}`;
-          const res = await fetch(url);
+          const query = new URLSearchParams({
+            checkDate,
+            unit,
+            userGroupNo: effectiveUserGroupNo,
+          });
+          const res = await fetch(buildApiPathFromSearch('/api/units/levels', query));
           if (res.ok) {
             const { json: data, text } = await readApiBody<{ success?: boolean; data?: { id: string; name: string; nameEN: string; order: number; top: number }[] }>(res);
             if (!data) {
@@ -1373,7 +1409,7 @@ export default function TransactionPage() {
         allUnits.find(u => u.id === resolvedUnitTransfer)?.name ||
         units.find(u => u.id === resolvedUnitTransfer)?.unitText ||
         units.find(u => u.id === resolvedUnitTransfer)?.name || '';
-      
+
       let levelGroupFromName = levels.find(l => l.id === detailFormData.levelGroupFrom)?.name || '';
       const levelGroupToName = levels.find(l => l.id === detailFormData.levelGroupTo)?.name || '';
       let submitLevelGroupFrom = detailFormData.levelGroupFrom;
@@ -1444,7 +1480,7 @@ export default function TransactionPage() {
       const newTransaction: SavedTransaction = {
         id: responseData.data?.transactionNo || Date.now().toString(),
         transactionData: { ...formData },
-        detailData: { 
+        detailData: {
           ...detailFormData,
           unitTransfer: resolvedUnitTransfer,
           unitTransferName: finalUnitTransferName,
@@ -1456,10 +1492,10 @@ export default function TransactionPage() {
         createdAt: new Date(),
       };
       setSavedTransactions((prev) => uniqueSavedTransactions([...prev, newTransaction]));
-      
+
       setAlertInfo({ show: true, title: 'สำเร็จ', message: 'บันทึก Transaction สำเร็จ (Draft)', type: 'success' });
       // Optional: reset form fields here if needed
-      
+
     } catch (error) {
       console.error('Error saving transaction:', error);
       const errorMessage = error instanceof Error && error.message
@@ -1478,7 +1514,7 @@ export default function TransactionPage() {
 
   const confirmDeleteTransaction = async () => {
     if (!transactionToDelete) return;
-    
+
     try {
       let employeeId = 'SYSTEM';
       const userDataStr = localStorage.getItem('user_data');
@@ -1491,7 +1527,7 @@ export default function TransactionPage() {
         }
       }
 
-      const response = await fetch(`/api/transactions/draft/${transactionToDelete}?employeeId=${employeeId}`, {
+      const response = await fetch(buildApiPath(`/api/transactions/draft/${encodeURIComponent(String(transactionToDelete))}`, { employeeId }), {
         method: 'DELETE'
       });
 
@@ -1589,7 +1625,7 @@ export default function TransactionPage() {
             isRequirePolicy: isRequirePolicy.toString()
           });
 
-          const resp = await fetch(`/api/transactions/approvers?${queryParams}&_t=${Date.now()}`);
+          const resp = await fetch(buildApiPathFromSearch('/api/transactions/approvers', new URLSearchParams({ ...Object.fromEntries(queryParams), _t: String(Date.now()) })));
           if (resp.ok) {
             const { json: data, text } = await readApiBody<{ data?: ApproverUser[] }>(resp);
             if (!data) {
@@ -1675,11 +1711,11 @@ export default function TransactionPage() {
     }
 
     if (missingScopes.length > 0) {
-      setAlertInfo({ 
-        show: true, 
-        title: 'แจ้งเตือน', 
-        message: `กรุณาเลือกผู้อนุมัติ/ผู้รับ ให้ครบทุกกลุ่ม สำหรับ:\n${missingScopes.join('\n')}`, 
-        type: 'warning' 
+      setAlertInfo({
+        show: true,
+        title: 'แจ้งเตือน',
+        message: `กรุณาเลือกผู้อนุมัติ/ผู้รับ ให้ครบทุกกลุ่ม สำหรับ:\n${missingScopes.join('\n')}`,
+        type: 'warning'
       });
       return;
     }
@@ -1710,7 +1746,7 @@ export default function TransactionPage() {
 
         const itemApproversList = selectedEmpIds.map(empId => deptApprovers.find(a => a.EmployeeID === empId))
           .filter(a => !!a);
-          
+
         // We must sort deterministically: first by PermissionOrder, then by UnitSide (UnitReceive comes before UnitTransfer)
         itemApproversList.sort((a, b) => {
              if (a!.PermissionOrder !== b!.PermissionOrder) {
@@ -1720,7 +1756,7 @@ export default function TransactionPage() {
              if (a!.UnitSide !== 'UnitReceive' && b!.UnitSide === 'UnitReceive') return 1;
              return 0;
         });
-        
+
         const itemApprovers = itemApproversList.map((a, index) => ({
             seqno: index + 1,
             employeeId: a!.EmployeeID,
@@ -1818,12 +1854,12 @@ export default function TransactionPage() {
       setDynamicApprovers({});
       setSelectedApprovers({});
       setCollapsedDepts({});
-      
+
       // Clear drafts and reload to simulate them moving to Next Step (or just refresh page)
       setSavedTransactions([]);
       const countEvent = new Event('draftCountUpdated');
       window.dispatchEvent(countEvent);
-      
+
     } catch (err: unknown) {
       console.error('Submit Doc Error:', err);
       const errMsg = err instanceof Error ? err.message : 'ไม่สามารถส่งขออนุมัติได้';
@@ -2419,7 +2455,7 @@ export default function TransactionPage() {
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-900">รายการ Transaction ({savedTransactions.length})</h3>
                   {savedTransactions.length > 0 && (
-                    <Button 
+                    <Button
                       onClick={handleRequest}
                       disabled={!canSubmitPendingTransactions}
                       className={`px-4 py-2 text-white rounded-lg font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed ${typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-500 hover:bg-blue-600'}`}
@@ -2531,7 +2567,7 @@ export default function TransactionPage() {
                         color,
                         users: groupUsers.map((u) => {
                           const rec = u as unknown as Record<string, string | undefined>;
-                          const gName = rec.UserGroupName || rec.userGroupName || rec.UsergroupName || rec.GroupName || rec.usergroupname || rec.Groupname || rec.groupName;
+                          const gName = rec.UserGroupName || rec.userGroupName || rec['UsergroupName'] || rec.GroupName || rec.usergroupname || rec['Groupname'] || rec.groupName;
                           const finalRole = gName && String(gName).trim() !== '' ? String(gName).trim() : `Group: ${u.UserGroupNo}`;
 
                           return {
@@ -2568,7 +2604,7 @@ export default function TransactionPage() {
                   const isCollapsed = collapsedDepts[deptId] === true;
                   return (
                     <div key={deptId} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden transition-all duration-300">
-                      <div 
+                      <div
                         className="bg-gray-100 px-4 py-3 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-200 transition-colors select-none"
                         onClick={() => toggleDeptCollapse(deptId)}
                       >

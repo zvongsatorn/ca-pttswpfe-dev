@@ -1,13 +1,11 @@
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
+
 const API_BASE_URL = '';
 
 async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
-    const authHeader: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
-    const res = await fetch(`${API_BASE_URL}${url}`, {
+    const res = await fetchApi(API_BASE_URL, url, {
         ...options,
-        headers: {
-            ...options.headers,
-            ...authHeader,
-        },
+        headers: buildAuthHeaders(token, options.headers),
     });
 
     if (!res.ok) {

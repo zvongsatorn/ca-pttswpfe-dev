@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPathFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Table, DatePicker, Button, Form, Popover, Checkbox } from 'antd';
@@ -523,7 +524,7 @@ export default function Report7Page() {
             if (bgNo) query.set('bgNo', bgNo);
             if (division) query.set('division', division);
 
-            const res = await fetch(`/api/report/report7/filters?${query.toString()}`, { signal });
+            const res = await fetch(buildApiPathFromSearch('/api/report/report7/filters', query), { signal });
             const payload = await readJsonSafely<Report7FilterResponse>(res);
 
             if (!res.ok || !payload || payload.status !== 200 || !payload.data) {
@@ -585,7 +586,7 @@ export default function Report7Page() {
             if (division) query.set('division', division);
             if (orgUnitNo) query.set('orgUnitNo', orgUnitNo);
 
-            const res = await fetch(`/api/report/report7?${query.toString()}`);
+            const res = await fetch(buildApiPathFromSearch('/api/report/report7', query));
             const payload = await readJsonSafely<Report7ApiResponse>(res);
 
             if (!res.ok || !payload || payload.status !== 200 || !Array.isArray(payload.data)) {

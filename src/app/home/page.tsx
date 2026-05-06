@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiFileHref, buildApiPath } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,9 +11,9 @@ import 'dayjs/locale/th';
 import buddhistEra from 'dayjs/plugin/buddhistEra';
 dayjs.extend(buddhistEra);
 dayjs.locale('th');
-import { 
-  X, CheckCircle, FileText, Clock, XCircle, UserCheck, ShieldAlert, 
-  CornerDownLeft, ArrowRight, Search, User, Eye, RotateCcw, AlertOctagon, 
+import {
+  X, CheckCircle, FileText, Clock, XCircle, UserCheck, ShieldAlert,
+  CornerDownLeft, ArrowRight, Search, User, Eye, RotateCcw, AlertOctagon,
   Link as LinkIcon, Briefcase, File as FileIcon, Calendar, ChevronUp,
   Check
 } from 'lucide-react';
@@ -62,11 +63,11 @@ interface InboxItem {
   title: string;
   date: string;
   type: 'transaction' | 'mkd';
-  
+
   statusLabel: string;
-  
+
   // Overall Process Status for Stepper (1=Create, 2=Waiting, 3=Approved)
-  processStage: 1 | 2 | 3; 
+  processStage: 1 | 2 | 3;
   subtitle?: string;
   items?: TransactionDetail[];
   logs?: ApprovalLogItem[];
@@ -77,7 +78,7 @@ interface MyRequestItem {
   displayId: string;
   title: string;
   createDate: string;
-  type: 'transaction' | 'mkd'; 
+  type: 'transaction' | 'mkd';
   statusCategory?: 'verify' | 'approve';
   currentStepLabel: string;
   currentHandler: string;
@@ -194,14 +195,14 @@ const getFlowMeta = (auditStatus?: number, unitSide?: string, isMyTurn = false) 
 
 export default function Home() {
   const router = useRouter();
-  
+
   // ============================================================================
   // 2. STATE MANAGEMENT
   // ============================================================================
-  
+
   const [isActionModalOpen, setIsActionModalOpen] = useState(false);
   const [selectedInboxItem, setSelectedInboxItem] = useState<InboxItem | null>(null);
-  const [itemActions, setItemActions] = useState<Record<string, 'approved' | 'rejected' | 'idle'>>({}); 
+  const [itemActions, setItemActions] = useState<Record<string, 'approved' | 'rejected' | 'idle'>>({});
 
   const [isRejectAllModalOpen, setIsRejectAllModalOpen] = useState(false);
   const [rejectAllRemark, setRejectAllRemark] = useState('');
@@ -240,12 +241,12 @@ export default function Home() {
 
       // --- Fetch Inbox ---
       const [docInboxRes, mkdInboxRes] = await Promise.all([
-        fetch(`/api/documents/inbox?employeeId=${employeeId}`),
-        fetch(`/api/mkd/inbox?employeeId=${employeeId}`)
+        fetch(buildApiPath('/api/documents/inbox', { employeeId })),
+        fetch(buildApiPath('/api/mkd/inbox', { employeeId }))
       ]);
-      
+
       const map = new Map<string, InboxItem>();
-      
+
       if (docInboxRes.ok) {
         const docInboxJson = await docInboxRes.json();
         docInboxJson.data.forEach((item: { DocumentNo: string; DocumentType: number; CreateDate: string }) => {
@@ -253,15 +254,15 @@ export default function Home() {
             let title = 'ไม่ทราบประเภทเอกสาร';
             if (item.DocumentType === 1) title = 'ตรวจสอบการเปลี่ยนแปลงกรอบอัตรากำลัง';
             else if (item.DocumentType === 2) title = 'ขออนุมัติ Manpower Key Driver';
-            
+
             map.set(item.DocumentNo, {
               id: item.DocumentNo,
               displayId: `[${item.DocumentNo}]`,
               title,
               date: dayjs(item.CreateDate).format('DD/MM/BBBB'),
               type: item.DocumentType === 2 ? 'mkd' : 'transaction',
-              statusLabel: 'Waiting Verify', 
-              processStage: 2, 
+              statusLabel: 'Waiting Verify',
+              processStage: 2,
               items: [],
               logs: []
             });
@@ -290,7 +291,7 @@ export default function Home() {
               subtitle: item.Detail2,
               date: displayDate,
               type: 'mkd',
-              statusLabel: 'Waiting Approve', 
+              statusLabel: 'Waiting Approve',
               processStage: 2,
               items: [],
               logs: []
@@ -302,10 +303,10 @@ export default function Home() {
 
       // --- Fetch My Requests ---
       const [docReqRes, mkdReqRes] = await Promise.all([
-        fetch(`/api/documents/my-requests?employeeId=${employeeId}`),
-        fetch(`/api/mkd/my-requests?employeeId=${employeeId}`)
+        fetch(buildApiPath('/api/documents/my-requests', { employeeId })),
+        fetch(buildApiPath('/api/mkd/my-requests', { employeeId }))
       ]);
-      
+
       let allReqs: MyRequestItem[] = [];
 
       if (docReqRes.ok) {
@@ -341,7 +342,7 @@ export default function Home() {
               pendingDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
           }
 
-          // Stage Logic: 
+          // Stage Logic:
           // requesttype = 1 and mandriverstatus = 1 -> "รอเห็นชอบ"
           // requesttype = 1 and mandriverstatus = 2 -> "รออนุมัติ"
           let stage = '-';
@@ -366,7 +367,7 @@ export default function Home() {
         });
         allReqs = [...allReqs, ...mappedReqs];
       }
-      
+
       // Sort by descending CreateDate
       allReqs.sort((a, b) => {
           const dateA = dayjs(a.createDate, 'DD/MM/BBBB HH:mm').toDate().getTime();
@@ -375,7 +376,7 @@ export default function Home() {
       });
 
       setMyRequestsData(allReqs);
-      
+
       // Update Stats
       setStatsData([
         { id: 'stat_approve', filterKey: 'transaction_pending' as const, title: 'Transaction: Pending Approve', value: allReqs.filter(i => i.type === 'transaction').length, subtitle: 'Transaction: รออนุมัติ', bgColor: 'bg-blue-50', icon: '⏳', textColor: 'text-blue-700', borderColor: 'border-blue-200' },
@@ -392,14 +393,14 @@ export default function Home() {
   // 4. HELPERS & HANDLERS
   // ============================================================================
 
-  
+
   const handleInboxClick = async (item: InboxItem) => {
     if (item.type === 'mkd') {
-      router.push(`/mkd/history/${item.id}?from=inbox`); 
+      router.push(`/mkd/history/${item.id}?from=inbox`);
     } else {
       setSelectedInboxItem(item);
       setIsActionModalOpen(true);
-      
+
       try {
         let employeeId = 'SYSTEM';
         const userDataStr = localStorage.getItem('user_data');
@@ -409,11 +410,11 @@ export default function Home() {
             employeeId = userData.employeeID || 'SYSTEM';
           } catch (e) {}
         }
-  
-        const res = await fetch(`/api/documents/${item.id}?employeeId=${employeeId}`);
+
+        const res = await fetch(buildApiPath(`/api/documents/${encodeURIComponent(String(item.id))}`, { employeeId }));
         if (res.ok) {
           const detailJson = await res.json();
-          
+
           if (detailJson.data) {
               const rawLogs: APIDocAuditLog[] = Array.isArray(detailJson.data.logs) ? detailJson.data.logs : [];
               const sortedLogs = [...rawLogs].sort((a, b) => a.Seqno - b.Seqno);
@@ -442,11 +443,11 @@ export default function Home() {
               myActiveRows.forEach((row) => {
                 const itemKey = normalizeItemId(row?.ItemID);
                 if (!itemKey || myActiveByItem.has(itemKey)) return;
-                const parsedSeqno = toNumberOrUndefined(row.Seqno);
+                const parsedSeqno = toNumberOrUndefined(row?.Seqno);
                 if (parsedSeqno === undefined || parsedSeqno <= 0) return;
                 myActiveByItem.set(itemKey, {
                   seqno: parsedSeqno,
-                  unitSide: row.UnitSide
+                  unitSide: row?.UnitSide
                 });
               });
 
@@ -542,7 +543,7 @@ export default function Home() {
                   role: 'System',
                   status: item.processStage === 3 ? 'success' : 'pending'
               });
-              
+
               const initialActions: Record<string, 'approved' | 'rejected' | 'idle'> = {};
               items.forEach(i => {
                 if (i.rejectionReason) {
@@ -553,7 +554,7 @@ export default function Home() {
                   initialActions[i.actionKey] = 'idle';
                 }
               });
-              
+
               setItemActions(initialActions);
               setSelectedInboxItem({
                  ...item,
@@ -594,9 +595,9 @@ export default function Home() {
   // Helper for Type Label Badge
   const getTypeBadgeColor = (category: string) => {
     switch (category) {
-      case 'transfer': return 'bg-purple-100 text-purple-700 border-purple-200'; 
-      case 'add': return 'bg-cyan-100 text-cyan-700 border-cyan-200';       
-      case 'adjust': return 'bg-pink-100 text-pink-700 border-pink-200';     
+      case 'transfer': return 'bg-purple-100 text-purple-700 border-purple-200';
+      case 'add': return 'bg-cyan-100 text-cyan-700 border-cyan-200';
+      case 'adjust': return 'bg-pink-100 text-pink-700 border-pink-200';
       default: return 'bg-gray-100 text-gray-700';
     }
   };
@@ -607,11 +608,11 @@ export default function Home() {
     if (upperStage.includes('HRUSER')) return 'bg-blue-100 text-blue-700 border-blue-200';
     if (upperStage.includes('HRVERIFY')) return 'bg-green-100 text-green-700 border-green-200';
     if (upperStage.includes('HRPOLICY')) return 'bg-purple-100 text-purple-700 border-purple-200';
-    
+
     // MKD Stages
     if (stageName === 'รอเห็นชอบ') return 'bg-amber-100 text-amber-700 border-amber-200';
     if (stageName === 'รออนุมัติ') return 'bg-blue-100 text-blue-700 border-blue-200';
-    
+
     return 'bg-gray-100 text-gray-800 border-gray-200'; // Default
   };
 
@@ -619,7 +620,7 @@ export default function Home() {
   const handleProcessActions = async () => {
     if (!selectedInboxItem || !selectedInboxItem.items) return;
     setIsLoading(true);
-    
+
     let employeeId = 'SYSTEM';
     let employeeName = '';
     const userDataStr = localStorage.getItem('user_data');
@@ -630,7 +631,7 @@ export default function Home() {
         employeeName = String(userData.name || userData.fullName || userData.Fullname || '').trim();
       } catch (e) {}
     }
-    
+
     try {
         for (const item of selectedInboxItem.items) {
             if (!item.canTakeAction) {
@@ -651,7 +652,7 @@ export default function Home() {
                   ? `Rejected by ${employeeId}${employeeName ? ` ${employeeName}` : ''}`
                   : undefined
             };
-            
+
             if (action === 'approved') {
                 await fetch('/api/documents/approve', {
                     method: 'POST',
@@ -666,7 +667,7 @@ export default function Home() {
                 });
             }
         }
-        
+
         // Close modal and refresh inbox
         setIsActionModalOpen(false);
         fetchDashboardData();
@@ -732,12 +733,12 @@ export default function Home() {
     <Main currentPath="/home">
       <TooltipProvider>
       <div className="grid grid-cols-1 lg:grid-cols-[4fr_1.5fr] gap-6">
-        
+
         {/* LEFT COLUMN: INBOX */}
         <Card className="bg-white border-0 shadow-sm h-full">
           <CardHeader>
             <CardTitle className="text-lg font-semibold text-black flex items-center gap-2">
-              📥 Inbox 
+              📥 Inbox
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -771,8 +772,8 @@ export default function Home() {
                       </td>
                       <td className="px-4 py-4 text-center">
                          <span className={`inline-flex px-2 py-1 text-xs font-bold rounded-full border ${
-                           item.type === 'mkd' 
-                             ? 'bg-purple-50 text-purple-600 border-purple-100' 
+                           item.type === 'mkd'
+                             ? 'bg-purple-50 text-purple-600 border-purple-100'
                              : 'bg-blue-50 text-blue-600 border-blue-100'
                          }`}>
                           {item.statusLabel}
@@ -821,10 +822,10 @@ export default function Home() {
       {isActionModalOpen && selectedInboxItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-gray-50 rounded-xl shadow-2xl w-full max-w-[95vw] h-[90vh] flex flex-col overflow-hidden border-t-8 border-blue-600">
-            
+
             {/* HEADER with Integrated Stepper */}
            <div className="bg-blue-50 shadow-sm shrink-0 relative z-20 border-b px-6 py-2 flex items-center justify-between gap-8 h-[80px]">
-    
+
     {/* 1. LEFT: Title & Ref ID */}
     <div className="shrink-0 min-w-[200px]">
         <h2 className="text-lg font-bold flex items-center gap-2 text-gray-800">
@@ -842,9 +843,9 @@ export default function Home() {
             {/* Line Background */}
             <div className="absolute top-1/2 left-0 w-full h-1 bg-gray-100 -z-10 -translate-y-1/2 rounded"></div>
             {/* Active Line */}
-            <div className="absolute top-1/2 left-0 h-1 bg-green-500 -z-10 transition-all duration-500 -translate-y-1/2 rounded" 
+            <div className="absolute top-1/2 left-0 h-1 bg-green-500 -z-10 transition-all duration-500 -translate-y-1/2 rounded"
                     style={{ width: selectedInboxItem.processStage === 1 ? '0%' : selectedInboxItem.processStage === 2 ? '50%' : '100%' }}></div>
-            
+
             {/* Step 1: สร้าง */}
             <div className="flex-1 flex flex-col items-center z-10 cursor-default">
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 text-xs font-bold bg-white transition-colors
@@ -857,8 +858,8 @@ export default function Home() {
             {/* Step 2: รออนุมัติ */}
             <div className="flex-1 flex flex-col items-center z-10 cursor-default">
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 text-xs font-bold transition-all
-                    ${selectedInboxItem.processStage > 2 ? 'bg-white border-green-500 text-green-600' : 
-                        selectedInboxItem.processStage === 2 ? 'bg-blue-600 border-blue-600 text-white shadow-md scale-110' : 
+                    ${selectedInboxItem.processStage > 2 ? 'bg-white border-green-500 text-green-600' :
+                        selectedInboxItem.processStage === 2 ? 'bg-blue-600 border-blue-600 text-white shadow-md scale-110' :
                         'bg-white border-gray-300 text-gray-400'}`}>
                     {selectedInboxItem.processStage > 2 ? <Check size={12}/> : '2'}
                 </div>
@@ -886,7 +887,7 @@ export default function Home() {
 
             {/* BODY */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              
+
                 <Card className="border-gray-200 shadow-sm overflow-hidden">
                     <div className="p-0">
                     <table className="w-full text-sm text-left">
@@ -906,13 +907,13 @@ export default function Home() {
     const rejectReasonDisplay = rejectReasonRaw.replace(/\s*\(Rejected by [^)]+\)\s*$/i, '').trim();
     const showRejectReasonText = !!rejectReasonDisplay && !/^Rejected by\b/i.test(rejectReasonDisplay);
     return (
-    <tr 
-    key={item.actionKey} 
+    <tr
+    key={item.actionKey}
     className={`transition-colors ${
         // Check State ของปุ่ม: ถ้าเป็น Rejected ให้พื้นแดง
-        actionState === 'rejected' 
-        ? 'bg-red-50' 
-        : 'hover:bg-gray-50' 
+        actionState === 'rejected'
+        ? 'bg-red-50'
+        : 'hover:bg-gray-50'
     }`}
     >
         {/* Type */}
@@ -921,7 +922,7 @@ export default function Home() {
             {item.typeLabel}
             </span>
         </td>
-        
+
         {/* Details Area */}
         <td className="p-4 align-top space-y-2">
             <div className="font-semibold text-gray-900 text-sm leading-relaxed mb-1">
@@ -941,7 +942,7 @@ export default function Home() {
                       <>
                         <div className="font-bold mb-1 flex items-center gap-1">
                             <XCircle size={12}/> Rejected Reason:
-                        </div> 
+                        </div>
                         {rejectReasonDisplay}
                       </>
                     )}
@@ -964,7 +965,7 @@ export default function Home() {
         {/* File */}
         <td className="p-4 text-center align-top">
             {item.hasFile && item.fileUrl ? (
-                <a href={`/api/${item.fileUrl}`} target="_blank" rel="noopener noreferrer" className="inline-block p-2 hover:bg-blue-100 rounded-full text-blue-600 transition-colors">
+                <a href={buildApiFileHref(item.fileUrl)} target="_blank" rel="noopener noreferrer" className="inline-block p-2 hover:bg-blue-100 rounded-full text-blue-600 transition-colors">
                     <FileIcon size={18} />
                 </a>
             ) : item.hasFile ? (
@@ -974,17 +975,17 @@ export default function Home() {
 
         {/* Action Buttons */}
         <td className="p-4 text-center align-top">
-            <div className={`flex bg-white border rounded-lg overflow-hidden p-1 gap-1 shadow-sm 
+            <div className={`flex bg-white border rounded-lg overflow-hidden p-1 gap-1 shadow-sm
                 ${isDisabledByFlow ? 'opacity-70' : ''} /* ลดความชัดลงถ้าแก้ไขไม่ได้ */
             `}>
-                
+
                 {/* Accept Button */}
-                <button 
-                    onClick={() => !isDisabledByFlow && setItemActions(prev => ({...prev, [item.actionKey]: 'approved'}))} 
+                <button
+                    onClick={() => !isDisabledByFlow && setItemActions(prev => ({...prev, [item.actionKey]: 'approved'}))}
                     disabled={isDisabledByFlow}
-                    className={`flex-1 py-1.5 rounded text-xs font-bold flex items-center justify-center gap-1 transition-all 
-                        ${actionState === 'approved' 
-                            ? 'bg-green-100 text-green-700 shadow-inner' 
+                    className={`flex-1 py-1.5 rounded text-xs font-bold flex items-center justify-center gap-1 transition-all
+                        ${actionState === 'approved'
+                            ? 'bg-green-100 text-green-700 shadow-inner'
                             : 'text-gray-400 hover:bg-gray-50'
                         }
                         ${isDisabledByFlow ? 'cursor-not-allowed' : ''}
@@ -994,12 +995,12 @@ export default function Home() {
                 </button>
 
                 {/* Reject Button */}
-                <button 
-                    onClick={() => !isDisabledByFlow && setItemActions(prev => ({...prev, [item.actionKey]: 'rejected'}))} 
+                <button
+                    onClick={() => !isDisabledByFlow && setItemActions(prev => ({...prev, [item.actionKey]: 'rejected'}))}
                     disabled={isDisabledByFlow}
-                    className={`flex-1 py-1.5 rounded text-xs font-bold flex items-center justify-center gap-1 transition-all 
-                        ${actionState === 'rejected' 
-                            ? 'bg-red-100 text-red-700 shadow-inner' 
+                    className={`flex-1 py-1.5 rounded text-xs font-bold flex items-center justify-center gap-1 transition-all
+                        ${actionState === 'rejected'
+                            ? 'bg-red-100 text-red-700 shadow-inner'
                             : 'text-gray-400 hover:bg-gray-50'
                         }
                         ${isDisabledByFlow ? 'cursor-not-allowed' : ''}
@@ -1026,15 +1027,15 @@ export default function Home() {
                     <div className="p-0">
                         <div className="divide-y divide-gray-100">
                         {selectedInboxItem.logs.map((log, index) => (
-                            <div key={index} className={`flex items-center px-6 py-4 text-sm transition-colors 
+                            <div key={index} className={`flex items-center px-6 py-4 text-sm transition-colors
                                 ${log.status === 'current' ? 'bg-blue-50/60' : 'bg-white'}`}>
-                                
+
                                 {/* Action Pill */}
                                 <div className="w-32 shrink-0">
                                     <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-medium border w-28
-                                        ${log.status === 'success' ? 'bg-green-100 text-green-700 border-green-200 shadow-sm' : 
-                                          log.status === 'completed' ? 'bg-white text-green-600 border-green-600' : 
-                                          log.status === 'current' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 
+                                        ${log.status === 'success' ? 'bg-green-100 text-green-700 border-green-200 shadow-sm' :
+                                          log.status === 'completed' ? 'bg-white text-green-600 border-green-600' :
+                                          log.status === 'current' ? 'bg-blue-600 text-white border-blue-600 shadow-md' :
                                           'bg-gray-100 text-gray-400 border-gray-200'}`}>
                                         {log.status === 'current' && <ArrowRight size={10} className="mr-1 animate-pulse"/>}
                                         {log.action}
@@ -1069,13 +1070,13 @@ export default function Home() {
 
             {/* Footer */}
             <div className="bg-white border-t p-4 flex justify-end items-center gap-9 shrink-0 mr-10">
-               
-                
+
+
   <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-500" onClick={() => {
      setIsRejectAllModalOpen(true);
   }}><XCircle className="mr-2 h-4 w-4"/> Reject All</Button>
 
-                
+
   <Button
     className="bg-green-600 hover:bg-green-700 text-white"
     onClick={() => setIsSubmitConfirmModalOpen(true)}
@@ -1099,20 +1100,20 @@ export default function Home() {
             </div>
             <div className="p-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">ระบุเหตุผลในการไม่อนุมัติ (บังคับ) <span className="text-red-500">*</span></label>
-              <textarea 
+              <textarea
                 value={rejectAllRemark}
                 onChange={(e) => setRejectAllRemark(e.target.value)}
                 rows={4}
                 autoFocus
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none" 
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
                 placeholder="กรุณาระบุเหตุผลในการตีกลับรายการทั้งหมดนี้..."
               />
             </div>
             <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">
               <Button variant="outline" onClick={() => setIsRejectAllModalOpen(false)}>ยกเลิก</Button>
-              <Button 
-                onClick={handleConfirmRejectAll} 
-                className="bg-red-600 hover:bg-red-700 text-white" 
+              <Button
+                onClick={handleConfirmRejectAll}
+                className="bg-red-600 hover:bg-red-700 text-white"
                 disabled={isLoading || !rejectAllRemark.trim()}
               >
                 {isLoading ? 'Processing...' : 'ยืนยัน Reject All'}
@@ -1176,7 +1177,7 @@ export default function Home() {
                       </td>
                       <td className="px-6 py-4 w-1/4">
                         <div className="flex items-center gap-3">
-                           
+
                             <div>
                                 <p className="text-[13px] font-bold text-gray-700">{req.currentHandler}</p>
                                 {req.pendingDays > 0 ? (

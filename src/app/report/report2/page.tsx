@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPathFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Table, DatePicker, Button, Form, Checkbox, Popover } from 'antd';
@@ -734,7 +735,7 @@ export default function Report2Page() {
                 userGroupNo,
             });
 
-            const res = await fetch(`/api/report/report3/filters?${query.toString()}`);
+            const res = await fetch(buildApiPathFromSearch('/api/report/report3/filters', query));
             const payload = (await res.json()) as Report2FilterResponse;
 
             if (!res.ok || payload.status !== 200 || !payload.data) {
@@ -780,7 +781,7 @@ export default function Report2Page() {
                 userGroupNo,
             });
 
-            const res = await fetch(`/api/report/report2?${query.toString()}`);
+            const res = await fetch(buildApiPathFromSearch('/api/report/report2', query));
             const payload = (await res.json()) as Report2ApiResponse & { error?: string };
 
             if (!res.ok || payload.status !== 200 || !payload.data) {

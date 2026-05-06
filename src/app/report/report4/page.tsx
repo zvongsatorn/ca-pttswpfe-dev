@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPathFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Table, DatePicker, Button, Form, Checkbox, Popover } from 'antd';
@@ -533,7 +534,7 @@ export default function Report4Page() {
                 if (bgNo) query.set('bgNo', bgNo);
                 if (division) query.set('division', division);
 
-                const res = await fetch(`/api/report/report4/filters?${query.toString()}`, { signal });
+                const res = await fetch(buildApiPathFromSearch('/api/report/report4/filters', query), { signal });
                 let payload: Report4FilterResponse | null = null;
                 try {
                     payload = await res.json();
@@ -602,7 +603,7 @@ export default function Report4Page() {
             if (division) query.set('division', division);
             if (orgUnitNo) query.set('orgUnitNo', orgUnitNo);
 
-            const res = await fetch(`/api/report/report4?${query.toString()}`);
+            const res = await fetch(buildApiPathFromSearch('/api/report/report4', query));
             const payload: Report4ApiResponse = await res.json();
 
             if (!res.ok || payload.status !== 200 || !Array.isArray(payload.data)) {
@@ -677,8 +678,8 @@ export default function Report4Page() {
                 return;
             }
 
-            const left = source?.scrollLeft ?? 0;
-            const max = source ? Math.max(0, source.scrollWidth - source.clientWidth) : 0;
+            const left = source.scrollLeft;
+            const max = Math.max(0, source.scrollWidth - source.clientWidth);
             const nextState = {
                 hasOverflow: max > 4,
                 canScrollLeft: left > 2,

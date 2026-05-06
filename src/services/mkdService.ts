@@ -1,12 +1,11 @@
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
+
 const API_BASE_URL = typeof window === 'undefined' ? (process.env.BACKEND_URL || 'http://localhost:5000') : '';
 
 async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
-    const headers = new Headers(options.headers);
-    if (token) {
-        headers.set('Authorization', `Bearer ${token}`);
-    }
+    const headers = buildAuthHeaders(token, options.headers);
 
-    const res = await fetch(`${API_BASE_URL}${url}`, {
+    const res = await fetchApi(API_BASE_URL, url, {
         ...options,
         headers,
     });

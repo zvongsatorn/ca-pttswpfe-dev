@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPath, buildAuthHeaders } from '@/utils/security';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Main from '@/components/layout/main';
@@ -56,7 +57,7 @@ interface ReportMenuItem {
 }
 
 // TODO: Verified with user that MenuKey is 'REPORT'
-const REPORT_MENU_KEY = 'REPORT'; 
+const REPORT_MENU_KEY = 'REPORT';
 
 export default function ReportMenuPage() {
   const [reports, setReports] = useState<ReportMenuItem[]>([]);
@@ -66,15 +67,10 @@ export default function ReportMenuPage() {
     const fetchReports = async () => {
       try {
         const token = localStorage.getItem('auth_token');
-        const headers: HeadersInit = {};
-        if (token) {
-          headers.Authorization = `Bearer ${token}`;
-        }
-
-        const response = await fetch(`/api/menu/submenu/${REPORT_MENU_KEY}`, {
-            headers
+        const response = await fetch(buildApiPath(`/api/menu/submenu/${encodeURIComponent(REPORT_MENU_KEY)}`), {
+            headers: buildAuthHeaders(token || undefined)
         });
-        
+
         if (!response.ok) {
             throw new Error('Failed to fetch menu');
         }

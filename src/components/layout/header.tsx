@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 import { getUserFromToken } from '@/utils/auth';
+import { buildApiPath, buildAuthHeaders, setAuthCookie, setSessionJson } from '@/utils/security';
 import {
   Dialog,
   DialogContent,
@@ -178,7 +179,7 @@ export default function Header({
         localStorage.setItem('selected_usergroup', mappedGroups[0].id);
         localStorage.setItem('selected_usergroup_role', mappedGroups[0].role);
       }
-      
+
       setUserState({
         userData: user,
         userGroups: mappedGroups,
@@ -311,10 +312,8 @@ export default function Header({
     if (userData?.employeeID) {
       try {
         const token = localStorage.getItem('auth_token');
-        const response = await fetch(`/api/units/by-role?empId=${userData.employeeID}&roleId=${group.id}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+        const response = await fetch(buildApiPath('/api/units/by-role', { empId: userData.employeeID, roleId: group.id }), {
+          headers: buildAuthHeaders(token || undefined)
         });
         const { json: unitData, text } = await readJsonOrText<{ success?: boolean; data?: unknown[]; message?: string; error?: string }>(response);
         if (!response.ok) {
@@ -324,7 +323,7 @@ export default function Header({
         }
         if (unitData?.success && Array.isArray(unitData.data)) {
           clearUnitsCacheKeys();
-          sessionStorage.setItem(buildUnitsCacheKey(userData.employeeID, group.id), JSON.stringify(unitData.data));
+          setSessionJson(buildUnitsCacheKey(userData.employeeID, group.id), unitData.data);
           // Dispatch a custom event so the transaction page knows to refresh the dropdown immediately
           window.dispatchEvent(new CustomEvent('user-units-changed', { detail: unitData.data }));
         }
@@ -365,9 +364,7 @@ export default function Header({
       const token = localStorage.getItem('auth_token');
       const response = await fetch('/api/users/profile-picture', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
+        headers: buildAuthHeaders(token || undefined),
         body: formData
       });
 
@@ -375,18 +372,18 @@ export default function Header({
       if (result.success) {
         toast.success('อัปโหลดรูปภาพสำเร็จ');
         setProfileImageUrl(result.data.url);
-        
+
         // Update user state and token for persistence
         if (result.data.token) {
           localStorage.setItem('auth_token', result.data.token);
-          document.cookie = `auth_token=${result.data.token}; path=/; max-age=86400; SameSite=Strict`;
+          setAuthCookie(result.data.token);
         }
 
         setUserState(prev => ({
           ...prev,
-          userData: prev.userData ? { 
-            ...prev.userData, 
-            profilePicture: result.data.filename 
+          userData: prev.userData ? {
+            ...prev.userData,
+            profilePicture: result.data.filename
           } : null
         }));
       } else {
@@ -415,9 +412,9 @@ export default function Header({
             <Image
               src="/images/logoptt.png"
               alt="PTT Logo"
-              width={115}
-              height={115}
-              className={`object-contain w-auto h-auto relative z-10 ml-[20px] group-hover:scale-105 transition-all duration-300 ease-out ${
+              width={482}
+              height={220}
+              className={`relative z-10 ml-[20px] h-auto w-[150px] object-contain group-hover:scale-105 transition-all duration-300 ease-out ${
                 logoError ? 'hidden' : ''
               }`}
               priority
@@ -569,11 +566,11 @@ export default function Header({
           >
             <div className="w-9 h-9 bg-linear-to-br from-blue-500 to-red-500 rounded-full flex items-center justify-center shadow-sm overflow-hidden border border-gray-200">
               {profileImageUrl ? (
-                <Image 
-                  src={profileImageUrl} 
-                  alt="Avatar" 
-                  width={36} 
-                  height={36} 
+                <Image
+                  src={profileImageUrl}
+                  alt="Avatar"
+                  width={36}
+                  height={36}
                   className="w-full h-full object-cover"
                   unoptimized
                 />
@@ -602,11 +599,11 @@ export default function Header({
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 bg-linear-to-br from-blue-500 to-red-500 rounded-full flex items-center justify-center shadow-sm overflow-hidden border-2 border-white">
                     {profileImageUrl ? (
-                      <Image 
-                        src={profileImageUrl} 
-                        alt="Profile" 
-                        width={48} 
-                        height={48} 
+                      <Image
+                        src={profileImageUrl}
+                        alt="Profile"
+                        width={48}
+                        height={48}
                         className="w-full h-full object-cover"
                         unoptimized
                       />
@@ -668,32 +665,32 @@ export default function Header({
             <div className="relative">
               <div className="w-24 h-24 bg-linear-to-br from-blue-500 to-red-500 rounded-full flex items-center justify-center shadow-lg overflow-hidden border-4 border-white">
                 {profileImageUrl ? (
-                   <Image 
-                     src={profileImageUrl} 
-                     alt="Profile" 
-                     width={96} 
-                     height={96} 
+                   <Image
+                     src={profileImageUrl}
+                     alt="Profile"
+                     width={96}
+                     height={96}
                      className="w-full h-full object-cover"
                      unoptimized
                    />
                 ) : (
                   <User className="h-12 w-12 text-white" />
                 )}
-                
+
                 {uploading && (
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-full">
                     <Loader2 className="h-8 w-8 text-white animate-spin" />
                   </div>
                 )}
               </div>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileChange} 
-                className="hidden" 
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                className="hidden"
                 accept="image/*"
               />
-              <button 
+              <button
                 onClick={handleUploadClick}
                 className="absolute -right-1 -bottom-1 bg-blue-600 p-2 rounded-full border-2 border-white shadow-md hover:bg-blue-700 transition-colors cursor-pointer"
                 title="เปลี่ยนรูปโปรไฟล์"

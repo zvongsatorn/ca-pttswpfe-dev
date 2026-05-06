@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPath, fetchApi } from '@/utils/security';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Main from '@/components/layout/main';
 import { Table, Button, Tooltip, Modal, Select, DatePicker, App as AntdApp } from 'antd';
@@ -424,7 +425,7 @@ function SapMonitorPageContent() {
 
             const monthLabel = MONTHS.find((item) => item.value === monthValue)?.label || MONTHS[0].label;
 
-            const response = await fetch(`${getBackendBaseUrl()}/api/transactions/hrcenter/send-to-sap`, {
+            const response = await fetchApi(getBackendBaseUrl(), '/api/transactions/hrcenter/send-to-sap', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

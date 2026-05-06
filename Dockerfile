@@ -2,7 +2,7 @@
 FROM oven/bun:1.3.13 AS deps
 WORKDIR /app
 COPY package.json bun.lock* ./
-RUN bun install
+RUN bun install --omit=optional
 
 # Stage 2: Build the application
 FROM oven/bun:1.3.13 AS builder
@@ -12,7 +12,7 @@ COPY . .
 RUN rm -rf .next
 RUN bun run build
 
-# Stage 3: Runner 
+# Stage 3: Runner
 FROM node:24.15.0-alpine AS runner
 WORKDIR /app
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Select, Switch, App, Card, Spin } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -73,9 +74,9 @@ function MenuRightContent() {
         const previousItems = [...menuItems];
         setMenuItems(prev => updateTree(prev));
 
-        const res = await fetch(`${API_BASE_URL}/api/menu/rights`, {
+        const res = await fetchApi(API_BASE_URL, '/api/menu/rights', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            headers: buildAuthHeaders(token, { 'Content-Type': 'application/json' }),
             body: JSON.stringify({ userGroupRole: selectedRole, menuID, hasRight }),
         });
 
@@ -113,14 +114,14 @@ function MenuRightContent() {
 
             {selectedRole ? (
                 <Spin spinning={loading}>
-                    <Table 
-                        columns={columns} 
-                        dataSource={menuItems} 
-                        rowKey="MenuID" 
-                        pagination={false} 
-                        defaultExpandAllRows 
-                        bordered 
-                        className="border-slate-100" 
+                    <Table
+                        columns={columns}
+                        dataSource={menuItems}
+                        rowKey="MenuID"
+                        pagination={false}
+                        defaultExpandAllRows
+                        bordered
+                        className="border-slate-100"
                         scroll={{ y: 'calc(100vh - 400px)' }}
                     />
                 </Spin>

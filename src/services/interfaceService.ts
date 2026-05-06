@@ -1,3 +1,5 @@
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
+
 const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, '');
 
 const getApiBaseUrl = (): string => {
@@ -54,10 +56,7 @@ const buildUploadRequest = (
         });
     }
 
-    const headers: HeadersInit = {};
-    if (token) {
-        headers.Authorization = `Bearer ${token}`;
-    }
+    const headers = buildAuthHeaders(token);
 
     return { formData, headers };
 };
@@ -71,7 +70,7 @@ const uploadFile = async <TData>(
 ): Promise<UploadResponse<TData>> => {
     const apiBaseUrl = getApiBaseUrl();
     const { formData, headers } = buildUploadRequest(file, replaceExisting, token, extraFields);
-    const res = await fetch(`${apiBaseUrl}${endpoint}`, {
+    const res = await fetchApi(apiBaseUrl, endpoint, {
         method: 'POST',
         headers,
         body: formData

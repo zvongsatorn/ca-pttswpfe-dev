@@ -1,3 +1,5 @@
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
+
 const API_BASE_URL = '';
 
 export const ACTION_LOG = {
@@ -110,13 +112,10 @@ export const insertActionLog = async (payload: InsertActionLogPayload): Promise<
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/log/action`, {
+    const response = await fetchApi(API_BASE_URL, '/api/log/action', {
       method: 'POST',
       keepalive: true,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
+      headers: buildAuthHeaders(token, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(requestBody),
     });
 

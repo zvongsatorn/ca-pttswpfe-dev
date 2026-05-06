@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPath, fetchApi } from '@/utils/security';
 import React, { useState, useMemo, useEffect } from 'react';
 import { Table, Button, Input, Upload, App, Popconfirm, Modal, Card, Tooltip } from 'antd';
 import type { UploadFile, GetProp, UploadProps } from 'antd';
@@ -106,6 +107,7 @@ function MKDContent() {
                     const workbook = new ExcelJS.Workbook();
                     await workbook.xlsx.load(buffer as ArrayBuffer);
                     const sheet = workbook.worksheets[0];
+                    if (!sheet) { message.error("ไม่พบข้อมูลในไฟล์ Excel"); setLoading(false); return; }
                     const employeeId = currentUser?.employeeID || 'SYSTEM';
                     const promises: Promise<{ success: boolean; message?: string } | null>[] = [];
                     sheet.eachRow((row, rowNumber) => {
@@ -125,9 +127,9 @@ function MKDContent() {
     const handleDownloadTemplate = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_BASE_URL}/api/mkd/template/master-keys?populate=true`);
+            const res = await fetchApi(API_BASE_URL, buildApiPath('/api/mkd/template/master-keys', { populate: true }));
             if (!res.ok) throw new Error('Download failed');
-            
+
             const blob = await res.blob();
             await saveExcelFile(blob, 'templatekeyman.xlsx');
         } catch (error) {

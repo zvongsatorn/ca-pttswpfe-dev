@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPath, buildApiPathFromSearch } from '@/utils/security';
 import React, { useState, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Select, Button, Table } from 'antd';
@@ -157,7 +158,7 @@ export default function DashboardPage() {
     const [filterType, setFilterType] = useState('ALL'); // 'ALL', 'BU', 'LINE', 'UNIT'
     const [units, setUnits] = useState<string[]>([]);
     const [appliedUnits, setAppliedUnits] = useState<string[]>([]);
-    
+
     const [dashboardData, setDashboardData] = useState<DashboardData[]>([]);
     const [businessUnitOptions, setBusinessUnitOptions] = useState<UnitOption[]>([]);
     const [lineOfWorkOptions, setLineOfWorkOptions] = useState<UnitOption[]>([]);
@@ -212,7 +213,7 @@ export default function DashboardPage() {
         if (filterType === 'BU') return businessUnitOptions;
         if (filterType === 'LINE') return lineOfWorkOptions;
         if (filterType === 'UNIT') return orgUnitOptions;
-        
+
         // ALL
         const all = [...businessUnitOptions, ...lineOfWorkOptions, ...orgUnitOptions];
         const unique = new Map(all.map(item => [item.value, item]));
@@ -230,7 +231,7 @@ export default function DashboardPage() {
             const dateStr = filterDate.format('YYYY-MM-01');
 
             try {
-                const res = await fetch(`/api/report/report3/filters?effectiveDate=${dateStr}&employeeId=${employeeId}&userGroupNo=${userGroupNo}&division=`);
+                const res = await fetch(buildApiPath('/api/report/report3/filters', { effectiveDate: dateStr, employeeId, userGroupNo, division: '' }));
                 if (res.ok) {
                     const result = await res.json();
                     if (result.status === 200 && result.data) {
@@ -296,8 +297,8 @@ export default function DashboardPage() {
         try {
             const { employeeId, userGroupNo } = resolveUserContext();
 
-            // employeeType correlates to isSecondment setting 
-            const isSecondmentId = parseInt(employeeType); 
+            // employeeType correlates to isSecondment setting
+            const isSecondmentId = parseInt(employeeType);
             const monthStr = (filterDate.month() + 1).toString().padStart(2, '0');
             // Assuming the picker keeps Buddhist Era correctly
             const yearStr = (filterDate.year() > 2500 ? filterDate.year() - 543 : filterDate.year()).toString();
@@ -311,7 +312,7 @@ export default function DashboardPage() {
                 division: ''
             });
 
-            const res = await fetch(`/api/report/dashboard?${query}`);
+            const res = await fetch(buildApiPathFromSearch('/api/report/dashboard', query));
             if (res.ok) {
                 const result = await res.json();
                 if (result.status === 200 && result.data) {
@@ -385,7 +386,7 @@ export default function DashboardPage() {
         try {
             const { employeeId, userGroupNo } = resolveUserContext();
 
-            const isSecondmentId = parseInt(employeeType); 
+            const isSecondmentId = parseInt(employeeType);
             const monthStr = (filterDate.month() + 1).toString().padStart(2, '0');
             const yearStr = (filterDate.year() > 2500 ? filterDate.year() - 543 : filterDate.year()).toString();
 
@@ -415,7 +416,7 @@ export default function DashboardPage() {
                 query.set('orgUnits', selectedOrgUnits.join(','));
             }
 
-            const res = await fetch(`/api/report/dashboard/excel?${query}`);
+            const res = await fetch(buildApiPathFromSearch('/api/report/dashboard/excel', query));
             if (res.ok) {
                 const blob = await res.blob();
                 await saveExcelFile(blob, `Dashboard_${yearStr}${monthStr}.xlsx`);
@@ -524,12 +525,12 @@ export default function DashboardPage() {
                     <CardContent className="p-4 flex flex-wrap items-center gap-4">
                         <div className="flex items-center gap-2">
                             <span className="text-gray-600 font-medium whitespace-nowrap">วันที่</span>
-                            <BDatePicker 
-                                locale={customLocale} 
-                                value={filterDate} 
-                                onChange={(date) => setFilterDate(date || dayjs())} 
-                                format="DD/MM/YYYY" 
-                                className="w-32" 
+                            <BDatePicker
+                                locale={customLocale}
+                                value={filterDate}
+                                onChange={(date) => setFilterDate(date || dayjs())}
+                                format="DD/MM/YYYY"
+                                className="w-32"
                                 allowClear={false}
                             />
                         </div>
@@ -584,9 +585,9 @@ export default function DashboardPage() {
                             ค้นหา
                         </Button>
                         <div className="flex items-center gap-2">
-                            <Button 
+                            <Button
                                 onClick={handleExportExcel}
-                                icon={<FileExcelOutlined />} 
+                                icon={<FileExcelOutlined />}
                                 className="bg-green-600! text-white! border-none! shadow-sm hover:!bg-green-700"
                             >
                                 Excel
@@ -618,8 +619,8 @@ export default function DashboardPage() {
                             pagination={false}
                             bordered
                             size="middle"
-                            className="shadow-sm border border-gray-200 rounded-lg overflow-hidden 
-                                [&_.ant-table-thead_td]:bg-blue-600! 
+                            className="shadow-sm border border-gray-200 rounded-lg overflow-hidden
+                                [&_.ant-table-thead_td]:bg-blue-600!
                                 [&_.ant-table-thead_th]:text-white
                                 [&_.ant-table-thead_th]:font-bold"
                         />

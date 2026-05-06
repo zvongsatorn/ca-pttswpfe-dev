@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPath, buildApiPathFromSearch } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -177,7 +178,7 @@ export default function MKDHistoryPage() {
   const [reusableFileOptions, setReusableFileOptions] = useState<ReusableFileOption[]>([]);
   const [reusableFilesLoading, setReusableFilesLoading] = useState(false);
   const [selectedReusableFileValue, setSelectedReusableFileValue] = useState(NO_REUSABLE_FILE_VALUE);
-  
+
   // Column Filters
   const [filterReqNo, setFilterReqNo] = useState('');
   const [filterReqDate, setFilterReqDate] = useState('');
@@ -282,7 +283,7 @@ export default function MKDHistoryPage() {
 
   const fetchUnits = useCallback(async () => {
     try {
-      const res = await fetch(`/api/units/all?effectiveDate=${new Date().toISOString().split('T')[0]}`);
+      const res = await fetch(buildApiPath('/api/units/all', { effectiveDate: new Date().toISOString().split('T')[0] }));
       const result = await res.json();
       console.log('MKD Fetch Units Result:', result); // DEBUG LOG
       if (result.success) {
@@ -307,7 +308,7 @@ export default function MKDHistoryPage() {
         empId: employeeId,
         roleId: userGroupNo
       });
-      const res = await fetch(`/api/units/by-role?${query.toString()}`);
+      const res = await fetch(buildApiPathFromSearch('/api/units/by-role', query));
       const result = await res.json();
 
       if (result.success && Array.isArray(result.data)) {
@@ -450,16 +451,16 @@ export default function MKDHistoryPage() {
         RequestType: '1'
       });
 
-      const res = await fetch(`/api/mkd/history?${query}`);
+      const res = await fetch(buildApiPathFromSearch('/api/mkd/history', query));
       const result = await res.json();
       if (result.success) {
         const mapped = result.data.map((item: Record<string, unknown>, index: number) => {
           const str = (v: unknown): string => (v === null || v === undefined) ? '' : String(v);
           const manStatus = Number(item.ManDriverStatus) || 0;
-          const appHistStatus = item.ApproveHistStatus !== null && item.ApproveHistStatus !== undefined 
-            ? Number(item.ApproveHistStatus) 
+          const appHistStatus = item.ApproveHistStatus !== null && item.ApproveHistStatus !== undefined
+            ? Number(item.ApproveHistStatus)
             : (str(item.AppStatusName).trim() === 'ไม่เห็นชอบ' ? -1 : (str(item.AppStatusName).trim() === 'เห็นชอบ' ? 1 : null));
-          
+
           let statusLabel = str(item.StatusName) || 'รอขออนุมัติ';
 
           if (manStatus === 2) {
@@ -475,7 +476,7 @@ export default function MKDHistoryPage() {
               statusLabel = 'รอขออนุมัติ';
             }
           }
-          
+
           let displayDate = '-';
           if (item.datebd) {
               const d = new Date(item.datebd as string | number | Date);
@@ -555,7 +556,7 @@ export default function MKDHistoryPage() {
     setFlowLoading(true);
     setIsFlowModalOpen(true);
     try {
-      const res = await fetch(`/api/mkd/${mkdID}/flow-history?approveId=${approveID}`);
+      const res = await fetch(buildApiPath(`/api/mkd/${encodeURIComponent(String(mkdID))}/flow-history`, { approveId: approveID }));
       const result = await res.json();
       if (result.success) setFlowData(result.data);
     } catch (e) {
@@ -760,7 +761,7 @@ export default function MKDHistoryPage() {
       toast.error('กรุณาแนบไฟล์');
       return;
     }
-    
+
     // Close confirmation dialog if we got here from it
     setIsConfirmOpen(false);
 
@@ -855,7 +856,7 @@ export default function MKDHistoryPage() {
     });
 
     const createResult = await createRes.json();
-    if (!createResult.success) {
+    if (!createResult?.success) {
       toast.error(createResult?.message || 'เกิดข้อผิดพลาดในการสร้างรายการ');
       return;
     }
@@ -962,10 +963,10 @@ const handleViewDashboard = (mkdId: string) => {
           <CardContent className="p-4">
           {/* Main Container : ใช้ items-end เพื่อให้ Input และ Button วางแนวล่างตรงกัน */}
 <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end">
-  
+
   {/* 1. ส่วน Filter : ลบ flex-1 ออก */}
   {!isGroupRestricted && (
-    <div className="w-full lg:w-auto"> 
+    <div className="w-full lg:w-auto">
       <Label className="text-sm font-medium text-gray-700 mb-2 block">
         Filter : สายงาน
       </Label>
@@ -1123,20 +1124,20 @@ const handleViewDashboard = (mkdId: string) => {
                   {/* Filter Row */}
                   <tr className="bg-blue-50 border-b z-20 shadow-sm">
                     <th className="px-4 py-3">
-                    
+
                     </th>
                     <th className="px-4 py-3 w-40">
-                      <Input 
-                        className="bg-white h-9 text-xs" 
+                      <Input
+                        className="bg-white h-9 text-xs"
                         value={filterReqNo}
                         onChange={(e) => setFilterReqNo(e.target.value)}
                         placeholder=""
                       />
                     </th>
                     <th className="px-4 py-3 w-40">
-                      <BDatePicker 
+                      <BDatePicker
                         locale={customLocale}
-                        className="w-full h-9 text-xs" 
+                        className="w-full h-9 text-xs"
                         format="DD/MM/BBBB"
                         placeholder=""
                         value={filterReqDate ? dayjs(filterReqDate, 'DD/MM/BBBB') : null}
@@ -1147,24 +1148,24 @@ const handleViewDashboard = (mkdId: string) => {
                       />
                     </th>
                     <th className="px-4 py-3">
-                      <Input 
-                        className="bg-white h-9 text-xs w-20" 
+                      <Input
+                        className="bg-white h-9 text-xs w-20"
                         value={filterBU}
                         onChange={(e) => setFilterBU(e.target.value)}
                         placeholder=""
                       />
                     </th>
                     <th className="px-4 py-3">
-                      <Input 
-                        className="bg-white h-9 text-xs" 
+                      <Input
+                        className="bg-white h-9 text-xs"
                         value={filterOrgUnit}
                         onChange={(e) => setFilterOrgUnit(e.target.value)}
                         placeholder=""
                       />
                     </th>
                     <th className="px-4 py-3">
-                      <Input 
-                        className="bg-white h-9 text-xs" 
+                      <Input
+                        className="bg-white h-9 text-xs"
                         value={filterCreateBy}
                         onChange={(e) => setFilterCreateBy(e.target.value)}
                         placeholder=""
@@ -1172,8 +1173,8 @@ const handleViewDashboard = (mkdId: string) => {
                     </th>
                     <th className="px-4 py-3"></th>
                     <th className="px-4 py-3">
-                      <Input 
-                        className="bg-white h-9 text-xs" 
+                      <Input
+                        className="bg-white h-9 text-xs"
                         value={filterConclusion}
                         onChange={(e) => setFilterConclusion(e.target.value)}
                         placeholder=""
@@ -1545,7 +1546,7 @@ const handleViewDashboard = (mkdId: string) => {
                onClick={() => {
                  console.log('Cancel clicked');
                  setIsAppModalOpen(false);
-               }} 
+               }}
                disabled={isApproving}
             >
               CANCEL
@@ -1556,7 +1557,7 @@ const handleViewDashboard = (mkdId: string) => {
                onClick={() => {
                  console.log('Not Approve button clicked');
                  setIsConfirmOpen(true);
-               }} 
+               }}
                disabled={isApproving}
             >
               NOT APPROVE
@@ -1564,7 +1565,7 @@ const handleViewDashboard = (mkdId: string) => {
             <button
                type="button"
                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 cursor-pointer font-bold disabled:opacity-50"
-               onClick={handleApprove} 
+               onClick={handleApprove}
                disabled={isApproving}
             >
               {isApproving ? 'PROCESSING...' : 'APPROVE'}

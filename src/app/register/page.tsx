@@ -180,7 +180,7 @@ function RegisterContent() {
         <Card className="w-full max-w-md shadow-2xl relative z-10 bg-white/95 backdrop-blur-sm border-0 overflow-hidden">
           <CardHeader className="text-center pb-2">
             <div className="flex items-center justify-center h-16 mb-4">
-              <Image src="/images/logoptt.png" alt="PTT Logo" width={120} height={120} className="object-contain" priority />
+              <Image src="/images/logoptt.png" alt="PTT Logo" width={482} height={220} className="h-auto w-[180px] max-w-full object-contain" priority />
             </div>
             <CardDescription className="text-xl font-semibold text-blue-600">
               External User Registration

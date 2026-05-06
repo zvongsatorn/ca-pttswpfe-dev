@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPathFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import Main from '@/components/layout/main';
 import { Table, DatePicker, Button, Form, Checkbox, Popover } from 'antd';
@@ -460,7 +461,7 @@ export default function Report1Page() {
         employeeId,
         userGroupNo,
       });
-      const res = await fetch(`/api/report/report1?${params.toString()}`);
+      const res = await fetch(buildApiPathFromSearch('/api/report/report1', params));
       const payload = await res.json();
       if (payload.status === 200 && payload.data) {
         setTableData(payload.data);

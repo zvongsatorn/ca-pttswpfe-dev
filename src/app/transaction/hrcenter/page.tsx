@@ -1,5 +1,6 @@
 'use client';
 
+import { buildApiPath, fetchApi } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -290,7 +291,7 @@ function MultiSelectFilter({
 
   return (
     <div className="relative" ref={containerRef}>
-      <div 
+      <div
         className={`${width} min-h-[38px] px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white cursor-pointer flex items-center justify-between`}
         onClick={() => setIsOpen(!isOpen)}
       >
@@ -315,20 +316,20 @@ function MultiSelectFilter({
           <div className="p-2 border-b border-gray-100">
              <div className="relative">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-                <input 
-                  type="text" 
-                  placeholder="ค้นหา..." 
+                <input
+                  type="text"
+                  placeholder="ค้นหา..."
                   className="w-full pl-8 pr-2 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded focus:outline-none focus:border-blue-400"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
              </div>
           </div>
-          
+
           <div className="max-h-60 overflow-y-auto p-1">
             {/* Select All Option */}
             {filteredOptions.length > 0 && (
-               <div 
+               <div
                 className="flex items-center px-2 py-2 hover:bg-blue-50 rounded cursor-pointer mb-1 border-b border-gray-50"
                 onClick={handleSelectAll}
               >
@@ -342,7 +343,7 @@ function MultiSelectFilter({
             {filteredOptions.map(option => {
               const isSelected = selectedValues.includes(option.value);
               return (
-                <div 
+                <div
                   key={option.value}
                   className="flex items-center px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer"
                   onClick={() => toggleOption(option.value)}
@@ -356,7 +357,7 @@ function MultiSelectFilter({
                 </div>
               );
             })}
-            
+
             {filteredOptions.length === 0 && (
               <div className="text-center py-4 text-xs text-gray-400">ไม่พบข้อมูล</div>
             )}
@@ -370,7 +371,7 @@ function MultiSelectFilter({
 const renderAmount = (amount?: number, tAmount?: number | string, cAmount?: number | string) => {
   const diff = toNumber(tAmount);
   const hasTrans = Math.abs(toNumber(cAmount)) > 0 || diff !== 0;
-  
+
   if (!hasTrans) {
     return <span className="text-gray-900">{amount || 0}</span>;
   }
@@ -389,7 +390,7 @@ const renderAmount = (amount?: number, tAmount?: number | string, cAmount?: numb
 const renderTotalAmount = (amount?: number, tAmount?: number | string, cAmount?: number | string) => {
   const diff = toNumber(tAmount);
   const hasTrans = Math.abs(toNumber(cAmount)) > 0 || diff !== 0;
-  
+
   if (!hasTrans) {
     return <span className="text-gray-900">{amount || 0}</span>;
   }
@@ -601,7 +602,7 @@ export default function HRCenterPage() {
   const [viewMode, setViewMode] = useState<
     'all' | 'department' | 'department-level'
   >('all');
-  
+
   // -- Column Visibility State --
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const columnMenuRef = useRef<HTMLDivElement>(null);
@@ -684,8 +685,8 @@ export default function HRCenterPage() {
   // Helper to calculate colspan for the "Level" group header
   const getLevelGroupColSpan = () => {
     const keys = [
-      'level21', 'level18_20', 'level16_17', 'level14_15', 
-      'level11_13', 'level9_10', 'level4_8', 
+      'level21', 'level18_20', 'level16_17', 'level14_15',
+      'level11_13', 'level9_10', 'level4_8',
       'total', 'contract', 'contractSubcontract', 'people', 'find', 'blank'
     ] as const;
     // Check strictly against the keys in visibleColumns
@@ -744,7 +745,7 @@ export default function HRCenterPage() {
             console.error("Failed to parse user_data", e);
           }
         }
-        
+
         const userGroupNo = normalizeUserGroupNo(selectedUserGroupNo);
         if (!userGroupNo) {
           console.warn('No user group selected. Skip fetching hrcenter/report data.');
@@ -756,12 +757,12 @@ export default function HRCenterPage() {
         const yearAD = Number(appliedYear) - 543;
         const effectiveDate = `${yearAD}-${String(monthIndex).padStart(2, '0')}-01`;
 
-        const hrcenterUrl = `/api/transactions/hrcenter?viewMode=${viewMode === 'all' ? 'all' : 'department'}&effectiveMonth=${encodeURIComponent(appliedMonth)}&effectiveYear=${encodeURIComponent(appliedYear)}&employeeId=${encodeURIComponent(employeeId)}&userGroupNo=${encodeURIComponent(userGroupNo)}`;
-        const report3Url = `/api/report/report3?effectiveDate=${encodeURIComponent(effectiveDate)}&employeeId=${encodeURIComponent(employeeId)}&userGroupNo=${encodeURIComponent(userGroupNo)}&reportType=0`;
+        const hrcenterPath = buildApiPath('/api/transactions/hrcenter', { viewMode: viewMode === 'all' ? 'all' : 'department', effectiveMonth: appliedMonth, effectiveYear: appliedYear, employeeId, userGroupNo });
+        const report3Path = buildApiPath('/api/report/report3', { effectiveDate, employeeId, userGroupNo, reportType: 0 });
         const reportCacheKey = `${effectiveDate}|${employeeId}|${userGroupNo}`;
         const cachedReportRows = report3CacheRef.current.get(reportCacheKey);
 
-        const hrcenterRes = await fetch(hrcenterUrl);
+        const hrcenterRes = await fetch(hrcenterPath);
 
         if (!hrcenterRes.ok) {
           console.error("Failed to fetch hrcenter data");
@@ -793,7 +794,7 @@ export default function HRCenterPage() {
 
         let report3Rows: Report3MatchRow[] | null = cachedReportRows ?? null;
         if (!report3Rows) {
-          const reportRes = await fetch(report3Url);
+          const reportRes = await fetch(report3Path);
           if (reportRes.ok) {
             const reportJson = await reportRes.json();
             const parsedRows: Report3MatchRow[] = Array.isArray(reportJson.data) ? reportJson.data : [];
@@ -1025,8 +1026,7 @@ export default function HRCenterPage() {
   };
 
   const fetchSapMinus = async () => {
-    const minusUrl = `/api/transactions/hrcenter/sap-minus?effectiveMonth=${encodeURIComponent(appliedMonth)}&effectiveYear=${encodeURIComponent(appliedYear)}`;
-    const minusRes = await fetch(minusUrl);
+    const minusRes = await fetch(buildApiPath('/api/transactions/hrcenter/sap-minus', { effectiveMonth: appliedMonth, effectiveYear: appliedYear }));
     if (!minusRes.ok) {
       setSapMinusRows([]);
       return;
@@ -1067,7 +1067,7 @@ export default function HRCenterPage() {
         orgUnits: Array.from(selectedOrgUnits)
       };
 
-      const response = await fetch(`${getBackendBaseUrl()}/api/transactions/hrcenter/send-to-sap`, {
+      const response = await fetchApi(getBackendBaseUrl(), '/api/transactions/hrcenter/send-to-sap', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1279,10 +1279,10 @@ export default function HRCenterPage() {
     <Main currentPath="/transaction/hrcenter">
       <div className="space-y-4">
         {/* Header Section */}
-        <Card className="border-0 shadow-md rounded-lg overflow-hidden py-0"> 
+        <Card className="border-0 shadow-md rounded-lg overflow-hidden py-0">
   {/* ปรับ Gradient ให้นุ่มนวลขึ้น ไม่กระโดดจากอ่อนไปเข้มเกินไป */}
   <div className="bg-linear-to-r from-blue-200 to-blue-400 px-6 py-3 flex items-center justify-between shadow-lg rounded-t-lg border-b border-blue-200">
-  
+
   {/* 1. Left Side: Title */}
   <h1 className="text-xl font-bold text-gray-800 tracking-wide">
     ภาพรวมการเปลี่ยนแปลงกรอบอัตรากำลัง
@@ -1295,7 +1295,7 @@ export default function HRCenterPage() {
                 <span className="text-gray-600 text-sm font-semibold uppercase tracking-wider mr-1">
                   Effective Date :
                 </span>
-                
+
                 <div className="flex items-center gap-2">
                   <select
                     value={selectedMonth}
@@ -1306,7 +1306,7 @@ export default function HRCenterPage() {
                       <option key={m} value={m}>{m}</option>
                     ))}
                   </select>
-                  
+
                   <span className="text-gray-400">/</span>
 
                   <select
@@ -1319,7 +1319,7 @@ export default function HRCenterPage() {
                     ))}
                   </select>
 
-                  
+
                 </div>
 
                    {/* Search Button */}
@@ -1374,18 +1374,18 @@ export default function HRCenterPage() {
 
               </div>
             </div>
-            
+
 </div>
 </Card>
 
         {/* Tabs */}
       <div className="flex items-center justify-between border-b border-gray-200 bg-white rounded-t-lg p-4">
-  
+
   {/* ========================================= */}
   {/* 1. LEFT GROUP: Filters & Date             */}
   {/* ========================================= */}
   <div className="flex items-center gap-6"> {/* เพิ่ม gap รวมให้ห่างขึ้นนิดหน่อยเพื่อความสบายตา */}
-    
+
      {/* Effective Date */}
     <div className="flex flex-col">
       <span className="text-[12px] font-semibold text-gray-500 leading-tight uppercase tracking-wide">
@@ -1404,7 +1404,7 @@ export default function HRCenterPage() {
               <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
                 หน่วยธุรกิจ
               </label>
-              <MultiSelectFilter 
+              <MultiSelectFilter
                 label="เลือกหน่วยธุรกิจ"
                 options={businessUnitOptions}
                 selectedValues={selectedBusinessUnits}
@@ -1419,7 +1419,7 @@ export default function HRCenterPage() {
               <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
                 หน่วยงาน
               </label>
-              <MultiSelectFilter 
+              <MultiSelectFilter
                 label="เลือกหน่วยงาน"
                 options={departmentOptions}
                 selectedValues={selectedDepartments}
@@ -1429,9 +1429,9 @@ export default function HRCenterPage() {
               />
             </div>
 
-  
 
-   
+
+
 
   </div>
 
@@ -1440,7 +1440,7 @@ export default function HRCenterPage() {
   {/* 2. RIGHT GROUP: View Mode & Actions       */}
   {/* ========================================= */}
   <div className="flex items-center gap-3">
-    
+
     {/* View Mode Toggle */}
     <div className="bg-gray-100 p-1 rounded-lg flex items-center mr-2">
       <button
@@ -1496,8 +1496,8 @@ export default function HRCenterPage() {
                 <div className={`w-4 h-4 rounded border mr-3 flex items-center justify-center transition-colors ${isVisible ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
                   {isVisible && <Check className="h-3 w-3 text-white" />}
                 </div>
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   className="hidden"
                   checked={isVisible}
                   onChange={() => toggleColumn(key as keyof typeof visibleColumns)}
@@ -1516,7 +1516,7 @@ export default function HRCenterPage() {
         {/* Overview Tab */}
         <Card className="bg-white border-0 shadow-sm py-0 overflow-visible">
             <CardContent className="p-0 relative">
-             
+
 
               {/* Table */}
               <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)]">
@@ -1537,7 +1537,7 @@ export default function HRCenterPage() {
                       {visibleColumns.divisionShortName && <th className="px-2 py-3 text-left text-xs font-semibold text-gray-700">ชื่อย่อ</th>}
                       {visibleColumns.managementType && <th className="px-2 py-3 text-left text-xs font-semibold text-gray-700">ระดับหน่วยงาน</th>}
                       {visibleColumns.headcountType && <th className="px-2 py-3 text-left text-xs font-semibold text-gray-700">หน่วยธุรกิจ</th>}
-                      
+
                       {levelColSpan > 0 && (
                         <th
                           colSpan={levelColSpan}
@@ -1564,11 +1564,11 @@ export default function HRCenterPage() {
                         </th>
                       )}
                     </tr>
-                    
+
                     {/* Search Row */}
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="px-4 py-2"></th>
-                      
+
                       {visibleColumns.divisionCode && (
                         <th className="px-2 py-2">
                           <input
@@ -1659,7 +1659,7 @@ export default function HRCenterPage() {
                       {visibleColumns.sapStatusColumn && (
                         <th className="px-0 py-2">
                           <div className="relative flex-1 max-w-md px-1">
-                             <select 
+                             <select
                                 value={searchSapStatus}
                                 onChange={(e) => setSearchSapStatus(e.target.value)}
                                 className="w-full px-1 py-0.5 text-[11px] leading-tight bg-white border border-gray-300 rounded shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 appearance-none pr-6 font-medium"
@@ -1691,7 +1691,7 @@ export default function HRCenterPage() {
                             title={`เลือกหน่วยงาน ${dept.OrgUnitNo}`}
                           />
                         </td>
-                        
+
                         {visibleColumns.divisionCode && <td className="px-2 py-3 text-[11px] text-gray-900 whitespace-nowrap">{dept.OrgUnitNo}</td>}
                         {visibleColumns.divisionName && <td className="px-1 py-3 text-[10px] text-gray-700 min-w-[120px]">{dept.UnitName}</td>}
                         {visibleColumns.divisionShortName && <td className="px-1 py-3 text-[11px] text-gray-700 whitespace-nowrap">{dept.UnitAbbr}</td>}
@@ -1817,12 +1817,12 @@ export default function HRCenterPage() {
                       </tr>
                     ))}
                   </tbody>
-                  
+
                   {/* Total Row - Sticky Footer */}
                   <tfoot className="sticky bottom-0 z-20 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
                     <tr className="bg-gray-200 font-semibold border-t-2 border-gray-300">
                       <td className="px-4 py-3"></td>
-                      
+
                       <td
                         colSpan={[
                           visibleColumns.divisionCode,
@@ -1849,7 +1849,7 @@ export default function HRCenterPage() {
                       {visibleColumns.people && <td className="px-0 py-3 text-xs text-center text-gray-900">{totals.people}</td>}
                       {visibleColumns.find && <td className="px-0 py-3 text-xs text-center text-gray-900">{totals.find}</td>}
                       {visibleColumns.blank && <td className="px-0 py-3 text-xs text-center text-gray-900">{totals.blank}</td>}
-                      
+
                       {/* Spacer for remaining columns */}
                       <td
                         colSpan={[
@@ -1925,7 +1925,7 @@ export default function HRCenterPage() {
             <DialogContent className="sm:max-w-5xl">
               <DialogHeader>
                 <DialogTitle className="text-amber-800">รายละเอียดหน่วยงานที่ยอดรวมไม่เป็น 0</DialogTitle>
-             
+
               </DialogHeader>
               <div className="max-h-[60vh] overflow-auto rounded border border-amber-200 bg-white">
                 <table className="min-w-full text-xs">

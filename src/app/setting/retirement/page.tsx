@@ -1,5 +1,6 @@
 'use client';
 
+import { buildAuthHeaders, fetchApi } from '@/utils/security';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Table, Button, Select, Input, App, Spin, Card } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -136,9 +137,9 @@ function RetirementContent() {
                 });
             });
 
-            const res = await fetch(`${API_BASE_URL}/api/retirement`, {
+            const res = await fetchApi(API_BASE_URL, '/api/retirement', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                headers: buildAuthHeaders(token, { 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
                     effectiveYear: startYearBE,
                     rates,
@@ -164,9 +165,9 @@ function RetirementContent() {
             onOk: async () => {
                 setLoading(true);
                 try {
-                    const res = await fetch(`${API_BASE_URL}/api/retirement/copy`, {
+                    const res = await fetchApi(API_BASE_URL, '/api/retirement/copy', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        headers: buildAuthHeaders(token, { 'Content-Type': 'application/json' }),
                         body: JSON.stringify({ fromYear: lastYearBE, toYear: currentYearBE, user: currentUser?.employeeID || 'SYSTEM' }),
                     });
                     if (res.ok) { notification.success({ title: 'สำเร็จ', description: 'สำเนาข้อมูลเรียบร้อยแล้ว' }); fetchData(); }
