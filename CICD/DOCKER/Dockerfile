@@ -2,7 +2,7 @@
 FROM oven/bun:1.3.13 AS deps
 WORKDIR /app
 COPY package.json bun.lock* ./
-RUN bun install --omit=optional
+RUN bun install
 
 # Stage 2: Build the application
 FROM oven/bun:1.3.13 AS builder
