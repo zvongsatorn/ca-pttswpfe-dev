@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPathFromSearch, buildAuthHeaders } from '@/utils/security';
+import { buildApiPathFromSearch, buildAuthHeaders, setLocalText } from '@/utils/security';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
@@ -172,15 +172,11 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
 
     useEffect(() => {
         fetchHistory();
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('mkd_historyrecord_year', selectedYear);
-        }
+        setLocalText('mkd_historyrecord_year', selectedYear);
     }, [selectedYear, fetchHistory]);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('mkd_historyrecord_status', statusFilter);
-        }
+        setLocalText('mkd_historyrecord_status', statusFilter);
     }, [statusFilter]);
 
     // --- Actions ---

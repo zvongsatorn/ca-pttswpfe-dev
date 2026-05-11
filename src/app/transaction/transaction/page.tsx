@@ -353,15 +353,7 @@ const normalizeBaseUrl = (value: string): string => {
 };
 
 const isSafeFileHref = (href: string): boolean => {
-  if (!href) return false;
-  if (href.startsWith('/')) return true;
-
-  try {
-    const parsed = new URL(href);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
+  return /^\/uploads\/[A-Za-z0-9._~/%@+-]+$/.test(href) && !href.includes('..');
 };
 
 const resolveFileUrl = (fileUpload: string): string => {
@@ -369,11 +361,9 @@ const resolveFileUrl = (fileUpload: string): string => {
   if (!normalized) return '';
 
   let resolved = '';
-  if (normalized.startsWith('http://') || normalized.startsWith('https://')) resolved = normalized;
-  else if (normalized.startsWith('/api/')) resolved = normalized.replace(/^\/api\//, '/');
+  if (normalized.startsWith('/api/uploads/')) resolved = normalized.replace(/^\/api\//, '/');
   else if (normalized.startsWith('/uploads/')) resolved = normalized;
   else if (normalized.startsWith('uploads/')) resolved = `/${normalized}`;
-  else if (normalized.includes('/')) resolved = `/${normalized.replace(/^\/+/, '')}`;
   else resolved = `/uploads/transactions/${normalized}`;
 
   return isSafeFileHref(resolved) ? resolved : '';

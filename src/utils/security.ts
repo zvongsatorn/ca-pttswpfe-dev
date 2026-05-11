@@ -17,7 +17,7 @@ export const buildAuthHeaders = (token?: string, baseHeaders?: HeadersInit): Hea
 export const setAuthCookie = (token: string): void => {
   const safeToken = encodeURIComponent(toSafeHeaderValue(token));
   const secureFlag = typeof window !== 'undefined' && window.location.protocol === 'https:' ? '; Secure' : '';
-  document.cookie = `auth_token=${safeToken}; path=/; max-age=86400; SameSite=Strict${secureFlag}`;
+  document.cookie = `auth_token=${safeToken}; path=/; max-age=28800; SameSite=Strict${secureFlag}`;
 };
 
 export const isSecureSubmissionContext = (): boolean => {
@@ -74,10 +74,20 @@ export const buildApiPathFromSearch = (path: string, search: URLSearchParams | s
 };
 
 export const buildApiFileHref = (filePath: string): string => {
-  const normalized = String(filePath || '').trim().replace(/^\/+/, '');
-  if (!normalized || normalized.includes('..') || normalized.startsWith('http:') || normalized.startsWith('https:')) {
+  const rawPath = String(filePath || '').trim();
+  if (!rawPath || rawPath.includes('..') || rawPath.split('').some(isUnsafeHeaderChar)) {
     return '';
   }
+
+  const normalized = rawPath
+    .replace(/^\/api\/uploads\//, 'uploads/')
+    .replace(/^\/uploads\//, 'uploads/')
+    .replace(/^\/+/, '');
+
+  if (!/^uploads\/[A-Za-z0-9._~/%@+-]+$/.test(normalized)) {
+    return '';
+  }
+
   return normalizeApiPath(`/api/${normalized}`);
 };
 
@@ -86,7 +96,22 @@ export const fetchApi = (baseUrl: string, path: string, options?: RequestInit): 
 };
 
 export const setSessionJson = (key: string, value: unknown): void => {
+    if (typeof window === 'undefined') return;
+    const safeKey = String(key || '').trim();
+    if (!safeKey || safeKey.length > 120 || !/^[A-Za-z0-9:_-]+$/.test(safeKey) || safeKey.split('').some(isUnsafeHeaderChar)) return;
+    sessionStorage.setItem(safeKey, JSON.stringify(value));
+};
+
+export const setLocalText = (key: string, value: unknown): void => {
+  if (typeof window === 'undefined') return;
   const safeKey = String(key || '').trim();
-  if (!safeKey || safeKey.length > 120 || safeKey.split('').some(isUnsafeHeaderChar)) return;
-  sessionStorage.setItem(safeKey, JSON.stringify(value));
+  if (!safeKey || safeKey.length > 120 || !/^[A-Za-z0-9:_-]+$/.test(safeKey)) return;
+  localStorage.setItem(safeKey, toSafeHeaderValue(value));
+};
+
+export const setLocalJson = (key: string, value: unknown): void => {
+  if (typeof window === 'undefined') return;
+  const safeKey = String(key || '').trim();
+  if (!safeKey || safeKey.length > 120 || !/^[A-Za-z0-9:_-]+$/.test(safeKey)) return;
+  localStorage.setItem(safeKey, JSON.stringify(value));
 };

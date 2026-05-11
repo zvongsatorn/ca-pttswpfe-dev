@@ -14,9 +14,10 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { getUserFromToken } from '@/utils/auth';
-import { buildApiPath, buildAuthHeaders, setAuthCookie, setSessionJson } from '@/utils/security';
+import { buildApiPath, buildAuthHeaders, setAuthCookie, setLocalText, setSessionJson } from '@/utils/security';
 import {
   Dialog,
   DialogContent,
@@ -107,6 +108,7 @@ const readJsonOrText = async <T = Record<string, unknown>>(response: Response): 
 export default function Header({
   onToggleSidebar,
 }: HeaderProps) {
+  const router = useRouter();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -176,8 +178,8 @@ export default function Header({
       if (savedGroup) {
         initialActiveGroup = savedGroup;
       } else if (mappedGroups.length > 0) {
-        localStorage.setItem('selected_usergroup', mappedGroups[0].id);
-        localStorage.setItem('selected_usergroup_role', mappedGroups[0].role);
+        setLocalText('selected_usergroup', mappedGroups[0].id);
+        setLocalText('selected_usergroup_role', mappedGroups[0].role);
       }
 
       setUserState({
@@ -236,7 +238,7 @@ export default function Header({
     clearSelectedSubjectContext();
 
     // Redirect to login page
-    window.location.href = '/login';
+    router.push('/login');
   };
 
   const handleProfile = () => {
@@ -304,8 +306,8 @@ export default function Header({
   const handleGroupChange = async (group: UserGroup) => {
     setUserState(prev => ({ ...prev, activeGroup: group }));
     setShowGroupSelector(false);
-    localStorage.setItem('selected_usergroup', group.id);
-    localStorage.setItem('selected_usergroup_role', group.role);
+    setLocalText('selected_usergroup', group.id);
+    setLocalText('selected_usergroup_role', group.role);
     console.log('Switched to group:', group.name);
 
     // Refetch the units for the new role and update sessionStorage
@@ -375,7 +377,7 @@ export default function Header({
 
         // Update user state and token for persistence
         if (result.data.token) {
-          localStorage.setItem('auth_token', result.data.token);
+          setLocalText('auth_token', result.data.token);
           setAuthCookie(result.data.token);
         }
 

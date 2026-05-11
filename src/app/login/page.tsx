@@ -19,7 +19,7 @@ import { useMsal } from '@azure/msal-react';
 import { loginRequest } from '@/lib/msalConfig';
 import { b2cInstance, b2cLoginRequest } from '@/lib/msalB2CConfig';
 import type { RedirectRequest } from '@azure/msal-browser';
-import { buildApiPath, buildAuthHeaders, isSecureSubmissionContext, setAuthCookie, setSessionJson } from '@/utils/security';
+import { buildApiPath, buildAuthHeaders, isSecureSubmissionContext, setAuthCookie, setLocalJson, setLocalText, setSessionJson } from '@/utils/security';
 
 const toText = (value: unknown): string => String(value ?? '').trim();
 
@@ -156,11 +156,11 @@ export default function LoginForm() {
               const { user: userData, token } = data;
 
               setAuthCookie(token);
-              localStorage.setItem('auth_token', token);
-              localStorage.setItem('user_data', JSON.stringify(userData));
+              setLocalText('auth_token', token);
+              setLocalJson('user_data', userData);
 
               if (data.config?.startYear) {
-                  localStorage.setItem('StartYear', data.config.startYear);
+                  setLocalText('StartYear', data.config.startYear);
               }
 
               // Prefetch units and redirect
@@ -172,8 +172,8 @@ export default function LoginForm() {
                 : [];
               const selectedGroupMeta = userGroups.find((group) => normalizeGroupNo(toText(group.userGroupNo)) === defaultRole);
               if (defaultRole) {
-                localStorage.setItem('selected_usergroup', defaultRole);
-                localStorage.setItem('selected_usergroup_role', toText(selectedGroupMeta?.userGroupRole));
+                setLocalText('selected_usergroup', defaultRole);
+                setLocalText('selected_usergroup_role', toText(selectedGroupMeta?.userGroupRole));
               }
               clearUnitsCacheKeys();
               if (employeeId && defaultRole) {
@@ -336,10 +336,10 @@ export default function LoginForm() {
           setAuthCookie(token);
 
           // Store token and user data
-          localStorage.setItem('auth_token', token);
-          localStorage.setItem('user_data', JSON.stringify(userData));
+          setLocalText('auth_token', token);
+          setLocalJson('user_data', userData);
           if (data.config && data.config.startYear) {
-            localStorage.setItem('StartYear', data.config.startYear);
+            setLocalText('StartYear', data.config.startYear);
           }
 
           // Fetch units for the default role upon login
@@ -353,8 +353,8 @@ export default function LoginForm() {
             : [];
           const selectedGroupMeta = userGroups.find((group) => normalizeGroupNo(toText(group.userGroupNo)) === defaultRole);
           if (defaultRole) {
-            localStorage.setItem('selected_usergroup', defaultRole);
-            localStorage.setItem('selected_usergroup_role', toText(selectedGroupMeta?.userGroupRole));
+            setLocalText('selected_usergroup', defaultRole);
+            setLocalText('selected_usergroup_role', toText(selectedGroupMeta?.userGroupRole));
           }
           clearUnitsCacheKeys();
           if (employeeId && defaultRole) {

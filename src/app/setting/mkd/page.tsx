@@ -112,8 +112,9 @@ function MKDContent() {
                     const promises: Promise<{ success: boolean; message?: string } | null>[] = [];
                     sheet.eachRow((row, rowNumber) => {
                         if (rowNumber > 1) {
-                            const val = row.getCell(1).text || row.getCell(1).value?.toString();
-                            if (val?.trim()) { promises.push(createMasterKey({ KeyManName: val.trim(), CreateBy: employeeId }, token)); }
+                            const rawValue = row.getCell(1).text || String(row.getCell(1).value ?? '');
+                            const val = rawValue.trim();
+                            if (val) { promises.push(createMasterKey({ KeyManName: val, CreateBy: employeeId }, token)); }
                         }
                     });
                     await Promise.all(promises);

@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPath, buildApiPathFromSearch, buildAuthHeaders } from '@/utils/security';
+import { buildApiPath, buildApiPathFromSearch, buildAuthHeaders, setLocalText } from '@/utils/security';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -190,9 +190,9 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
 
   useEffect(() => {
     if (isLoaded) {
-      localStorage.setItem('mkd_historyapprove_year', year);
-      localStorage.setItem('mkd_historyapprove_unit', selectedMainUnit);
-      localStorage.setItem('mkd_historyapprove_status', statusFilter);
+      setLocalText('mkd_historyapprove_year', year);
+      setLocalText('mkd_historyapprove_unit', selectedMainUnit);
+      setLocalText('mkd_historyapprove_status', statusFilter);
     }
   }, [year, selectedMainUnit, statusFilter, isLoaded]);
 

@@ -1,4 +1,4 @@
-import { buildAuthHeaders, fetchApi } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, setLocalText } from '@/utils/security';
 
 const API_BASE_URL = '';
 
@@ -58,9 +58,9 @@ export const setSelectedSubjectContext = (subjectId: number, subjectName: string
   const normalizedSubjectId = toIntOrZero(subjectId);
   if (!normalizedSubjectId) return;
 
-  localStorage.setItem('selected_subject_id', String(normalizedSubjectId));
-  localStorage.setItem('selected_subject_name', subjectName || '');
-  localStorage.setItem('selected_subject_path', subjectPath || '');
+  setLocalText('selected_subject_id', String(normalizedSubjectId));
+  setLocalText('selected_subject_name', subjectName || '');
+  setLocalText('selected_subject_path', subjectPath || '');
 
   setCookie('selected_subject_id', String(normalizedSubjectId));
   setCookie('selected_subject_name', subjectName || '');

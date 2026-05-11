@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPath, buildApiPathFromSearch } from '@/utils/security';
+import { buildApiPath, buildApiPathFromSearch, setLocalText } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -347,13 +347,13 @@ export default function MKDHistoryPage() {
 
   useEffect(() => {
     if (isLoaded) {
-      localStorage.setItem('mkd_history_year', year);
+      setLocalText('mkd_history_year', year);
     }
   }, [year, isLoaded]);
 
   useEffect(() => {
     if (isLoaded) {
-      localStorage.setItem('mkd_history_status', statusFilter);
+      setLocalText('mkd_history_status', statusFilter);
     }
   }, [statusFilter, isLoaded]);
 
