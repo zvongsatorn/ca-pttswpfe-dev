@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, fetchApi } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiPath } from '@/utils/security';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Select, Switch, App, Card, Spin } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -74,7 +74,7 @@ function MenuRightContent() {
         const previousItems = [...menuItems];
         setMenuItems(prev => updateTree(prev));
 
-        const res = await fetchApi(API_BASE_URL, '/api/menu/rights', {
+        const res = await fetchApi(API_BASE_URL, normalizeApiPath('/api/menu/rights'), {
             method: 'POST',
             headers: buildAuthHeaders(token, { 'Content-Type': 'application/json' }),
             body: JSON.stringify({ userGroupRole: selectedRole, menuID, hasRight }),

@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPathFromSearch } from '@/utils/security';
+import { buildSafeRoutePathFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Table, DatePicker, Button, Form, Checkbox, Popover } from 'antd';
@@ -354,6 +354,9 @@ const transformRows = (rawRows: Report3RawRow[]): Report3DataType[] => {
         const staff6 = toNumber(row.hc_staff_6);
         const staff7 = toNumber(row.hc_staff_7);
 
+        const rawSubcontractAmount = row.amount_subcontract ?? row['amount_subcontact'] ?? row.amount_10;
+        const subcontractAmount = toNumber(rawSubcontractAmount);
+
         return {
             key: `row-${index + 1}`,
             unit_short: toText(row.UnitAbbr),
@@ -368,7 +371,7 @@ const transformRows = (rawRows: Report3RawRow[]): Report3DataType[] => {
             specific: toText(row.SpecFlagName),
 
             frame_contract: toNumber(row.amount_8),
-            frame_sub_contract: toNumber(row.amount_subcontract ?? row['amount_subcontact'] ?? row.amount_10),
+            frame_sub_contract: subcontractAmount,
             frame_21: toNumber(row.amount_1),
             frame_18_20: toNumber(row.amount_2),
             frame_16_17: toNumber(row.amount_3),
@@ -558,7 +561,7 @@ export default function Report3Page() {
                 if (bgNo) query.set('bgNo', bgNo);
                 if (division) query.set('division', division);
 
-                const res = await fetch(buildApiPathFromSearch('/api/report/report3/filters', query));
+                const res = await fetch(buildSafeRoutePathFromSearch('report3Filters', query));
                 let payload: Report3FilterResponse | null = null;
                 try {
                     payload = await res.json();
@@ -631,7 +634,7 @@ export default function Report3Page() {
             if (division) query.set('division', division);
             if (orgUnitNo) query.set('orgUnitNo', orgUnitNo);
 
-            const res = await fetch(buildApiPathFromSearch('/api/report/report3', query));
+            const res = await fetch(buildSafeRoutePathFromSearch('report3', query));
             const payload: Report3ApiResponse = await res.json();
 
             if (!res.ok || payload.status !== 200 || !payload.data) {

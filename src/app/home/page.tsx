@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiFileHref, buildApiPath } from '@/utils/security';
+import { buildApiFileHref, buildDocumentDetailPath, buildSafeRoutePath, postSafeRouteJson, toSafeDisplayText, toSafePathSegment } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -241,8 +241,8 @@ export default function Home() {
 
       // --- Fetch Inbox ---
       const [docInboxRes, mkdInboxRes] = await Promise.all([
-        fetch(buildApiPath('/api/documents/inbox', { employeeId })),
-        fetch(buildApiPath('/api/mkd/inbox', { employeeId }))
+        fetch(buildSafeRoutePath('documentsInbox', { employeeId })),
+        fetch(buildSafeRoutePath('mkdInbox', { employeeId }))
       ]);
 
       const map = new Map<string, InboxItem>();
@@ -303,8 +303,8 @@ export default function Home() {
 
       // --- Fetch My Requests ---
       const [docReqRes, mkdReqRes] = await Promise.all([
-        fetch(buildApiPath('/api/documents/my-requests', { employeeId })),
-        fetch(buildApiPath('/api/mkd/my-requests', { employeeId }))
+        fetch(buildSafeRoutePath('documentsMyRequests', { employeeId })),
+        fetch(buildSafeRoutePath('mkdMyRequests', { employeeId }))
       ]);
 
       let allReqs: MyRequestItem[] = [];
@@ -396,7 +396,7 @@ export default function Home() {
 
   const handleInboxClick = async (item: InboxItem) => {
     if (item.type === 'mkd') {
-      router.push(`/mkd/history/${item.id}?from=inbox`);
+      router.push(`/mkd/history/${toSafePathSegment(item.id)}?from=inbox`);
     } else {
       setSelectedInboxItem(item);
       setIsActionModalOpen(true);
@@ -411,7 +411,7 @@ export default function Home() {
           } catch (e) {}
         }
 
-        const res = await fetch(buildApiPath(`/api/documents/${encodeURIComponent(String(item.id))}`, { employeeId }));
+        const res = await fetch(buildDocumentDetailPath(item.id, { employeeId }));
         if (res.ok) {
           const detailJson = await res.json();
 
@@ -654,17 +654,9 @@ export default function Home() {
             };
 
             if (action === 'approved') {
-                await fetch('/api/documents/approve', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
+                await postSafeRouteJson('documentsApprove', body);
             } else if (action === 'rejected') {
-                await fetch('/api/documents/reject', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
+                await postSafeRouteJson('documentsReject', body);
             }
         }
 
@@ -699,14 +691,10 @@ export default function Home() {
       : `${rejectAllRemark} (${actorText})`;
 
     try {
-      const resp = await fetch('/api/documents/reject-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          documentNo: selectedInboxItem.id,
-          remark: finalRemark,
-          updateBy: employeeId
-        })
+      const resp = await postSafeRouteJson('documentsRejectAll', {
+        documentNo: selectedInboxItem.id,
+        remark: finalRemark,
+        updateBy: employeeId
       });
 
       if (resp.ok) {
@@ -903,9 +891,11 @@ export default function Home() {
 {selectedInboxItem.items?.map((item) => {
     const actionState = itemActions[item.actionKey] || 'idle';
     const isDisabledByFlow = !item.canTakeAction || !!item.rejectionReason;
-    const rejectReasonRaw = String(item.rejectionReason || '').trim();
+    const rejectReasonRaw = toSafeDisplayText(item.rejectionReason);
     const rejectReasonDisplay = rejectReasonRaw.replace(/\s*\(Rejected by [^)]+\)\s*$/i, '').trim();
     const showRejectReasonText = !!rejectReasonDisplay && !/^Rejected by\b/i.test(rejectReasonDisplay);
+    const typeLabel = toSafeDisplayText(item.typeLabel);
+    const description = toSafeDisplayText(item.description);
     return (
     <tr
     key={item.actionKey}
@@ -919,7 +909,7 @@ export default function Home() {
         {/* Type */}
         <td className="p-4 align-top">
             <span className={`inline-block px-2 py-1 rounded text-xs font-bold border ${getTypeBadgeColor(item.typeCategory)}`}>
-            {item.typeLabel}
+            {typeLabel}
             </span>
         </td>
 
@@ -927,7 +917,7 @@ export default function Home() {
         <td className="p-4 align-top space-y-2">
             <div className="font-semibold text-gray-900 text-sm leading-relaxed mb-1">
                 <div className="text-xs text-blue-600 font-bold mb-0.5">[{item.id}]</div>
-                <div>{item.description}</div>
+                <div>{description}</div>
             </div>
             {item.remark && item.remark !== '-' && (
                 <div className="text-xs text-gray-500 p-0 rounded inline-block">

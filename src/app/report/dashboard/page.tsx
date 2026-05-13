@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPath, buildApiPathFromSearch } from '@/utils/security';
+import { buildSafeRoutePath, buildSafeRoutePathFromSearch } from '@/utils/security';
 import React, { useState, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Select, Button, Table } from 'antd';
@@ -231,7 +231,7 @@ export default function DashboardPage() {
             const dateStr = filterDate.format('YYYY-MM-01');
 
             try {
-                const res = await fetch(buildApiPath('/api/report/report3/filters', { effectiveDate: dateStr, employeeId, userGroupNo, division: '' }));
+                const res = await fetch(buildSafeRoutePath('report3Filters', { effectiveDate: dateStr, employeeId, userGroupNo, division: '' }));
                 if (res.ok) {
                     const result = await res.json();
                     if (result.status === 200 && result.data) {
@@ -312,7 +312,7 @@ export default function DashboardPage() {
                 division: ''
             });
 
-            const res = await fetch(buildApiPathFromSearch('/api/report/dashboard', query));
+            const res = await fetch(buildSafeRoutePathFromSearch('reportDashboard', query));
             if (res.ok) {
                 const result = await res.json();
                 if (result.status === 200 && result.data) {
@@ -416,7 +416,7 @@ export default function DashboardPage() {
                 query.set('orgUnits', selectedOrgUnits.join(','));
             }
 
-            const res = await fetch(buildApiPathFromSearch('/api/report/dashboard/excel', query));
+            const res = await fetch(buildSafeRoutePathFromSearch('reportDashboardExcel', query));
             if (res.ok) {
                 const blob = await res.blob();
                 await saveExcelFile(blob, `Dashboard_${yearStr}${monthStr}.xlsx`);

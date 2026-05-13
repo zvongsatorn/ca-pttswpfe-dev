@@ -1,4 +1,4 @@
-import { buildApiPath, buildAuthHeaders, fetchApi } from '@/utils/security';
+import { buildAuthHeaders, buildUserOtherPath, fetchApi, normalizeApiPath } from '@/utils/security';
 
 const API_URL = '';
 
@@ -6,7 +6,7 @@ const getHeaders = (token?: string) => buildAuthHeaders(token, { 'Content-Type':
 
 export const getUserOther = async (token?: string) => {
     try {
-        const response = await fetchApi(API_URL, '/api/users/other', {
+        const response = await fetchApi(API_URL, normalizeApiPath('/api/users/other'), {
             headers: getHeaders(token)
         });
         return await response.json();
@@ -19,7 +19,7 @@ export const getUserOther = async (token?: string) => {
 
 export const insertUserOther = async (employeeId: string, fullName: string, email: string, createBy: string, token?: string) => {
     try {
-        const response = await fetchApi(API_URL, '/api/users/other', {
+        const response = await fetchApi(API_URL, normalizeApiPath('/api/users/other'), {
             method: 'POST',
             headers: getHeaders(token),
             body: JSON.stringify({ employeeId, fullName, email, createBy })
@@ -34,7 +34,7 @@ export const insertUserOther = async (employeeId: string, fullName: string, emai
 
 export const updateUserOther = async (employeeId: string, fullName: string, email: string, updateBy: string, token?: string) => {
     try {
-        const response = await fetchApi(API_URL, `/api/users/other/${encodeURIComponent(employeeId)}`,  {
+        const response = await fetchApi(API_URL, buildUserOtherPath(employeeId),  {
             method: 'PUT',
             headers: getHeaders(token),
             body: JSON.stringify({ fullName, email, updateBy })
@@ -49,7 +49,7 @@ export const updateUserOther = async (employeeId: string, fullName: string, emai
 
 export const deleteUserOther = async (employeeId: string, updateBy: string, token?: string) => {
     try {
-        const response = await fetchApi(API_URL, buildApiPath(`/api/users/other/${encodeURIComponent(employeeId)}`, { updateBy }), {
+        const response = await fetchApi(API_URL, buildUserOtherPath(employeeId, { updateBy }), {
             method: 'DELETE',
             headers: getHeaders(token)
         });

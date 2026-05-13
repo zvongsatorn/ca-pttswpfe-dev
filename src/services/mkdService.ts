@@ -1,17 +1,20 @@
-import { buildAuthHeaders, fetchApi } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiBaseUrl, normalizeApiPath } from '@/utils/security';
 
-const API_BASE_URL = typeof window === 'undefined' ? (process.env.BACKEND_URL || 'http://localhost:5000') : '';
+const API_BASE_URL = typeof window === 'undefined'
+    ? normalizeApiBaseUrl(process.env.BACKEND_URL || 'http://localhost:5000')
+    : '';
 
 async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
     const headers = buildAuthHeaders(token, options.headers);
+    const safeUrl = normalizeApiPath(url);
 
-    const res = await fetchApi(API_BASE_URL, url, {
+    const res = await fetchApi(API_BASE_URL, safeUrl, {
         ...options,
         headers,
     });
 
     if (!res.ok) {
-        console.error(`Fetch failed: ${url}`, res.statusText);
+        console.error(`Fetch failed: ${safeUrl}`, res.statusText);
         try {
             return await res.json();
         } catch {

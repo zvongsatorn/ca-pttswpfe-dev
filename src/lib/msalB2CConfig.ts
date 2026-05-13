@@ -1,4 +1,5 @@
 import { Configuration, PublicClientApplication } from "@azure/msal-browser";
+import { getSafeWindowOrigin } from "@/utils/security";
 
 // Standard B2C User Flow Policy Name
 // Often named B2C_1_susi or B2C_1_signin. 
@@ -15,8 +16,8 @@ export const msalB2CConfig: Configuration = {
         // B2C Authority URL Structure: https://{tenant}.b2clogin.com/{tenant}.onmicrosoft.com/{policy}
         authority: `https://${process.env.NEXT_PUBLIC_B2C_TENANT_NAME || "pttplcb2ctest01"}.b2clogin.com/${process.env.NEXT_PUBLIC_B2C_TENANT_DOMAIN || "pttplcb2ctest01.onmicrosoft.com"}/${b2cPolicies.names.signIn}`,
         knownAuthorities: [`${process.env.NEXT_PUBLIC_B2C_TENANT_NAME || "pttplcb2ctest01"}.b2clogin.com`],
-        redirectUri: typeof window !== "undefined" ? window.location.origin : undefined,
-        postLogoutRedirectUri: typeof window !== "undefined" ? window.location.origin : undefined
+        redirectUri: getSafeWindowOrigin(),
+        postLogoutRedirectUri: getSafeWindowOrigin()
     },
     cache: {
         cacheLocation: "localStorage", // Required to prevent popup/redirect isolation errors

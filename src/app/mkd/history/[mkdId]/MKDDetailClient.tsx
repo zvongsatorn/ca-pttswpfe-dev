@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import dayjs from 'dayjs';
 import ExcelJS from 'exceljs';
 import { saveExcelFile } from '@/utils/fileDownload';
+import { buildFilesProxyPath, openSafeApiPath } from '@/utils/security';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1207,7 +1208,7 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                                 <TableCell className="text-center font-medium">{idx + 1}</TableCell>
                                                 <TableCell className="border-l font-medium">{file.FileName || file.fileName}</TableCell>
                                                 <TableCell className="border-l text-center">
-                                                    <Button variant="ghost" className="h-auto hover:bg-blue-50 flex flex-col items-center justify-center space-y-1 mx-auto" onClick={() => window.open(`/api/files-proxy?path=${header.RequestNo}/${file.FileUpload}`, '_blank')}>
+                                                    <Button variant="ghost" className="h-auto hover:bg-blue-50 flex flex-col items-center justify-center space-y-1 mx-auto" onClick={() => openSafeApiPath(buildFilesProxyPath(header.RequestNo, file.FileUpload))}>
                                                         <FileText className="w-6! h-6! text-blue-500" />
                                                     </Button>
                                                 </TableCell>

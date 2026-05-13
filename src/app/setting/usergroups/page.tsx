@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, fetchApi } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiPath } from '@/utils/security';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Table, Modal, Button, Select, App, AutoComplete, Input } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -41,7 +41,7 @@ function getToken(): string {
 
 async function apiCall(url: string, options: RequestInit = {}) {
     const token = getToken();
-    const response = await fetchApi(API_URL, url, {
+    const response = await fetchApi(API_URL, normalizeApiPath(url), {
         ...options,
         headers: buildAuthHeaders(token, {
             'Content-Type': 'application/json',

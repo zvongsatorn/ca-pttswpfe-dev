@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, fetchApi } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiPath } from '@/utils/security';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Table, Button, Select, Input, App, Spin, Card } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -137,7 +137,7 @@ function RetirementContent() {
                 });
             });
 
-            const res = await fetchApi(API_BASE_URL, '/api/retirement', {
+            const res = await fetchApi(API_BASE_URL, normalizeApiPath('/api/retirement'), {
                 method: 'POST',
                 headers: buildAuthHeaders(token, { 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
@@ -165,7 +165,7 @@ function RetirementContent() {
             onOk: async () => {
                 setLoading(true);
                 try {
-                    const res = await fetchApi(API_BASE_URL, '/api/retirement/copy', {
+                    const res = await fetchApi(API_BASE_URL, normalizeApiPath('/api/retirement/copy'), {
                         method: 'POST',
                         headers: buildAuthHeaders(token, { 'Content-Type': 'application/json' }),
                         body: JSON.stringify({ fromYear: lastYearBE, toYear: currentYearBE, user: currentUser?.employeeID || 'SYSTEM' }),

@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiFileHref, buildApiPath } from '@/utils/security';
+import { buildApiFileHref, buildDocumentDetailPath, buildSafeRoutePath, postSafeRouteJson, toSafeDisplayText, type SafeRouteKey } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -660,16 +660,16 @@ export default function TransactionProgressPage() {
         });
       };
 
-      const fetchDocs = async (path: string): Promise<APIDocumentSummary[] | null> => {
-        const res = await fetch(buildApiPath(path, { employeeId }));
+      const fetchDocs = async (routeKey: SafeRouteKey): Promise<APIDocumentSummary[] | null> => {
+        const res = await fetch(buildSafeRoutePath(routeKey, { employeeId }));
         if (!res.ok) return null;
         const json = await res.json();
         return Array.isArray(json?.data) ? (json.data as APIDocumentSummary[]) : [];
       };
 
       const [progressDocs, allDocs] = await Promise.all([
-        fetchDocs('/api/documents/progress'),
-        fetchDocs('/api/documents/all')
+        fetchDocs('documentsProgress'),
+        fetchDocs('documentsAll')
       ]);
 
       const merged = new Map<string, APIDocumentSummary>();
@@ -827,7 +827,7 @@ export default function TransactionProgressPage() {
   };
   const fetchRejectableItemOptions = async (documentNo: string): Promise<RejectableItemOption[]> => {
     const employeeId = getEmployeeId();
-    const res = await fetch(buildApiPath(`/api/documents/${encodeURIComponent(String(documentNo))}`, { employeeId }));
+    const res = await fetch(buildDocumentDetailPath(documentNo, { employeeId }));
     if (!res.ok) return [];
     const detailJson = await res.json().catch(() => null);
     if (!detailJson?.data) return [];
@@ -902,7 +902,7 @@ export default function TransactionProgressPage() {
 
     try {
       const employeeId = getEmployeeId();
-      const res = await fetch(buildApiPath(`/api/documents/${encodeURIComponent(String(item.id))}`, { employeeId }));
+      const res = await fetch(buildDocumentDetailPath(item.id, { employeeId }));
       if (res.ok) {
         const detailJson = await res.json();
         if (detailJson.data) {
@@ -1014,14 +1014,10 @@ export default function TransactionProgressPage() {
       const finalRemark = /Rejected by/i.test(rejectRemark)
         ? rejectRemark
         : `${rejectRemark} (${actorText})`;
-      const resp = await fetch('/api/documents/reject-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          documentNo: rejectTarget.id,
-          remark: finalRemark,
-          updateBy: employeeId
-        })
+      const resp = await postSafeRouteJson('documentsRejectAll', {
+        documentNo: rejectTarget.id,
+        remark: finalRemark,
+        updateBy: employeeId
       });
 
       if (resp.ok) {
@@ -1080,16 +1076,12 @@ export default function TransactionProgressPage() {
         ? itemRejectRemark
         : `${itemRejectRemark} (${actorText})`;
 
-      const resp = await fetch('/api/documents/reject', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          documentNo: itemRejectTarget.documentNo,
-          itemId: selected.itemId,
-          seqno: selected.seqno,
-          remark: finalRemark,
-          updateBy: employeeId
-        })
+      const resp = await postSafeRouteJson('documentsReject', {
+        documentNo: itemRejectTarget.documentNo,
+        itemId: selected.itemId,
+        seqno: selected.seqno,
+        remark: finalRemark,
+        updateBy: employeeId
       });
 
       if (!resp.ok) {
@@ -1597,19 +1589,21 @@ export default function TransactionProgressPage() {
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {selectedTransaction.items.map((item, itemIndex) => {
-                                        const rejectReasonDisplay = String(item.rejectionReason || '').trim();
+                                        const rejectReasonDisplay = toSafeDisplayText(item.rejectionReason);
                                         const showRejectReasonText = !!rejectReasonDisplay && !/^Rejected by\b/i.test(rejectReasonDisplay);
+                                        const typeLabel = toSafeDisplayText(item.typeLabel);
+                                        const description = toSafeDisplayText(item.description);
                                         return (
                                         <tr key={`${item.id}-${itemIndex}`} className="hover:bg-gray-50 transition-colors">
                                             <td className="p-4 align-top">
                                                 <span className={`inline-block px-2 py-1 rounded text-xs font-bold border ${getTypeBadgeColor(item.typeCategory)}`}>
-                                                {item.typeLabel}
+                                                {typeLabel}
                                                 </span>
                                             </td>
                                             <td className="p-4 align-top space-y-2">
                                                 <div className="font-semibold text-gray-900 text-sm leading-relaxed">
                                                     <div className="text-xs text-blue-600 font-bold mb-0.5">[{item.id}]</div>
-                                                    {item.description}
+                                                    {description}
                                                 </div>
                                                 {item.remark && item.remark !== '-' && (
                                                     <div className="text-xs text-gray-500 p-0 rounded inline-block">

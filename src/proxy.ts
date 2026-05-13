@@ -1,6 +1,61 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+const DEFAULT_ALLOWED_BACKEND_HOST_SUFFIXES = ['localhost', '127.0.0.1', 'pttplc.com', 'pttdigital.com'];
+
+const getAllowedBackendHostSuffixes = (): string[] => {
+  const configured = (process.env.BACKEND_ALLOWED_HOST_SUFFIXES || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return configured.length ? configured : DEFAULT_ALLOWED_BACKEND_HOST_SUFFIXES;
+};
+
+const isAllowedBackendHostname = (hostname: string): boolean => {
+  const normalizedHost = hostname.toLowerCase();
+  return getAllowedBackendHostSuffixes().some((suffix) => (
+    normalizedHost === suffix || normalizedHost.endsWith(`.${suffix}`)
+  ));
+};
+
+const normalizeProxyPath = (pathname: string): string => {
+  const safePath = String(pathname || '').trim();
+  if (!safePath.startsWith('/api/') && !safePath.startsWith('/uploads/')) {
+    throw new Error('Invalid proxy path');
+  }
+  if (safePath.includes('..') || /%2e|%5c/i.test(safePath) || safePath.includes('\\')) {
+    throw new Error('Invalid proxy path');
+  }
+  if (/[\u0000-\u001F\u007F]/.test(safePath)) {
+    throw new Error('Invalid proxy path');
+  }
+  return safePath;
+};
+
+const buildProxyTargetUrl = (request: NextRequest, backendUrl: URL): URL => {
+  const safePath = normalizeProxyPath(request.nextUrl.pathname);
+  const safeSearch = request.nextUrl.search
+    ? `?${new URLSearchParams(request.nextUrl.search).toString()}`
+    : '';
+  return new URL(`${safePath}${safeSearch}`, backendUrl);
+};
+
+const normalizeBackendUrl = (): URL => {
+  const rawUrl = (process.env.BACKEND_URL || 'http://localhost:5000').trim().replace(/^['"]|['"]$/g, '');
+  const parsed = new URL(rawUrl || 'http://localhost:5000');
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Invalid backend URL protocol');
+  }
+  if (parsed.username || parsed.password || parsed.hash) {
+    throw new Error('Invalid backend URL parts');
+  }
+  if (!isAllowedBackendHostname(parsed.hostname)) {
+    throw new Error('Backend host is not allowed');
+  }
+  parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+  return parsed;
+};
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get('auth_token')?.value;
@@ -12,18 +67,13 @@ export function proxy(request: NextRequest) {
         return NextResponse.next();
       }
 
-      const rawUrl = (process.env.BACKEND_URL || 'http://localhost:5000').trim().replace(/^['"]|['"]$/g, '');
-      const backendUrl = rawUrl.replace(/\/$/, '') || 'http://localhost:5000';
-
       let targetUrl: URL;
       try {
-        targetUrl = new URL(
-          pathname + request.nextUrl.search,
-          backendUrl
-        );
+        const backendUrl = normalizeBackendUrl();
+        targetUrl = buildProxyTargetUrl(request, backendUrl);
       } catch (urlErr) {
-        console.error(`[Proxy URL Error] Invalid backendUrl: ${backendUrl}`, urlErr);
-        throw new Error(`Invalid Backend URL configuration: ${backendUrl}`);
+        console.error('[Proxy URL Error] Invalid backend URL configuration', urlErr);
+        throw new Error('Invalid Backend URL configuration');
       }
 
       console.log(`[Proxy Runtime] ${request.method} ${pathname} -> ${targetUrl.toString()}`);
@@ -36,7 +86,7 @@ export function proxy(request: NextRequest) {
       JSON.stringify({ 
         error: 'Proxy Configuration Error', 
         message: String(err),
-        backend_url_used: process.env.BACKEND_URL || 'UNDEFINED'
+        backend_url_used: 'hidden'
       }), 
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
@@ -45,11 +95,17 @@ export function proxy(request: NextRequest) {
   // 2. Handle Auth Redirects
   if (!token && pathname !== '/login' && pathname !== '/register' && !pathname.startsWith('/_next') && pathname !== '/favicon.ico') {
     console.log(`[Proxy Auth] No token found. Redirecting ${pathname} to /login`);
-    return NextResponse.redirect(new URL('/login', request.url));
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = '/login';
+    loginUrl.search = '';
+    return NextResponse.redirect(loginUrl);
   }
 
   if (token && pathname === '/login') {
-    return NextResponse.redirect(new URL('/home', request.url));
+    const homeUrl = request.nextUrl.clone();
+    homeUrl.pathname = '/home';
+    homeUrl.search = '';
+    return NextResponse.redirect(homeUrl);
   }
 
   // 3. Add Security Headers

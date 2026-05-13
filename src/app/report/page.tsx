@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPath, buildAuthHeaders } from '@/utils/security';
+import { buildAuthHeaders, buildMenuSubmenuPath, normalizeAppRoutePath } from '@/utils/security';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Main from '@/components/layout/main';
@@ -67,7 +67,7 @@ export default function ReportMenuPage() {
     const fetchReports = async () => {
       try {
         const token = localStorage.getItem('auth_token');
-        const response = await fetch(buildApiPath(`/api/menu/submenu/${encodeURIComponent(REPORT_MENU_KEY)}`), {
+        const response = await fetch(buildMenuSubmenuPath(REPORT_MENU_KEY), {
             headers: buildAuthHeaders(token || undefined)
         });
 
@@ -119,8 +119,9 @@ export default function ReportMenuPage() {
           ) : (
             reports.map((item) => {
               const Icon = getIcon(item.MenuIcon);
+              const reportPath = normalizeAppRoutePath(item.MenuPath);
               return (
-                <Link key={item.MenuID} href={item.MenuPath || '#'} className="block group h-full">
+                <Link key={item.MenuID} href={reportPath} className="block group h-full">
                   <Card className="h-full border-0 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 bg-white overflow-hidden relative py-0">
                     <CardContent className="p-6 flex items-start gap-4 h-full">
 

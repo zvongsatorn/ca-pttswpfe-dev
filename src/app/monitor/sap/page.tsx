@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPath, fetchApi } from '@/utils/security';
+import { buildApiPath, buildSafeRoutePath, fetchApi, getLocalDevApiBaseUrl, normalizeApiBaseUrl, openSafeApiPath } from '@/utils/security';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Main from '@/components/layout/main';
 import { Table, Button, Tooltip, Modal, Select, DatePicker, App as AntdApp } from 'antd';
@@ -100,20 +100,12 @@ const toText = (value: unknown): string => {
     return String(value).trim();
 };
 
-const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, '');
-
 const getBackendBaseUrl = (): string => {
-    const envBaseUrl = normalizeBaseUrl((process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '').trim());
+    const rawEnvBaseUrl = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '').trim();
+    const envBaseUrl = rawEnvBaseUrl ? normalizeApiBaseUrl(rawEnvBaseUrl) : '';
     if (envBaseUrl) return envBaseUrl;
 
-    if (typeof window !== 'undefined') {
-        const { protocol, hostname } = window.location;
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            return `${protocol}//${hostname}:5000`;
-        }
-    }
-
-    return '';
+    return getLocalDevApiBaseUrl();
 };
 
 const resolveEmployeeId = (): string => {
@@ -325,9 +317,7 @@ function SapMonitorPageContent() {
     }, []);
 
     const downloadSapFile = useCallback((downloadPath?: string) => {
-        const targetPath = toText(downloadPath) || '/api/transactions/hrcenter/sap-file';
-        const separator = targetPath.includes('?') ? '&' : '?';
-        window.open(`${getBackendBaseUrl()}${targetPath}${separator}t=${Date.now()}`, '_blank', 'noopener,noreferrer');
+        openSafeApiPath(buildSafeRoutePath('transactionHrcenterSapFile', { t: Date.now() }));
     }, []);
 
     const loadGrid = useCallback(async () => {
@@ -425,7 +415,7 @@ function SapMonitorPageContent() {
 
             const monthLabel = MONTHS.find((item) => item.value === monthValue)?.label || MONTHS[0].label;
 
-            const response = await fetchApi(getBackendBaseUrl(), '/api/transactions/hrcenter/send-to-sap', {
+            const response = await fetchApi(getBackendBaseUrl(), buildSafeRoutePath('transactionsHrcenterSendToSap'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

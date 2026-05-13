@@ -1,19 +1,11 @@
-import { buildAuthHeaders, fetchApi } from '@/utils/security';
-
-const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, '');
+import { buildAuthHeaders, fetchApi, getLocalDevApiBaseUrl, normalizeApiBaseUrl, normalizeApiPath } from '@/utils/security';
 
 const getApiBaseUrl = (): string => {
-    const envBaseUrl = normalizeBaseUrl((process.env.NEXT_PUBLIC_BACKEND_URL || '').trim());
+    const rawEnvBaseUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || '').trim();
+    const envBaseUrl = rawEnvBaseUrl ? normalizeApiBaseUrl(rawEnvBaseUrl) : '';
     if (envBaseUrl) return envBaseUrl;
 
-    if (typeof window !== 'undefined') {
-        const { protocol, hostname } = window.location;
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            return `${protocol}//${hostname}:5000`;
-        }
-    }
-
-    return '';
+    return getLocalDevApiBaseUrl();
 };
 
 export interface InfoDataUploadSummary {
@@ -70,7 +62,7 @@ const uploadFile = async <TData>(
 ): Promise<UploadResponse<TData>> => {
     const apiBaseUrl = getApiBaseUrl();
     const { formData, headers } = buildUploadRequest(file, replaceExisting, token, extraFields);
-    const res = await fetchApi(apiBaseUrl, endpoint, {
+    const res = await fetchApi(apiBaseUrl, normalizeApiPath(endpoint), {
         method: 'POST',
         headers,
         body: formData

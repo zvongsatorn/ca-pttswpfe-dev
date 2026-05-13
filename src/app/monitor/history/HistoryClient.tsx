@@ -13,6 +13,7 @@ import {
     getMonitorHistoryUnits,
     type MonitorHistoryUnitOption
 } from '@/services/monitorHistoryService';
+import { buildApiFileHref, openSafeApiPath } from '@/utils/security';
 
 interface UserGroup {
     userGroupNo: string;
@@ -112,12 +113,7 @@ const parseDateText = (value: unknown, format: string): string => {
 const getFileUrl = (fileUpload: string): string => {
     const normalized = fileUpload.trim();
     if (!normalized) return '';
-    if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
-    if (normalized.startsWith('/api/')) return normalized.replace(/^\/api\//, '/');
-    if (normalized.startsWith('/uploads/')) return normalized;
-    if (normalized.startsWith('uploads/')) return `/${normalized}`;
-    if (normalized.includes('/')) return `/${normalized.replace(/^\/+/, '')}`;
-    return `/uploads/transactions/${normalized}`;
+    return buildApiFileHref(normalized) || buildApiFileHref(`uploads/transactions/${normalized}`);
 };
 
 export default function HistoryClient({
@@ -476,7 +472,7 @@ export default function HistoryClient({
                     <Button
                         type="text"
                         icon={<FileText size={18} className="text-red-500" />}
-                        onClick={() => window.open(fileUrl, '_blank', 'noopener,noreferrer')}
+                        onClick={() => openSafeApiPath(fileUrl)}
                     />
                 );
             }

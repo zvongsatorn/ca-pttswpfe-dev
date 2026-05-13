@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPathFromSearch, buildAuthHeaders, setLocalText } from '@/utils/security';
+import { buildAuthHeaders, buildSafeRoutePathFromSearch, postSafeRouteJson, setLocalText, toSafePathSegment } from '@/utils/security';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
@@ -150,7 +150,7 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                 RequestType: '2'
             });
 
-            const res = await fetch(buildApiPathFromSearch('/api/mkd/history', query), {
+            const res = await fetch(buildSafeRoutePathFromSearch('mkdHistory', query), {
                 headers: buildAuthHeaders(token)
             });
             const result = (await res.json()) as { success: boolean; data: Omit<HistoryRecord, 'no' | 'status' | 'manStatus'>[] };
@@ -196,19 +196,14 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
             const ceYear = numericYear > 2500 ? (numericYear - 543).toString() : selectedYear;
 
             // 1. Create New
-            const res = await fetch('/api/mkd', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...Object.fromEntries(buildAuthHeaders(token))
-                },
-                body: JSON.stringify({
-                    EffectiveYear: ceYear,
-                    RequestType: 2,
-                    OrgUnitNo: '',
-                    OrgUnitName: newUnitName,
-                    CreateBy: currentUser.employeeID || currentUser.EmployeeID
-                })
+            const res = await postSafeRouteJson('mkd', {
+                EffectiveYear: ceYear,
+                RequestType: 2,
+                OrgUnitNo: '',
+                OrgUnitName: newUnitName,
+                CreateBy: currentUser.employeeID || currentUser.EmployeeID
+            }, {
+                headers: buildAuthHeaders(token)
             });
             const result = (await res.json()) as { success: boolean; message?: string; data?: { ManDriverID: string | number } | { ManDriverID: string | number }[] };
             if (result.success) {
@@ -216,7 +211,7 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                 setIsNewModalOpen(false);
                 setNewUnitName('');
                 const newId = (result.data as { ManDriverID: string | number })?.ManDriverID || (Array.isArray(result.data) && result.data[0]?.ManDriverID);
-                if (newId) router.push(`/mkd/historyrecord/${newId}`);
+                if (newId) router.push(`/mkd/historyrecord/${toSafePathSegment(newId)}`);
             } else {
                 toast.error(result.message || 'สร้างรายการไม่สำเร็จ');
             }
@@ -385,11 +380,11 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                                             </td>
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center justify-center gap-2">
-                                                    <button onClick={() => router.push(`/mkd/historyrecord/${r.ManDriverID}`)} className="p-1.5 hover:bg-blue-50 rounded-full transition-colors group">
+                                                    <button onClick={() => router.push(`/mkd/historyrecord/${toSafePathSegment(r.ManDriverID)}`)} className="p-1.5 hover:bg-blue-50 rounded-full transition-colors group">
                                                         <Search className="h-5 w-5 text-blue-500 group-hover:text-blue-700 cursor-pointer" />
                                                     </button>
                                                     {(r.manStatus === 2 || r.manStatus === 3) && (
-                                                        <button onClick={() => router.push(`/mkd/dashboard/${r.ManDriverID}`)} className="p-1.5 hover:bg-emerald-50 rounded-full transition-colors group">
+                                                        <button onClick={() => router.push(`/mkd/dashboard/${toSafePathSegment(r.ManDriverID)}`)} className="p-1.5 hover:bg-emerald-50 rounded-full transition-colors group">
                                                             <BarChart3 className="h-5 w-5 text-emerald-500 group-hover:text-emerald-700 cursor-pointer" />
                                                         </button>
                                                     )}

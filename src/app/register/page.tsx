@@ -14,6 +14,7 @@ import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect, Suspense } from 'react';
 import { toast } from 'sonner';
+import { fetchSafeRoute, postSafeRouteJson } from '@/utils/security';
 
 export default function RegisterPage() {
   return (
@@ -52,7 +53,7 @@ function RegisterContent() {
   useEffect(() => {
     const checkConfig = async () => {
       try {
-        const res = await fetch('/api/auth/config/SignupB2C');
+        const res = await fetchSafeRoute('authConfigSignupB2C');
         if (res.ok) {
           const data = await res.json();
           const val = data.value?.toString().toLowerCase();
@@ -86,11 +87,7 @@ function RegisterContent() {
 
     setIsLoading(true);
     try {
-      const res = await fetch('/api/auth/register/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: formData.email }),
-      });
+      const res = await postSafeRouteJson('authRegisterVerify', { email: formData.email });
       console.log(`[Register] Verify API Status: ${res.status}`);
 
       if (res.ok) {
@@ -128,11 +125,7 @@ function RegisterContent() {
 
     setIsLoading(true);
     try {
-      const res = await fetch('/api/auth/register/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
+      const res = await postSafeRouteJson('authRegisterCreate', formData);
       console.log(`[Register] Create Account API Status: ${res.status}`);
 
       if (res.ok) {

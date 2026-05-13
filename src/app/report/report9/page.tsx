@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPathFromSearch, buildAuthHeaders } from '@/utils/security';
+import { buildAuthHeaders, buildSafeRoutePathFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import Main from '@/components/layout/main';
 import { Table, Button, Form, Select } from 'antd';
@@ -213,7 +213,7 @@ export default function Report9Page() {
                 userGroupNo
             });
 
-            const res = await fetch(buildApiPathFromSearch('/api/report/report9', params), {
+            const res = await fetch(buildSafeRoutePathFromSearch('report9', params), {
                 headers: token ? buildAuthHeaders(token) : undefined
             });
             const raw = await res.text();

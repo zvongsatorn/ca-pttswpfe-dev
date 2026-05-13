@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPath, fetchApi } from '@/utils/security';
+import { buildSafeRoutePath, fetchApi, getLocalDevApiBaseUrl, normalizeApiBaseUrl, openSafeApiPath } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -35,20 +35,12 @@ import { useState, useRef, useEffect, useMemo, useSyncExternalStore } from 'reac
 
 const months = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
 
-const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, '');
-
 const getBackendBaseUrl = (): string => {
-  const envBaseUrl = normalizeBaseUrl((process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '').trim());
+  const rawEnvBaseUrl = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '').trim();
+  const envBaseUrl = rawEnvBaseUrl ? normalizeApiBaseUrl(rawEnvBaseUrl) : '';
   if (envBaseUrl) return envBaseUrl;
 
-  if (typeof window !== 'undefined') {
-    const { protocol, hostname } = window.location;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return `${protocol}//${hostname}:5000`;
-    }
-  }
-
-  return '';
+  return getLocalDevApiBaseUrl();
 };
 
 const getYears = () => {
@@ -757,8 +749,8 @@ export default function HRCenterPage() {
         const yearAD = Number(appliedYear) - 543;
         const effectiveDate = `${yearAD}-${String(monthIndex).padStart(2, '0')}-01`;
 
-        const hrcenterPath = buildApiPath('/api/transactions/hrcenter', { viewMode: viewMode === 'all' ? 'all' : 'department', effectiveMonth: appliedMonth, effectiveYear: appliedYear, employeeId, userGroupNo });
-        const report3Path = buildApiPath('/api/report/report3', { effectiveDate, employeeId, userGroupNo, reportType: 0 });
+        const hrcenterPath = buildSafeRoutePath('transactionsHrcenter', { viewMode: viewMode === 'all' ? 'all' : 'department', effectiveMonth: appliedMonth, effectiveYear: appliedYear, employeeId, userGroupNo });
+        const report3Path = buildSafeRoutePath('report3', { effectiveDate, employeeId, userGroupNo, reportType: 0 });
         const reportCacheKey = `${effectiveDate}|${employeeId}|${userGroupNo}`;
         const cachedReportRows = report3CacheRef.current.get(reportCacheKey);
 
@@ -1026,7 +1018,7 @@ export default function HRCenterPage() {
   };
 
   const fetchSapMinus = async () => {
-    const minusRes = await fetch(buildApiPath('/api/transactions/hrcenter/sap-minus', { effectiveMonth: appliedMonth, effectiveYear: appliedYear }));
+    const minusRes = await fetch(buildSafeRoutePath('transactionsHrcenterSapMinus', { effectiveMonth: appliedMonth, effectiveYear: appliedYear }));
     if (!minusRes.ok) {
       setSapMinusRows([]);
       return;
@@ -1067,7 +1059,7 @@ export default function HRCenterPage() {
         orgUnits: Array.from(selectedOrgUnits)
       };
 
-      const response = await fetchApi(getBackendBaseUrl(), '/api/transactions/hrcenter/send-to-sap', {
+      const response = await fetchApi(getBackendBaseUrl(), buildSafeRoutePath('transactionsHrcenterSendToSap'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1110,7 +1102,7 @@ export default function HRCenterPage() {
   };
 
   const handleDownloadSapFile = () => {
-    window.open(`${getBackendBaseUrl()}/api/transactions/hrcenter/sap-file?t=${Date.now()}`, '_blank', 'noopener,noreferrer');
+    openSafeApiPath(buildSafeRoutePath('transactionHrcenterSapFile', { t: Date.now() }));
   };
 
 

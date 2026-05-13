@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPath, buildApiPathFromSearch, buildAuthHeaders, setLocalText } from '@/utils/security';
+import { buildAuthHeaders, buildMkdFilePath, buildMkdPath, buildSafeRoutePathFromSearch, openSafeApiPath, setLocalText, toSafePathSegment } from '@/utils/security';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -220,7 +220,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
         UserGroupNo: userGroupNo
       });
 
-      const res = await fetch(buildApiPathFromSearch('/api/mkd/history-approve', query), {
+      const res = await fetch(buildSafeRoutePathFromSearch('mkdHistoryApprove', query), {
           headers: buildAuthHeaders(token)
       });
       const result = await res.json();
@@ -310,7 +310,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
     setFlowLoading(true);
     setIsFlowModalOpen(true);
     try {
-      const res = await fetch(buildApiPath(`/api/mkd/${encodeURIComponent(String(mkdID))}/flow-history`, { approveId: approveID }), {
+      const res = await fetch(buildMkdPath(mkdID, 'flow-history', { approveId: approveID }), {
           headers: buildAuthHeaders(token)
       });
       const result = await res.json();
@@ -349,11 +349,11 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
   };
 
   const handleViewDetail = (mkdId: string) => {
-    router.push(`/mkd/historyapprove/${mkdId}`);
+    router.push(`/mkd/historyapprove/${toSafePathSegment(mkdId)}`);
   };
 
   const handleViewDashboard = (mkdId: string) => {
-    router.push(`/mkd/dashboard/${mkdId}`);
+    router.push(`/mkd/dashboard/${toSafePathSegment(mkdId)}`);
   };
 
   return (
@@ -642,7 +642,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
                         <span className="text-sm font-medium">{record.manDriverStatus === 3 ? record.mkdCount : ''}</span>
                         {record.fileUpload && (
                           <button
-                            onClick={() => window.open(`/api/mkd/${record.mkdID}/files/${record.fileUpload}`, '_blank')}
+                            onClick={() => openSafeApiPath(buildMkdFilePath(record.mkdID, record.fileUpload))}
                             className="p-1 hover:bg-blue-100 rounded transition-colors"
                             title="View Document"
                           >

@@ -1,4 +1,4 @@
-import { buildAuthHeaders, fetchApi, setLocalText } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiPath, setLocalText } from '@/utils/security';
 
 const API_BASE_URL = '';
 
@@ -112,7 +112,7 @@ export const insertActionLog = async (payload: InsertActionLogPayload): Promise<
   }
 
   try {
-    const response = await fetchApi(API_BASE_URL, '/api/log/action', {
+    const response = await fetchApi(API_BASE_URL, normalizeApiPath('/api/log/action'), {
       method: 'POST',
       keepalive: true,
       headers: buildAuthHeaders(token, { 'Content-Type': 'application/json' }),

@@ -1,4 +1,4 @@
-import { buildAuthHeaders, fetchApi } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiPath } from '@/utils/security';
 
 const API_BASE_URL = '';
 
@@ -43,7 +43,8 @@ interface DelayServiceResponse<T> {
 }
 
 async function fetchWithAuth<T>(url: string, token?: string, options: RequestInit = {}): Promise<DelayServiceResponse<T>> {
-    const response = await fetchApi(API_BASE_URL, url, {
+    const safeUrl = normalizeApiPath(url);
+    const response = await fetchApi(API_BASE_URL, safeUrl, {
         ...options,
         headers: buildAuthHeaders(token, options.headers)
     });

@@ -64,13 +64,14 @@ function CalendarContent() {
     const [form] = Form.useForm();
     const [viewDate, setViewDate] = useState(dayjs());
 
-    useEffect(() => {
-        const fetchEvents = async () => {
-            const res = await getCalendarConfigs(token);
-            if (res?.status === 200) setEvents(res.data);
-        };
-        fetchEvents();
+    const fetchEvents = useCallback(async () => {
+        const res = await getCalendarConfigs(token);
+        if (res?.status === 200) setEvents(res.data);
     }, [token]);
+
+    useEffect(() => {
+        fetchEvents();
+    }, [fetchEvents]);
 
     const getListData = useCallback((value: Dayjs) => {
         const dateStr = value.format('YYYY-MM-DD');
@@ -153,7 +154,7 @@ function CalendarContent() {
                 }
                 await Promise.all(promises);
                 notification.success({ title: 'สำเร็จ', description: 'บันทึกข้อมูลแบบรายเดือนเรียบร้อย' });
-                window.location.reload();
+                await fetchEvents();
             } else {
                 const res = await createCalendarConfig({
                     configDate,
@@ -164,7 +165,7 @@ function CalendarContent() {
 
                 if (res && res.status === 200) {
                     notification.success({ title: 'สำเร็จ', description: 'บันทึกข้อมูลเรียบร้อยแล้ว' });
-                    window.location.reload();
+                    await fetchEvents();
                 } else {
                     messageApi.error(res?.message || 'บันทึกไม่สำเร็จ');
                 }

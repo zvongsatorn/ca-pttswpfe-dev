@@ -19,7 +19,7 @@ import { useMsal } from '@azure/msal-react';
 import { loginRequest } from '@/lib/msalConfig';
 import { b2cInstance, b2cLoginRequest } from '@/lib/msalB2CConfig';
 import type { RedirectRequest } from '@azure/msal-browser';
-import { buildApiPath, buildAuthHeaders, isSecureSubmissionContext, setAuthCookie, setLocalJson, setLocalText, setSessionJson } from '@/utils/security';
+import { buildAuthHeaders, buildSafeRoutePath, fetchSafeRoute, isSecureSubmissionContext, postSafeRouteJson, setAuthCookie, setLocalJson, setLocalText, setSessionJson } from '@/utils/security';
 
 const toText = (value: unknown): string => String(value ?? '').trim();
 
@@ -37,13 +37,7 @@ const buildUnitsCacheKey = (employeeId: string, userGroupNo: string): string => 
 
 const clearUnitsCacheKeys = () => {
   try {
-    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
-      const key = sessionStorage.key(i);
-      if (!key) continue;
-      if (key === LEGACY_UNITS_CACHE_KEY || key.startsWith(UNITS_CACHE_PREFIX)) {
-        sessionStorage.removeItem(key);
-      }
-    }
+    sessionStorage.removeItem(LEGACY_UNITS_CACHE_KEY);
   } catch {
     // no-op
   }
@@ -145,11 +139,7 @@ export default function LoginForm() {
               type: isB2C ? 'B2C' : 'AD'
           };
 
-          const apiRes = await fetch('/api/auth/sso', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(apiPayload),
-          });
+          const apiRes = await postSafeRouteJson('authSso', apiPayload);
 
           if (apiRes.ok) {
               const data = await apiRes.json();
@@ -177,7 +167,7 @@ export default function LoginForm() {
               }
               clearUnitsCacheKeys();
               if (employeeId && defaultRole) {
-                fetch(buildApiPath('/api/units/by-role', { empId: employeeId, roleId: defaultRole }), {
+                fetch(buildSafeRoutePath('unitsByRole', { empId: employeeId, roleId: defaultRole }), {
                   headers: buildAuthHeaders(token)
                 })
                   .then(async (res) => {
@@ -216,14 +206,14 @@ export default function LoginForm() {
     const fetchConfigs = async () => {
       try {
         // Fetch Admin Login config
-        const adminRes = await fetch('/api/auth/config/LoginAdmin');
+        const adminRes = await fetchSafeRoute('authConfigLoginAdmin');
         if (adminRes.ok) {
           const data = await adminRes.json();
           setIsAdminToggleEnabled(data.value === 'true' || data.value === true);
         }
 
         // Fetch SignupB2C config
-        const signupRes = await fetch('/api/auth/config/SignupB2C');
+        const signupRes = await fetchSafeRoute('authConfigSignupB2C');
         if (signupRes.ok) {
           const data = await signupRes.json();
           const val = data.value?.toString().toLowerCase();
@@ -308,15 +298,9 @@ export default function LoginForm() {
     }
 
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          employeeID: formData.username,
-          password: formData.password,
-        }),
+      const response = await postSafeRouteJson('authLogin', {
+        employeeID: formData.username,
+        password: formData.password,
       });
 
       if (response.ok) {
@@ -358,7 +342,7 @@ export default function LoginForm() {
           }
           clearUnitsCacheKeys();
           if (employeeId && defaultRole) {
-            fetch(buildApiPath('/api/units/by-role', { empId: employeeId, roleId: defaultRole }), {
+            fetch(buildSafeRoutePath('unitsByRole', { empId: employeeId, roleId: defaultRole }), {
               headers: buildAuthHeaders(token)
             })
               .then(async (res) => {

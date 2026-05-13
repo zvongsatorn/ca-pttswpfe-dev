@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPath, buildApiPathFromSearch } from '@/utils/security';
+import { buildReturnHistoryPath, buildSafeRoutePath, buildSafeRoutePathFromSearch, fetchSafeRoute, postSafeRouteJson } from '@/utils/security';
 import React, { useState, useEffect } from 'react';
 import ExcelJS from 'exceljs';
 import Main from '@/components/layout/main';
@@ -274,7 +274,7 @@ export default function ReturnPage() {
         setDepartments([]);
         return;
       }
-      const res = await fetch(buildApiPath('/api/transactions/borrow-records', { employeeId }));
+      const res = await fetch(buildSafeRoutePath('transactionBorrowRecords', { employeeId }));
       if (res.ok) {
         const result = await res.json();
         setBorrowRecords(result.data || []);
@@ -307,7 +307,7 @@ export default function ReturnPage() {
   const fetchReturnHistory = async (borrowId: string, documentNo: string) => {
     try {
       setBorrowRecords(prev => prev.map(r => r.TransactionNo === borrowId ? { ...r, isFetchingReturns: true } : r));
-      const res = await fetch(buildApiPath(`/api/transactions/return-history/${encodeURIComponent(String(documentNo))}`, { _t: Date.now() }));
+      const res = await fetch(buildReturnHistoryPath(documentNo, { _t: Date.now() }));
       if (res.ok) {
         const result = await res.json();
         setBorrowRecords(prev => prev.map(r => r.TransactionNo === borrowId ? { ...r, returns: result.data || [], isFetchingReturns: false } : r));
@@ -437,7 +437,7 @@ export default function ReturnPage() {
               isRequirePolicy: '0'
             });
 
-            const resp = await fetch(buildApiPathFromSearch('/api/transactions/approvers', new URLSearchParams({ ...Object.fromEntries(queryParams), _t: String(Date.now()) })));
+            const resp = await fetch(buildSafeRoutePathFromSearch('transactionApprovers', new URLSearchParams({ ...Object.fromEntries(queryParams), _t: String(Date.now()) })));
             if (resp.ok) {
               const data = await resp.json();
               if (data.data?.length > 0) {
@@ -556,7 +556,7 @@ export default function ReturnPage() {
         const formDataPayload = new FormData();
         formDataPayload.append('payload', JSON.stringify(payload));
 
-        const response = await fetch('/api/transactions/draft', {
+        const response = await fetchSafeRoute('transactionDraft', undefined, {
           method: 'POST',
           body: formDataPayload
         });
@@ -585,13 +585,9 @@ export default function ReturnPage() {
 
       if (isHrPolicy) {
         const transactionNos = savedDocs.map((doc) => String(doc.itemId || '').trim()).filter(Boolean);
-        const directApproveRes = await fetch('/api/transactions/direct-approve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            transactionNos,
-            updateBy: employeeId || 'SYSTEM'
-          })
+        const directApproveRes = await postSafeRouteJson('transactionDirectApprove', {
+          transactionNos,
+          updateBy: employeeId || 'SYSTEM'
         });
 
         if (!directApproveRes.ok) {
@@ -623,11 +619,7 @@ export default function ReturnPage() {
             createBy: employeeId
           };
 
-          const submitRes = await fetch('/api/documents/submit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
+          const submitRes = await postSafeRouteJson('documentsSubmit', payload);
 
           if (!submitRes.ok) {
             let errData: { message?: string; error?: string } | null = null;
@@ -789,7 +781,7 @@ export default function ReturnPage() {
     if (!normalizedDocumentNo) return [];
 
     try {
-      const res = await fetch(buildApiPath(`/api/transactions/return-history/${encodeURIComponent(normalizedDocumentNo)}`, { _t: Date.now() }));
+      const res = await fetch(buildReturnHistoryPath(normalizedDocumentNo, { _t: Date.now() }));
       if (!res.ok) return [];
       const result = await res.json();
       return Array.isArray(result?.data) ? (result.data as ReturnRecord[]) : [];

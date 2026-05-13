@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPathFromSearch } from '@/utils/security';
+import { buildSafeRoutePathFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Table, Button, Form, DatePicker, Popover, Checkbox } from 'antd';
@@ -613,7 +613,7 @@ export default function Report5Page() {
                 if (bgNo) query.set('bgNo', bgNo);
                 if (division) query.set('division', division);
 
-                const res = await fetch(buildApiPathFromSearch('/api/report/report5/filters', query), { signal });
+                const res = await fetch(buildSafeRoutePathFromSearch('report5Filters', query), { signal });
                 let payload: Report5FilterResponse | null = null;
 
                 try {
@@ -686,7 +686,7 @@ export default function Report5Page() {
             if (division) query.set('division', division);
             if (orgUnitNo) query.set('orgUnitNo', orgUnitNo);
 
-            const res = await fetch(buildApiPathFromSearch('/api/report/report5', query));
+            const res = await fetch(buildSafeRoutePathFromSearch('report5', query));
             const payload: Report5ApiResponse = await res.json();
 
             if (!res.ok || payload.status !== 200 || !Array.isArray(payload.data)) {

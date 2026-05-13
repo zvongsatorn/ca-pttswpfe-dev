@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildApiPathFromSearch, fetchApi, toSafeHeaderValue } from '@/utils/security';
+import { buildSafeRoutePathFromSearch, fetchApi, normalizeApiBaseUrl, toSafeHeaderValue } from '@/utils/security';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,7 @@ export const maxDuration = 300;
 
 const getBackendBaseUrl = () => {
   const rawUrl = (process.env.BACKEND_URL || 'http://localhost:5000').trim().replace(/^['"]|['"]$/g, '');
-  return rawUrl.replace(/\/$/, '') || 'http://localhost:5000';
+  return normalizeApiBaseUrl(rawUrl || 'http://localhost:5000');
 };
 
 export async function GET(request: NextRequest) {
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const response = await fetchApi(getBackendBaseUrl(), buildApiPathFromSearch('/api/report/report9', request.nextUrl.searchParams), {
+    const response = await fetchApi(getBackendBaseUrl(), buildSafeRoutePathFromSearch('report9', request.nextUrl.searchParams), {
       method: 'GET',
       headers,
       cache: 'no-store'

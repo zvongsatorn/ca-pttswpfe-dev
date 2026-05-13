@@ -18,7 +18,7 @@ import { saveExcelFile } from '@/utils/fileDownload';
 import { ACTION_LOG, insertActionLog, setSelectedSubjectContext } from '@/services/actionLogService';
 import { ApiMenuItem } from '../../types/menu';
 import { getAuthToken } from '../../utils/auth';
-import { buildApiPath, buildAuthHeaders } from '@/utils/security';
+import { buildAuthHeaders, buildSafeRoutePath, fetchSafeRoute, normalizeAppRoutePath } from '@/utils/security';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -63,7 +63,7 @@ export default function Sidebar({
     try {
       setDownloading(true);
       const token = getAuthToken();
-      const response = await fetch('/api/mkd/export-list', {
+      const response = await fetchSafeRoute('mkdExportList', undefined, {
         headers: buildAuthHeaders(token || undefined)
       });
 
@@ -133,7 +133,7 @@ export default function Sidebar({
           }
         }
 
-        const response = await fetch('/api/menu', {
+        const response = await fetchSafeRoute('menu', undefined, {
           headers: buildAuthHeaders(token || undefined)
         });
 
@@ -147,7 +147,7 @@ export default function Sidebar({
         // Fetch inbox count
         let inboxCount = 0;
         try {
-          const countRes = await fetch(buildApiPath('/api/documents/inbox/count', { employeeId }), {
+          const countRes = await fetch(buildSafeRoutePath('documentsInboxCount', { employeeId }), {
             headers: buildAuthHeaders(token || undefined)
           });
           if (countRes.ok) {
@@ -159,21 +159,28 @@ export default function Sidebar({
         }
 
         // Transform API data to UI format
-        const transformedItems: MenuItem[] = data.map(item => ({
-          menuId: Number(item.MenuID) || 0,
-          key: item.MenuKey || `menu-${item.MenuID}`,
-          icon: (item.MenuIcon && iconMap[item.MenuIcon]) ? iconMap[item.MenuIcon] : FileText, // Default icon
-          label: item.MenuName,
-          hasSubmenu: item.SubMenu && (item.children?.length ?? 0) > 0,
-          submenu: item.children?.map(child => ({
-            menuId: Number(child.MenuID) || 0,
-            label: child.MenuName,
-            path: child.MenuPath || '#'
-          })) || [],
-          path: item.MenuPath || undefined,
-          defaultExpanded: item.Expanded,
-          badgeCount: item.ShowCounter ? (item.MenuKey === 'inbox' || item.MenuPath?.includes('inbox') || item.MenuName.toLowerCase().includes('inbox') ? inboxCount : 0) : undefined,
-        }));
+        const transformedItems: MenuItem[] = data.map((item) => {
+          const itemPath = item.MenuPath ? normalizeAppRoutePath(item.MenuPath, '') : undefined;
+          const showInboxCount = item.MenuKey === 'inbox'
+            || Boolean(itemPath?.includes('inbox'))
+            || item.MenuName.toLowerCase().includes('inbox');
+
+          return {
+            menuId: Number(item.MenuID) || 0,
+            key: item.MenuKey || `menu-${item.MenuID}`,
+            icon: (item.MenuIcon && iconMap[item.MenuIcon]) ? iconMap[item.MenuIcon] : FileText, // Default icon
+            label: item.MenuName,
+            hasSubmenu: item.SubMenu && (item.children?.length ?? 0) > 0,
+            submenu: item.children?.map(child => ({
+              menuId: Number(child.MenuID) || 0,
+              label: child.MenuName,
+              path: normalizeAppRoutePath(child.MenuPath)
+            })) || [],
+            path: itemPath,
+            defaultExpanded: item.Expanded,
+            badgeCount: item.ShowCounter ? (showInboxCount ? inboxCount : 0) : undefined,
+          };
+        });
 
         setMenuItems(transformedItems);
       } catch (error) {
@@ -311,19 +318,20 @@ export default function Sidebar({
   const isActive = (path: string) => currentPath === path;
 
   const handleNavigation = (path: string, menuMeta?: { menuId?: number; label?: string }) => {
+    const safePath = normalizeAppRoutePath(path);
     const resolvedMenuId = Number(menuMeta?.menuId ?? 0);
 
-    if (path === 'mkd/download' || path === '/mkd/download' || path === '#download-mkd') {
+    if (safePath === '/mkd/download' || safePath === '#download-mkd') {
       if (Number.isFinite(resolvedMenuId) && resolvedMenuId > 0) {
-        setSelectedSubjectContext(resolvedMenuId, menuMeta?.label || path, path);
+        setSelectedSubjectContext(resolvedMenuId, menuMeta?.label || safePath, safePath);
       }
       handleDownloadMKD();
       return;
     }
 
     if (Number.isFinite(resolvedMenuId) && resolvedMenuId > 0) {
-      const menuName = (menuMeta?.label || path || '').trim();
-      setSelectedSubjectContext(resolvedMenuId, menuName, path);
+      const menuName = (menuMeta?.label || safePath || '').trim();
+      setSelectedSubjectContext(resolvedMenuId, menuName, safePath);
       void insertActionLog({
         actionId: ACTION_LOG.ENTRY_MENU,
         subjectId: resolvedMenuId,
@@ -331,7 +339,7 @@ export default function Sidebar({
       });
     }
 
-    router.push(path);
+    router.push(safePath);
     if (collapsed) {
       setHoveredMenu(null);
       setDropdownPosition(null);

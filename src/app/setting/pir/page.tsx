@@ -11,6 +11,7 @@ import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
 import { getPIR, getPIROrg, getFileAttach, getRemark, uploadFilePIR, deleteFileAttach, exportExcel, insertPIR, deletePIR, copyPIR, insertRemark, deleteRemark } from '@/services/pirService';
 import { fetchAllUnits } from '@/services/userRightService';
+import { buildPirFilePath, openSafeApiPath } from '@/utils/security';
 
 const { Text } = Typography;
 
@@ -334,8 +335,7 @@ function PIRContent() {
     };
 
     const handleDownloadTemplate = () => {
-        const url = `/api/pir/template`;
-        window.location.assign(url);
+        openSafeApiPath('/api/pir/template');
         notification.info({ title: 'ดาวน์โหลดสำเร็จ', description: 'กรุณากรอกข้อมูลตามรูปแบบใน Template' });
     };
 
@@ -368,7 +368,7 @@ function PIRContent() {
 
     const fileColumns: ColumnsType<FileType> = [
         { title: 'ชื่อไฟล์อ้างอิง', dataIndex: 'FileName', key: 'FileName' },
-        { title: 'เอกสาร (PDF)', key: 'FileUpload', align: 'center', width: 150, render: (_, record) => <Button type="link" icon={<FilePdfOutlined className="text-red-500 text-xl" />} onClick={() => window.open(`/api/pir/file/download/${parseInt(effectiveYear)-543}/${record.FileUpload}`, '_blank')}>เปิดไฟล์</Button> },
+        { title: 'เอกสาร (PDF)', key: 'FileUpload', align: 'center', width: 150, render: (_, record) => <Button type="link" icon={<FilePdfOutlined className="text-red-500 text-xl" />} onClick={() => openSafeApiPath(buildPirFilePath(parseInt(effectiveYear, 10) - 543, record.FileUpload))}>เปิดไฟล์</Button> },
         { title: 'Action', key: 'action', align: 'center', width: 100, render: (_, record) => <Popconfirm title="ลบไฟล์นี้?" onConfirm={() => handleDeleteFile(record.ImproveRateUploadID, record.FileUpload)} okText="ลบ" cancelText="ยกเลิก"><Button type="text" danger icon={<Trash2 size={18} />} /></Popconfirm> }
     ];
 

@@ -17,7 +17,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { getUserFromToken } from '@/utils/auth';
-import { buildApiPath, buildAuthHeaders, setAuthCookie, setLocalText, setSessionJson } from '@/utils/security';
+import { buildAuthHeaders, buildSafeRoutePath, fetchSafeRoute, setAuthCookie, setLocalText, setSessionJson } from '@/utils/security';
 import {
   Dialog,
   DialogContent,
@@ -75,13 +75,7 @@ const buildUnitsCacheKey = (employeeId: string, userGroupNo: string): string => 
 
 const clearUnitsCacheKeys = () => {
   try {
-    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
-      const key = sessionStorage.key(i);
-      if (!key) continue;
-      if (key === LEGACY_UNITS_CACHE_KEY || key.startsWith(UNITS_CACHE_PREFIX)) {
-        sessionStorage.removeItem(key);
-      }
-    }
+    sessionStorage.removeItem(LEGACY_UNITS_CACHE_KEY);
   } catch {
     // no-op
   }
@@ -314,7 +308,7 @@ export default function Header({
     if (userData?.employeeID) {
       try {
         const token = localStorage.getItem('auth_token');
-        const response = await fetch(buildApiPath('/api/units/by-role', { empId: userData.employeeID, roleId: group.id }), {
+        const response = await fetch(buildSafeRoutePath('unitsByRole', { empId: userData.employeeID, roleId: group.id }), {
           headers: buildAuthHeaders(token || undefined)
         });
         const { json: unitData, text } = await readJsonOrText<{ success?: boolean; data?: unknown[]; message?: string; error?: string }>(response);
@@ -364,7 +358,7 @@ export default function Header({
 
     try {
       const token = localStorage.getItem('auth_token');
-      const response = await fetch('/api/users/profile-picture', {
+      const response = await fetchSafeRoute('userProfilePicture', undefined, {
         method: 'POST',
         headers: buildAuthHeaders(token || undefined),
         body: formData

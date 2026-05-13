@@ -1,4 +1,4 @@
-import { buildAuthHeaders, fetchApi } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiPath } from '@/utils/security';
 
 const API_BASE_URL = '';
 
@@ -43,7 +43,7 @@ export const testMailAlert = async (
 ): Promise<MailAlertTestResponse> => {
     const headers = buildAuthHeaders(token, { 'Content-Type': 'application/json' });
 
-    const response = await fetchApi(API_BASE_URL, '/api/log/mail-alert/test', {
+    const response = await fetchApi(API_BASE_URL, normalizeApiPath('/api/log/mail-alert/test'), {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)

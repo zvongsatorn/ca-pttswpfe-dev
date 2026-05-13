@@ -1,9 +1,10 @@
-import { buildAuthHeaders, fetchApi } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiPath } from '@/utils/security';
 
 const API_BASE_URL = '';
 
 async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
-    const res = await fetchApi(API_BASE_URL, url, {
+    const safeUrl = normalizeApiPath(url);
+    const res = await fetchApi(API_BASE_URL, safeUrl, {
         ...options,
         headers: buildAuthHeaders(token, options.headers),
     });
@@ -21,7 +22,7 @@ async function fetchWithAuth(url: string, token?: string, options: RequestInit =
             (payload && typeof payload === 'object' && 'message' in payload ? String(payload.message) : '') ||
             (typeof payload === 'string' ? payload : '') ||
             res.statusText;
-        console.error(`Fetch failed: ${url}`, errorMessage);
+        console.error(`Fetch failed: ${safeUrl}`, errorMessage);
         return {
             success: false,
             message: errorMessage,
@@ -78,7 +79,7 @@ export const uploadFilePIR = async (file: File, fileName: string, effYear: strin
     formData.append('effYear', effYear);
     formData.append('user', user);
 
-    const res = await fetchApi(API_BASE_URL, '/api/pir/file/upload', {
+    const res = await fetchApi(API_BASE_URL, normalizeApiPath('/api/pir/file/upload'), {
         method: 'POST',
         headers: buildAuthHeaders(token),
         body: formData
@@ -128,7 +129,7 @@ export const exportExcel = async (params: { effectiveMonth?: string, effectiveYe
 };
 
 export const downloadPIRTemplate = async (token?: string) => {
-    const res = await fetchApi(API_BASE_URL, '/api/pir/template', {
+    const res = await fetchApi(API_BASE_URL, normalizeApiPath('/api/pir/template'), {
         headers: buildAuthHeaders(token)
     });
     if (!res.ok) return null;

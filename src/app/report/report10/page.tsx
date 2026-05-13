@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPathFromSearch } from '@/utils/security';
+import { buildSafeRoutePathFromSearch } from '@/utils/security';
 import React, { useMemo, useState } from 'react';
 import Main from '@/components/layout/main';
 import { FileText } from 'lucide-react';
@@ -693,7 +693,7 @@ export default function Report10Page() {
             userGroupNo,
         });
 
-        const res = await fetch(buildApiPathFromSearch('/api/report/report10', query));
+        const res = await fetch(buildSafeRoutePathFromSearch('report10', query));
         const payload = await readJsonSafely<Report10SummaryApiResponse>(res);
 
         if (!res.ok || !payload || payload.status !== 200 || !Array.isArray(payload.data)) {
@@ -734,7 +734,7 @@ export default function Report10Page() {
                 userGroupNo,
             });
 
-            const res = await fetch(buildApiPathFromSearch('/api/report/report10/excel', query));
+            const res = await fetch(buildSafeRoutePathFromSearch('report10Excel', query));
             const payload = await readJsonSafely<Report10DetailApiResponse>(res);
 
             if (!res.ok || !payload || payload.status !== 200 || !Array.isArray(payload.data)) {

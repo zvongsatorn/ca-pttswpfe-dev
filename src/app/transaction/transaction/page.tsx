@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPath, buildApiPathFromSearch, buildApiUrl, buildAuthHeaders, fetchApi, setSessionJson } from '@/utils/security';
+import { buildApiUrl, buildAuthHeaders, buildSafeRoutePath, buildSafeRoutePathFromSearch, buildTransactionDraftPath, fetchApi, fetchSafeRoute, getSessionJson, normalizeApiBaseUrl, openSafeApiPath, postSafeRouteJson, setSessionJson, toSafeDisplayText } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -238,13 +238,7 @@ const buildUnitsCacheKey = (employeeId: string, userGroupNo: string): string => 
 const clearUnitsCacheKeys = () => {
   if (typeof window === 'undefined') return;
   try {
-    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
-      const key = sessionStorage.key(i);
-      if (!key) continue;
-      if (key === LEGACY_UNITS_CACHE_KEY || key.startsWith(UNITS_CACHE_PREFIX)) {
-        sessionStorage.removeItem(key);
-      }
-    }
+    sessionStorage.removeItem(LEGACY_UNITS_CACHE_KEY);
   } catch {
     // no-op
   }
@@ -346,12 +340,6 @@ const resolveApiErrorMessage = (
   return error || message || text || fallback;
 };
 
-const normalizeBaseUrl = (value: string): string => {
-  const trimmed = String(value || '').trim().replace(/\/+$/, '');
-  if (!trimmed) return '';
-  return trimmed;
-};
-
 const isSafeFileHref = (href: string): boolean => {
   return /^\/uploads\/[A-Za-z0-9._~/%@+-]+$/.test(href) && !href.includes('..');
 };
@@ -367,6 +355,12 @@ const resolveFileUrl = (fileUpload: string): string => {
   else resolved = `/uploads/transactions/${normalized}`;
 
   return isSafeFileHref(resolved) ? resolved : '';
+};
+
+const openSafeUploadFile = (fileUpload: string): void => {
+  const fileHref = resolveFileUrl(fileUpload);
+  if (!fileHref) return;
+  openSafeApiPath(fileHref);
 };
 
 // Helper to generate years
@@ -563,13 +557,9 @@ export default function TransactionPage() {
     if (!userContext.employeeId || !userContext.userGroupNo) return [];
 
     const scopedCacheKey = buildUnitsCacheKey(userContext.employeeId, userContext.userGroupNo);
-    const cachedUnits = sessionStorage.getItem(scopedCacheKey);
-    if (cachedUnits && cachedUnits !== 'undefined' && cachedUnits.trim() !== '') {
-      try {
-        return JSON.parse(cachedUnits);
-      } catch (err) {
-        console.error("Failed to parse cached units:", err);
-      }
+    const cachedUnits = getSessionJson<UnitOption[]>(scopedCacheKey);
+    if (Array.isArray(cachedUnits)) {
+      return cachedUnits;
     }
     return [];
   });
@@ -606,8 +596,9 @@ export default function TransactionPage() {
     const defaultGroup = userContext.userGroupNo || normalizeUserGroupNo(String(localStorage.getItem('selected_usergroup') || '').trim()) || '02';
     if (employeeId) {
       const token = localStorage.getItem('auth_token');
-      const unitsPath = buildApiPath('/api/units/by-role', { roleId: defaultGroup, empId: employeeId });
-      const publicApiBase = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_URL || '');
+      const unitsPath = buildSafeRoutePath('unitsByRole', { roleId: defaultGroup, empId: employeeId });
+      const rawPublicApiBase = process.env.NEXT_PUBLIC_API_URL || '';
+      const publicApiBase = rawPublicApiBase.trim() ? normalizeApiBaseUrl(rawPublicApiBase) : '';
       const fetchTargets = [
         {
           label: unitsPath,
@@ -699,7 +690,7 @@ export default function TransactionPage() {
 
       try {
         const token = localStorage.getItem('auth_token');
-        const response = await fetch('/api/calendar', {
+        const response = await fetchSafeRoute('calendar', undefined, {
           headers: buildAuthHeaders(token || undefined)
         });
 
@@ -818,7 +809,7 @@ export default function TransactionPage() {
           effectiveMonth: formData.effectiveMonth,
           effectiveYear: formData.effectiveYear,
         });
-        const res = await fetch(buildApiPathFromSearch('/api/transactions/drafts', query));
+        const res = await fetch(buildSafeRoutePathFromSearch('transactionDrafts', query));
         if (res.ok) {
           const { json: data, text } = await readApiBody<{ status?: number; data?: Array<{
             TransactionNo: string;
@@ -910,7 +901,7 @@ export default function TransactionPage() {
 
       const fetchAllUnits = async () => {
         try {
-          const res = await fetch(buildApiPath('/api/units/all', { effectiveDate }));
+          const res = await fetch(buildSafeRoutePath('unitsAll', { effectiveDate }));
           const { json: data, text } = await readApiBody<{ success?: boolean; data?: Record<string, unknown>[] }>(res);
           if (!data) {
             console.error('Error fetching all units: non-JSON response', text || `HTTP ${res.status}`);
@@ -1021,7 +1012,7 @@ export default function TransactionPage() {
             selectType: '0'
           });
 
-          const res = await fetch(buildApiPathFromSearch('/api/units/transfer-by-receive', query));
+          const res = await fetch(buildSafeRoutePathFromSearch('unitsTransferByReceive', query));
           const { json: data, text } = await readApiBody<{ success?: boolean; data?: Record<string, unknown>[] }>(res);
           if (!data) {
             console.error('Error fetching transfer units by receive: non-JSON response', text || `HTTP ${res.status}`);
@@ -1074,7 +1065,7 @@ export default function TransactionPage() {
             effectiveYear: formData.effectiveYear,
             employeeId: empId,
           });
-          const res = await fetch(buildApiPathFromSearch('/api/transactions/files', query));
+          const res = await fetch(buildSafeRoutePathFromSearch('transactionFiles', query));
           if (res.ok) {
             const { json: data, text } = await readApiBody<{ status?: number; data?: Array<{ id: string; name: string; conclusionNo: string; fileUrl: string }> }>(res);
             if (!data) {
@@ -1117,7 +1108,7 @@ export default function TransactionPage() {
             unit,
             userGroupNo: effectiveUserGroupNo,
           });
-          const res = await fetch(buildApiPathFromSearch('/api/units/levels', query));
+          const res = await fetch(buildSafeRoutePathFromSearch('unitsLevels', query));
           if (res.ok) {
             const { json: data, text } = await readApiBody<{ success?: boolean; data?: { id: string; name: string; nameEN: string; order: number; top: number }[] }>(res);
             if (!data) {
@@ -1448,7 +1439,7 @@ export default function TransactionPage() {
         formDataPayload.append('file', detailFormData.file);
       }
 
-      const response = await fetch('/api/transactions/draft', {
+      const response = await fetchSafeRoute('transactionDraft', undefined, {
         method: 'POST',
         // Let browser set Content-Type with boundary automatically for FormData
         body: formDataPayload
@@ -1517,7 +1508,7 @@ export default function TransactionPage() {
         }
       }
 
-      const response = await fetch(buildApiPath(`/api/transactions/draft/${encodeURIComponent(String(transactionToDelete))}`, { employeeId }), {
+      const response = await fetch(buildTransactionDraftPath(transactionToDelete, { employeeId }), {
         method: 'DELETE'
       });
 
@@ -1556,11 +1547,7 @@ export default function TransactionPage() {
         const transactionNos = savedTransactions.map(t => t.id);
         const updateBy = currentEmployeeId || 'SYSTEM';
 
-        const resp = await fetch('/api/transactions/direct-approve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transactionNos, updateBy })
-        });
+        const resp = await postSafeRouteJson('transactionDirectApprove', { transactionNos, updateBy });
 
         if (resp.ok) {
           setAlertInfo({ show: true, title: 'สำเร็จ', message: 'ทำรายการและอนุมัติสำเร็จ', type: 'success' });
@@ -1615,7 +1602,7 @@ export default function TransactionPage() {
             isRequirePolicy: isRequirePolicy.toString()
           });
 
-          const resp = await fetch(buildApiPathFromSearch('/api/transactions/approvers', new URLSearchParams({ ...Object.fromEntries(queryParams), _t: String(Date.now()) })));
+          const resp = await fetch(buildSafeRoutePathFromSearch('transactionApprovers', new URLSearchParams({ ...Object.fromEntries(queryParams), _t: String(Date.now()) })));
           if (resp.ok) {
             const { json: data, text } = await readApiBody<{ data?: ApproverUser[] }>(resp);
             if (!data) {
@@ -1782,11 +1769,7 @@ export default function TransactionPage() {
           createBy: employeeId
         };
 
-        const resp = await fetch('/api/documents/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
+        const resp = await postSafeRouteJson('documentsSubmit', payload);
 
         const { json: submitBody, text: submitText } = await readApiBody<{ message?: string; error?: string; documentNo?: string }>(resp);
 
@@ -1805,13 +1788,9 @@ export default function TransactionPage() {
 
       if (remarkTransactions.length > 0) {
         const remarkTransactionNos = remarkTransactions.map((tx) => tx.id);
-        const directApproveResp = await fetch('/api/transactions/direct-approve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            transactionNos: remarkTransactionNos,
-            updateBy: employeeId
-          })
+        const directApproveResp = await postSafeRouteJson('transactionDirectApprove', {
+          transactionNos: remarkTransactionNos,
+          updateBy: employeeId
         });
 
         const { json: directApproveBody, text: directApproveText } = await readApiBody<{ message?: string; error?: string }>(directApproveResp);
@@ -2374,18 +2353,20 @@ export default function TransactionPage() {
                                   <p className="text-xs text-gray-500 mt-1">Max 15MB, PDF only</p>
                                 </div>
                               </div>
-                              {detailFormData.fileUrl && (() => {
-                                const fileHref = resolveFileUrl(detailFormData.fileUrl);
-                                if (!fileHref) return null;
-
-                                return (
-                                  <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 p-2 rounded-lg border border-blue-100 w-fit">
-                                    <a href={fileHref} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1">
-                                      <FileText className="w-4 h-4" /> ดูไฟล์ที่แนบไว้แล้ว ({detailFormData.fileUrl})
-                                    </a>
-                                  </div>
-                                );
-                              })()}
+	                              {(() => {
+	                                const fileUrl = detailFormData.fileUrl || '';
+	                                return fileUrl && resolveFileUrl(fileUrl) ? (
+	                                  <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 p-2 rounded-lg border border-blue-100 w-fit">
+	                                    <button
+	                                      type="button"
+	                                      onClick={() => openSafeUploadFile(fileUrl)}
+	                                      className="hover:underline flex items-center gap-1"
+	                                    >
+	                                      <FileText className="w-4 h-4" /> ดูไฟล์ที่แนบไว้แล้ว
+	                                    </button>
+	                                  </div>
+	                                ) : null;
+	                              })()}
                             </div>
                           ) : (
                             <div className="flex gap-2 items-center">
@@ -2397,21 +2378,20 @@ export default function TransactionPage() {
                                 <option value="">เลือกไฟล์...</option>
                                 {existingFiles.map((file) => <option key={file.id} value={file.id.toString()}>{file.conclusionNo ? `${file.conclusionNo} - ` : ''}{file.name}</option>)}
                               </select>
-                              {detailFormData.selectedFileId && (() => {
-                                const selectedFile = existingFiles.find(f => f.id.toString() === detailFormData.selectedFileId);
-                                const fileHref = selectedFile?.fileUrl ? resolveFileUrl(selectedFile.fileUrl) : '';
-                                return fileHref ? (
-                                  <a
-                                    href={fileHref}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    title="ดูไฟล์"
-                                    className="flex items-center justify-center w-9 h-9 rounded-lg border border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors shrink-0"
-                                  >
-                                    <FileText className="w-4 h-4" />
-                                  </a>
-                                ) : null;
-                              })()}
+	                              {detailFormData.selectedFileId && (() => {
+	                                const selectedFile = existingFiles.find(f => f.id.toString() === detailFormData.selectedFileId);
+	                                const fileUrl = selectedFile?.fileUrl || '';
+	                                return resolveFileUrl(fileUrl) ? (
+	                                  <button
+	                                    type="button"
+	                                    onClick={() => openSafeUploadFile(fileUrl)}
+	                                    title="ดูไฟล์"
+	                                    className="flex items-center justify-center w-9 h-9 rounded-lg border border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors shrink-0"
+	                                  >
+	                                    <FileText className="w-4 h-4" />
+	                                  </button>
+	                                ) : null;
+	                              })()}
                             </div>
                           )}
                         </div>
@@ -2557,8 +2537,9 @@ export default function TransactionPage() {
                         color,
                         users: groupUsers.map((u) => {
                           const rec = u as unknown as Record<string, string | undefined>;
-                          const gName = rec.UserGroupName || rec.userGroupName || rec['UsergroupName'] || rec.GroupName || rec.usergroupname || rec['Groupname'] || rec.groupName;
-                          const finalRole = gName && String(gName).trim() !== '' ? String(gName).trim() : `Group: ${u.UserGroupNo}`;
+                          const groupName = toSafeDisplayText(rec.UserGroupName || rec.userGroupName || rec['UsergroupName'] || rec.GroupName || rec.usergroupname || rec['Groupname'] || rec.groupName);
+                          const groupNo = toSafeDisplayText(u.UserGroupNo);
+                          const finalRole = groupName || `Group: ${groupNo}`;
 
                           return {
                             id: u.EmployeeID,

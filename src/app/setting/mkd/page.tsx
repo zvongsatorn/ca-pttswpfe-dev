@@ -1,7 +1,7 @@
 'use client';
 
-import { buildApiPath, fetchApi } from '@/utils/security';
-import React, { useState, useMemo, useEffect } from 'react';
+import { buildSafeRoutePath, fetchApi } from '@/utils/security';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Table, Button, Input, Upload, App, Popconfirm, Modal, Card, Tooltip } from 'antd';
 import type { UploadFile, GetProp, UploadProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -48,23 +48,24 @@ function MKDContent() {
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const res = await getMasterKeys(token);
-                if (res?.success) {
-                    setData(res.data.map((item: MasterKey, index: number) => ({
-                        key: item.KeyManID.toString(),
-                        no: index + 1,
-                        driver: item.KeyManName,
-                        chkuse: item.chkuse
-                    })));
-                }
-            } finally { setLoading(false); }
-        };
-        fetchData();
+    const fetchData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const res = await getMasterKeys(token);
+            if (res?.success) {
+                setData(res.data.map((item: MasterKey, index: number) => ({
+                    key: item.KeyManID.toString(),
+                    no: index + 1,
+                    driver: item.KeyManName,
+                    chkuse: item.chkuse
+                })));
+            }
+        } finally { setLoading(false); }
     }, [token]);
+
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
 
     const filteredData = useMemo(() => {
         if (!searchText) return data;
@@ -77,7 +78,7 @@ function MKDContent() {
         try {
             const res = await createMasterKey({ KeyManName: newKeyman, CreateBy: currentUser?.employeeID || 'SYSTEM' }, token);
             if (res?.success) {
-                message.success("ทำการเพิ่มข้อมูลเรียบร้อย"); setIsAddModalOpen(false); setNewKeyman(""); window.location.reload();
+                message.success("ทำการเพิ่มข้อมูลเรียบร้อย"); setIsAddModalOpen(false); setNewKeyman(""); await fetchData();
             } else { message.error(res?.message || 'Failed to add'); }
         } finally { setLoading(false); }
     };
@@ -118,7 +119,7 @@ function MKDContent() {
                         }
                     });
                     await Promise.all(promises);
-                    message.success("บันทึกสำเร็จรายการเรียบร้อย"); setFile(null); window.location.reload();
+                    message.success("บันทึกสำเร็จรายการเรียบร้อย"); setFile(null); await fetchData();
                 }
             } catch { message.error("Failed to process Excel file"); setLoading(false); }
         };
@@ -128,7 +129,7 @@ function MKDContent() {
     const handleDownloadTemplate = async () => {
         setLoading(true);
         try {
-            const res = await fetchApi(API_BASE_URL, buildApiPath('/api/mkd/template/master-keys', { populate: true }));
+            const res = await fetchApi(API_BASE_URL, buildSafeRoutePath('mkdTemplateMasterKeys', { populate: true }));
             if (!res.ok) throw new Error('Download failed');
 
             const blob = await res.blob();

@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, fetchApi } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiPath } from '@/utils/security';
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import ReactFlow, {
     Background,
@@ -183,7 +183,7 @@ function getAuthHeader(): Headers {
 
 async function addUserToUnit(data: { UserGroupNo: string, EmployeeID: string, OrgUnitNo: string, CreateBy: string }) {
     // Legacy behavior: add selected unit together with its descendant units.
-    const res = await fetchApi(API_BASE_URL, '/api/user-rights/add-belong-units', {
+    const res = await fetchApi(API_BASE_URL, normalizeApiPath('/api/user-rights/add-belong-units'), {
         method: 'POST',
         headers: buildAuthHeaders(getToken(), { 'Content-Type': 'application/json' }),
         body: JSON.stringify(data),
@@ -193,7 +193,7 @@ async function addUserToUnit(data: { UserGroupNo: string, EmployeeID: string, Or
 }
 
 async function removeUserFromUnit(data: { UserGroupNo: string, EmployeeID: string, OrgUnitNo: string, UpdateBy: string }) {
-    const res = await fetchApi(API_BASE_URL, '/api/user-rights/remove-user-from-unit', {
+    const res = await fetchApi(API_BASE_URL, normalizeApiPath('/api/user-rights/remove-user-from-unit'), {
         method: 'POST',
         headers: buildAuthHeaders(getToken(), { 'Content-Type': 'application/json' }),
         body: JSON.stringify(data),
