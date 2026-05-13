@@ -457,7 +457,7 @@ export const toSafeDisplayText = (value: unknown): string => {
   return String(value ?? '').replace(/[<>&"'`]/g, '').replace(/[\u0000-\u001F\u007F]/g, '').trim();
 };
 
-const LOCAL_TEXT_KEYS = new Set([
+const LOCAL_TEXT_KEY_VALUES = [
   'auth_token',
   'StartYear',
   'selected_usergroup',
@@ -472,15 +472,153 @@ const LOCAL_TEXT_KEYS = new Set([
   'mkd_history_status',
   'mkd_historyrecord_year',
   'mkd_historyrecord_status',
-]);
+] as const;
 
-const LOCAL_JSON_KEYS = new Set(['user_data']);
-const SESSION_ONLY_KEYS = new Set(['auth_token', 'user_data']);
+const LOCAL_JSON_KEY_VALUES = ['user_data'] as const;
+
+type LocalTextKey = typeof LOCAL_TEXT_KEY_VALUES[number];
+type LocalJsonKey = typeof LOCAL_JSON_KEY_VALUES[number];
+type LocalKey = LocalTextKey | LocalJsonKey;
+
+const LOCAL_TEXT_KEY_MAP: Record<LocalTextKey, LocalTextKey> = Object.fromEntries(
+  LOCAL_TEXT_KEY_VALUES.map((key) => [key, key])
+) as Record<LocalTextKey, LocalTextKey>;
+const LOCAL_JSON_KEY_MAP: Record<LocalJsonKey, LocalJsonKey> = { user_data: 'user_data' };
+const LOCAL_TEXT_KEYS = new Set<string>(LOCAL_TEXT_KEY_VALUES);
+const LOCAL_JSON_KEYS = new Set<string>(LOCAL_JSON_KEY_VALUES);
+const SESSION_ONLY_KEYS = new Set<string>(['auth_token', 'user_data']);
 const SESSION_JSON_KEY_PATTERN = /^user_units_cache:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/;
 const SESSION_JSON_STORAGE_KEY = 'user_units_cache';
-const LOCAL_REMOVED_PREFIX = 'removed_local_value:';
+const getSafeLocalTextKey = (key: string): LocalTextKey | null => {
+  const safeKey = String(key || '').trim();
+  return LOCAL_TEXT_KEYS.has(safeKey) ? LOCAL_TEXT_KEY_MAP[safeKey as LocalTextKey] : null;
+};
 
-const getRemovedLocalValueKey = (key: string): string => `${LOCAL_REMOVED_PREFIX}${key}`;
+const getSafeLocalJsonKey = (key: string): LocalJsonKey | null => {
+  const safeKey = String(key || '').trim();
+  return LOCAL_JSON_KEYS.has(safeKey) ? LOCAL_JSON_KEY_MAP[safeKey as LocalJsonKey] : null;
+};
+
+const getSafeLocalKey = (key: string): LocalKey | null => getSafeLocalTextKey(key) || getSafeLocalJsonKey(key);
+
+const readSessionLocalValue = (key: LocalKey): string | null => {
+  switch (key) {
+    case 'auth_token': return sessionStorage.getItem('auth_token');
+    case 'StartYear': return sessionStorage.getItem('StartYear');
+    case 'selected_usergroup': return sessionStorage.getItem('selected_usergroup');
+    case 'selected_usergroup_role': return sessionStorage.getItem('selected_usergroup_role');
+    case 'selected_subject_id': return sessionStorage.getItem('selected_subject_id');
+    case 'selected_subject_name': return sessionStorage.getItem('selected_subject_name');
+    case 'selected_subject_path': return sessionStorage.getItem('selected_subject_path');
+    case 'mkd_historyapprove_year': return sessionStorage.getItem('mkd_historyapprove_year');
+    case 'mkd_historyapprove_unit': return sessionStorage.getItem('mkd_historyapprove_unit');
+    case 'mkd_historyapprove_status': return sessionStorage.getItem('mkd_historyapprove_status');
+    case 'mkd_history_year': return sessionStorage.getItem('mkd_history_year');
+    case 'mkd_history_status': return sessionStorage.getItem('mkd_history_status');
+    case 'mkd_historyrecord_year': return sessionStorage.getItem('mkd_historyrecord_year');
+    case 'mkd_historyrecord_status': return sessionStorage.getItem('mkd_historyrecord_status');
+    case 'user_data': return sessionStorage.getItem('user_data');
+  }
+};
+
+const writeSessionLocalText = (key: LocalTextKey, value: string): void => {
+  switch (key) {
+    case 'auth_token': sessionStorage.setItem('auth_token', value); return;
+    case 'StartYear': sessionStorage.setItem('StartYear', value); return;
+    case 'selected_usergroup': sessionStorage.setItem('selected_usergroup', value); return;
+    case 'selected_usergroup_role': sessionStorage.setItem('selected_usergroup_role', value); return;
+    case 'selected_subject_id': sessionStorage.setItem('selected_subject_id', value); return;
+    case 'selected_subject_name': sessionStorage.setItem('selected_subject_name', value); return;
+    case 'selected_subject_path': sessionStorage.setItem('selected_subject_path', value); return;
+    case 'mkd_historyapprove_year': sessionStorage.setItem('mkd_historyapprove_year', value); return;
+    case 'mkd_historyapprove_unit': sessionStorage.setItem('mkd_historyapprove_unit', value); return;
+    case 'mkd_historyapprove_status': sessionStorage.setItem('mkd_historyapprove_status', value); return;
+    case 'mkd_history_year': sessionStorage.setItem('mkd_history_year', value); return;
+    case 'mkd_history_status': sessionStorage.setItem('mkd_history_status', value); return;
+    case 'mkd_historyrecord_year': sessionStorage.setItem('mkd_historyrecord_year', value); return;
+    case 'mkd_historyrecord_status': sessionStorage.setItem('mkd_historyrecord_status', value); return;
+  }
+};
+
+const removeSessionLocalValue = (key: LocalKey): void => {
+  switch (key) {
+    case 'auth_token': sessionStorage.removeItem('auth_token'); return;
+    case 'StartYear': sessionStorage.removeItem('StartYear'); return;
+    case 'selected_usergroup': sessionStorage.removeItem('selected_usergroup'); return;
+    case 'selected_usergroup_role': sessionStorage.removeItem('selected_usergroup_role'); return;
+    case 'selected_subject_id': sessionStorage.removeItem('selected_subject_id'); return;
+    case 'selected_subject_name': sessionStorage.removeItem('selected_subject_name'); return;
+    case 'selected_subject_path': sessionStorage.removeItem('selected_subject_path'); return;
+    case 'mkd_historyapprove_year': sessionStorage.removeItem('mkd_historyapprove_year'); return;
+    case 'mkd_historyapprove_unit': sessionStorage.removeItem('mkd_historyapprove_unit'); return;
+    case 'mkd_historyapprove_status': sessionStorage.removeItem('mkd_historyapprove_status'); return;
+    case 'mkd_history_year': sessionStorage.removeItem('mkd_history_year'); return;
+    case 'mkd_history_status': sessionStorage.removeItem('mkd_history_status'); return;
+    case 'mkd_historyrecord_year': sessionStorage.removeItem('mkd_historyrecord_year'); return;
+    case 'mkd_historyrecord_status': sessionStorage.removeItem('mkd_historyrecord_status'); return;
+    case 'user_data': sessionStorage.removeItem('user_data'); return;
+  }
+};
+
+const readRemovedLocalValueMarker = (key: LocalKey): string | null => {
+  switch (key) {
+    case 'auth_token': return sessionStorage.getItem('removed_local_value:auth_token');
+    case 'StartYear': return sessionStorage.getItem('removed_local_value:StartYear');
+    case 'selected_usergroup': return sessionStorage.getItem('removed_local_value:selected_usergroup');
+    case 'selected_usergroup_role': return sessionStorage.getItem('removed_local_value:selected_usergroup_role');
+    case 'selected_subject_id': return sessionStorage.getItem('removed_local_value:selected_subject_id');
+    case 'selected_subject_name': return sessionStorage.getItem('removed_local_value:selected_subject_name');
+    case 'selected_subject_path': return sessionStorage.getItem('removed_local_value:selected_subject_path');
+    case 'mkd_historyapprove_year': return sessionStorage.getItem('removed_local_value:mkd_historyapprove_year');
+    case 'mkd_historyapprove_unit': return sessionStorage.getItem('removed_local_value:mkd_historyapprove_unit');
+    case 'mkd_historyapprove_status': return sessionStorage.getItem('removed_local_value:mkd_historyapprove_status');
+    case 'mkd_history_year': return sessionStorage.getItem('removed_local_value:mkd_history_year');
+    case 'mkd_history_status': return sessionStorage.getItem('removed_local_value:mkd_history_status');
+    case 'mkd_historyrecord_year': return sessionStorage.getItem('removed_local_value:mkd_historyrecord_year');
+    case 'mkd_historyrecord_status': return sessionStorage.getItem('removed_local_value:mkd_historyrecord_status');
+    case 'user_data': return sessionStorage.getItem('removed_local_value:user_data');
+  }
+};
+
+const clearRemovedLocalValueMarker = (key: LocalKey): void => {
+  switch (key) {
+    case 'auth_token': sessionStorage.removeItem('removed_local_value:auth_token'); return;
+    case 'StartYear': sessionStorage.removeItem('removed_local_value:StartYear'); return;
+    case 'selected_usergroup': sessionStorage.removeItem('removed_local_value:selected_usergroup'); return;
+    case 'selected_usergroup_role': sessionStorage.removeItem('removed_local_value:selected_usergroup_role'); return;
+    case 'selected_subject_id': sessionStorage.removeItem('removed_local_value:selected_subject_id'); return;
+    case 'selected_subject_name': sessionStorage.removeItem('removed_local_value:selected_subject_name'); return;
+    case 'selected_subject_path': sessionStorage.removeItem('removed_local_value:selected_subject_path'); return;
+    case 'mkd_historyapprove_year': sessionStorage.removeItem('removed_local_value:mkd_historyapprove_year'); return;
+    case 'mkd_historyapprove_unit': sessionStorage.removeItem('removed_local_value:mkd_historyapprove_unit'); return;
+    case 'mkd_historyapprove_status': sessionStorage.removeItem('removed_local_value:mkd_historyapprove_status'); return;
+    case 'mkd_history_year': sessionStorage.removeItem('removed_local_value:mkd_history_year'); return;
+    case 'mkd_history_status': sessionStorage.removeItem('removed_local_value:mkd_history_status'); return;
+    case 'mkd_historyrecord_year': sessionStorage.removeItem('removed_local_value:mkd_historyrecord_year'); return;
+    case 'mkd_historyrecord_status': sessionStorage.removeItem('removed_local_value:mkd_historyrecord_status'); return;
+    case 'user_data': sessionStorage.removeItem('removed_local_value:user_data'); return;
+  }
+};
+
+const markRemovedLocalValue = (key: LocalKey): void => {
+  switch (key) {
+    case 'auth_token': sessionStorage.setItem('removed_local_value:auth_token', '1'); return;
+    case 'StartYear': sessionStorage.setItem('removed_local_value:StartYear', '1'); return;
+    case 'selected_usergroup': sessionStorage.setItem('removed_local_value:selected_usergroup', '1'); return;
+    case 'selected_usergroup_role': sessionStorage.setItem('removed_local_value:selected_usergroup_role', '1'); return;
+    case 'selected_subject_id': sessionStorage.setItem('removed_local_value:selected_subject_id', '1'); return;
+    case 'selected_subject_name': sessionStorage.setItem('removed_local_value:selected_subject_name', '1'); return;
+    case 'selected_subject_path': sessionStorage.setItem('removed_local_value:selected_subject_path', '1'); return;
+    case 'mkd_historyapprove_year': sessionStorage.setItem('removed_local_value:mkd_historyapprove_year', '1'); return;
+    case 'mkd_historyapprove_unit': sessionStorage.setItem('removed_local_value:mkd_historyapprove_unit', '1'); return;
+    case 'mkd_historyapprove_status': sessionStorage.setItem('removed_local_value:mkd_historyapprove_status', '1'); return;
+    case 'mkd_history_year': sessionStorage.setItem('removed_local_value:mkd_history_year', '1'); return;
+    case 'mkd_history_status': sessionStorage.setItem('removed_local_value:mkd_history_status', '1'); return;
+    case 'mkd_historyrecord_year': sessionStorage.setItem('removed_local_value:mkd_historyrecord_year', '1'); return;
+    case 'mkd_historyrecord_status': sessionStorage.setItem('removed_local_value:mkd_historyrecord_status', '1'); return;
+    case 'user_data': sessionStorage.setItem('removed_local_value:user_data', '1'); return;
+  }
+};
 
 const readSessionJsonCache = (): Record<string, unknown> => {
   if (typeof window === 'undefined') return {};
@@ -515,38 +653,38 @@ export const getSessionJson = <T = unknown>(key: string): T | null => {
 
 export const setLocalText = (key: string, value: unknown): void => {
   if (typeof window === 'undefined') return;
-  const safeKey = String(key || '').trim();
-  if (!LOCAL_TEXT_KEYS.has(safeKey)) return;
+  const safeKey = getSafeLocalTextKey(key);
+  if (!safeKey) return;
   const safeValue = toSafeHeaderValue(value);
-  sessionStorage.removeItem(getRemovedLocalValueKey(safeKey));
-  sessionStorage.setItem(safeKey, safeValue);
+  clearRemovedLocalValueMarker(safeKey);
+  writeSessionLocalText(safeKey, safeValue);
 };
 
 export const getLocalText = (key: string): string => {
   if (typeof window === 'undefined') return '';
-  const safeKey = String(key || '').trim();
-  if (!LOCAL_TEXT_KEYS.has(safeKey) && !LOCAL_JSON_KEYS.has(safeKey)) return '';
-  const sessionValue = sessionStorage.getItem(safeKey);
+  const safeKey = getSafeLocalKey(key);
+  if (!safeKey) return '';
+  const sessionValue = readSessionLocalValue(safeKey);
   if (sessionValue !== null) return sessionValue;
-  if (sessionStorage.getItem(getRemovedLocalValueKey(safeKey)) === '1') return '';
+  if (readRemovedLocalValueMarker(safeKey) === '1') return '';
   if (SESSION_ONLY_KEYS.has(safeKey)) return '';
   return localStorage.getItem(safeKey) || '';
 };
 
 export const removeLocalValue = (key: string): void => {
   if (typeof window === 'undefined') return;
-  const safeKey = String(key || '').trim();
-  if (!LOCAL_TEXT_KEYS.has(safeKey) && !LOCAL_JSON_KEYS.has(safeKey)) return;
-  sessionStorage.removeItem(safeKey);
-  sessionStorage.setItem(getRemovedLocalValueKey(safeKey), '1');
+  const safeKey = getSafeLocalKey(key);
+  if (!safeKey) return;
+  removeSessionLocalValue(safeKey);
+  markRemovedLocalValue(safeKey);
 };
 
 export const setLocalJson = (key: string, value: unknown): void => {
   if (typeof window === 'undefined') return;
-  const safeKey = String(key || '').trim();
-  if (!LOCAL_JSON_KEYS.has(safeKey)) return;
+  const safeKey = getSafeLocalJsonKey(key);
+  if (!safeKey) return;
   if (safeKey === 'user_data') {
-    sessionStorage.removeItem(getRemovedLocalValueKey(safeKey));
+    clearRemovedLocalValueMarker(safeKey);
     sessionStorage.setItem('user_data', JSON.stringify(value));
   }
 };

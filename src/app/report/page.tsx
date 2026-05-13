@@ -59,10 +59,30 @@ interface ReportMenuItem {
 // TODO: Verified with user that MenuKey is 'REPORT'
 const REPORT_MENU_KEY = 'REPORT';
 const MENU_CLASS_PATTERN = /^(bg|text)-[a-z]+-\d{2,3}$/;
+const REPORT_FALLBACK_PATH = '/report';
 
 const toSafeMenuClass = (value: unknown, fallback: string): string => {
   const safeValue = String(value || '').trim();
   return MENU_CLASS_PATTERN.test(safeValue) ? safeValue : fallback;
+};
+
+const toSafeReportPath = (value: unknown) => {
+  const rawPath = String(value || '').trim();
+  const normalizedPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  switch (normalizedPath) {
+    case '/report/dashboard': return normalizeAppRoutePath('/report/dashboard');
+    case '/report/report1': return normalizeAppRoutePath('/report/report1');
+    case '/report/report2': return normalizeAppRoutePath('/report/report2');
+    case '/report/report3': return normalizeAppRoutePath('/report/report3');
+    case '/report/report4': return normalizeAppRoutePath('/report/report4');
+    case '/report/report5': return normalizeAppRoutePath('/report/report5');
+    case '/report/report6': return normalizeAppRoutePath('/report/report6');
+    case '/report/report7': return normalizeAppRoutePath('/report/report7');
+    case '/report/report8': return normalizeAppRoutePath('/report/report8');
+    case '/report/report9': return normalizeAppRoutePath('/report/report9');
+    case '/report/report10': return normalizeAppRoutePath('/report/report10');
+    default: return normalizeAppRoutePath(REPORT_FALLBACK_PATH);
+  }
 };
 
 export default function ReportMenuPage() {
@@ -125,7 +145,7 @@ export default function ReportMenuPage() {
           ) : (
             reports.map((item) => {
               const Icon = getIcon(item.MenuIcon);
-              const reportPath = normalizeAppRoutePath(item.MenuPath);
+              const reportPath = toSafeReportPath(item.MenuPath);
               const lightColor = toSafeMenuClass(item.lightColor, 'bg-blue-50');
               const textColor = toSafeMenuClass(item.textColor, 'text-blue-600');
               const color = toSafeMenuClass(item.color, 'bg-blue-500');
