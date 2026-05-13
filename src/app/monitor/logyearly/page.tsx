@@ -1,5 +1,6 @@
 'use client';
 
+import { getLocalText } from '@/utils/security';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Main from '@/components/layout/main';
 import { Table, Button, Select, Modal, message } from 'antd';
@@ -133,7 +134,7 @@ const getYears = (): string[] => {
         return [endYear.toString(), currentYearBE.toString()];
     }
 
-    const startYearRaw = localStorage.getItem('StartYear') || '2568';
+    const startYearRaw = getLocalText('StartYear') || '2568';
     const startYear = Number.parseInt(startYearRaw, 10);
     const minYear = Number.isInteger(startYear) && startYear > 2400 ? startYear : 2568;
     const years: string[] = [];
@@ -189,15 +190,15 @@ export default function LogYearlyPage() {
     useEffect(() => {
         if (typeof window === 'undefined') return;
 
-        const authToken = localStorage.getItem('auth_token') || '';
+        const authToken = getLocalText('auth_token') || '';
         setToken(authToken);
         setYears(getYears());
 
         try {
-            const rawUserData = localStorage.getItem('user_data');
+            const rawUserData = getLocalText('user_data');
             const parsed = rawUserData ? (JSON.parse(rawUserData) as StoredUserData) : null;
             const empId = parsed?.employeeID?.trim() || '';
-            const selectedGroup = localStorage.getItem('selected_usergroup')?.trim() || '';
+            const selectedGroup = getLocalText('selected_usergroup')?.trim() || '';
             const roleGroup = parsed?.userGroupNo?.trim() || parsed?.roleId?.trim() || parsed?.role?.trim() || '';
 
             setEmployeeId(empId);

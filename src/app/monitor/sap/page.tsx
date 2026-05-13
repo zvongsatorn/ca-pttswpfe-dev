@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiPath, buildSafeRoutePath, fetchApi, getLocalDevApiBaseUrl, normalizeApiBaseUrl, openSafeApiPath } from '@/utils/security';
+import { buildSafeRoutePath, fetchApi, getLocalDevApiBaseUrl, normalizeApiBaseUrl, openSafeApiPath, getLocalText } from '@/utils/security';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Main from '@/components/layout/main';
 import { Table, Button, Tooltip, Modal, Select, DatePicker, App as AntdApp } from 'antd';
@@ -111,7 +111,7 @@ const getBackendBaseUrl = (): string => {
 const resolveEmployeeId = (): string => {
     if (typeof window === 'undefined') return 'SYSTEM';
 
-    const userDataRaw = localStorage.getItem('user_data');
+    const userDataRaw = getLocalText('user_data');
     if (!userDataRaw) return 'SYSTEM';
 
     try {
@@ -145,7 +145,7 @@ const getYears = (): string[] => {
         return [endYear.toString(), currentYearBE.toString()];
     }
 
-    const startYearRaw = localStorage.getItem('StartYear') || '2568';
+    const startYearRaw = getLocalText('StartYear') || '2568';
     const startYear = Number.parseInt(startYearRaw, 10);
     const minYear = Number.isInteger(startYear) && startYear > 2400 ? startYear : 2568;
     const years: string[] = [];
@@ -312,11 +312,12 @@ function SapMonitorPageContent() {
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
-        setToken(localStorage.getItem('auth_token') || '');
+        setToken(getLocalText('auth_token') || '');
         setYears(getYears());
     }, []);
 
-    const downloadSapFile = useCallback((downloadPath?: string) => {
+    const downloadSapFile = useCallback((_downloadPath?: string) => {
+        void _downloadPath;
         openSafeApiPath(buildSafeRoutePath('transactionHrcenterSapFile', { t: Date.now() }));
     }, []);
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, fetchApi, normalizeApiPath } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiPath, getLocalText } from '@/utils/security';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Select, Switch, App, Card, Spin } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -28,7 +28,7 @@ interface UserGroup {
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 function MenuRightContent() {

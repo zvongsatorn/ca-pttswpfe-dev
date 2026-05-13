@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Skeleton, Card, Space, Divider } from 'antd';
+import { Skeleton, Card, Space } from 'antd';
 
 export default function HistoryRecordLoading() {
     return (

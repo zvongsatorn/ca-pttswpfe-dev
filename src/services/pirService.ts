@@ -2,7 +2,29 @@ import { buildAuthHeaders, fetchApi, normalizeApiPath } from '@/utils/security';
 
 const API_BASE_URL = '';
 
-async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}) {
+interface PirApiResponse extends Record<string, unknown> {
+    success?: boolean;
+    data: never[];
+    message?: string;
+    duplicate?: boolean;
+    status?: number;
+}
+
+const toApiResponse = (payload: unknown): PirApiResponse => {
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        return { data: [], ...(payload as Record<string, unknown>) } as PirApiResponse;
+    }
+    if (Array.isArray(payload)) {
+        return { success: true, data: payload as never[] };
+    }
+    return {
+        success: true,
+        data: [],
+        message: typeof payload === 'string' ? payload : undefined,
+    };
+};
+
+async function fetchWithAuth(url: string, token?: string, options: RequestInit = {}): Promise<PirApiResponse> {
     const safeUrl = normalizeApiPath(url);
     const res = await fetchApi(API_BASE_URL, safeUrl, {
         ...options,
@@ -10,7 +32,7 @@ async function fetchWithAuth(url: string, token?: string, options: RequestInit =
     });
 
     const contentType = res.headers.get('content-type') || '';
-    let payload: any = null;
+    let payload: unknown = null;
     try {
         payload = contentType.includes('application/json') ? await res.json() : await res.text();
     } catch {
@@ -25,12 +47,13 @@ async function fetchWithAuth(url: string, token?: string, options: RequestInit =
         console.error(`Fetch failed: ${safeUrl}`, errorMessage);
         return {
             success: false,
+            data: [],
             message: errorMessage,
             status: res.status,
-            ...(payload && typeof payload === 'object' ? payload : {})
+            ...(payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {})
         };
     }
-    return payload;
+    return toApiResponse(payload);
 }
 
 // --- Tab 1: PIR ---

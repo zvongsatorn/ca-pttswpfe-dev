@@ -1,6 +1,6 @@
 'use client';
 
-import { buildSafeRoutePathFromSearch } from '@/utils/security';
+import { getLocalText, fetchSafeRouteFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Table, Button, Form, DatePicker, Popover, Checkbox } from 'antd';
@@ -195,12 +195,12 @@ const resolveUserContext = () => {
     let userGroupNo = '';
 
     if (typeof window !== 'undefined') {
-        const userDataStr = localStorage.getItem('user_data');
+        const userDataStr = getLocalText('user_data');
         if (userDataStr) {
             try {
                 const userData = JSON.parse(userDataStr) as { employeeID?: string; roleId?: string };
                 employeeId = userData.employeeID || employeeId;
-                userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
+                userGroupNo = getLocalText('selected_usergroup') || userData.roleId || '';
             } catch {
                 // ignore parse failure and use defaults
             }
@@ -613,7 +613,7 @@ export default function Report5Page() {
                 if (bgNo) query.set('bgNo', bgNo);
                 if (division) query.set('division', division);
 
-                const res = await fetch(buildSafeRoutePathFromSearch('report5Filters', query), { signal });
+                const res = await fetchSafeRouteFromSearch('report5Filters', query, { signal });
                 let payload: Report5FilterResponse | null = null;
 
                 try {
@@ -686,7 +686,7 @@ export default function Report5Page() {
             if (division) query.set('division', division);
             if (orgUnitNo) query.set('orgUnitNo', orgUnitNo);
 
-            const res = await fetch(buildSafeRoutePathFromSearch('report5', query));
+            const res = await fetchSafeRouteFromSearch('report5', query);
             const payload: Report5ApiResponse = await res.json();
 
             if (!res.ok || payload.status !== 200 || !Array.isArray(payload.data)) {

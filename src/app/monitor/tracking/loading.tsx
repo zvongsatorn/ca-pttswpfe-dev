@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Skeleton, Card, Space } from 'antd';
+import { Skeleton, Card } from 'antd';
 
 export default function TrackingLoading() {
     return (

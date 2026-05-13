@@ -1,7 +1,7 @@
 'use client';
 
-import { buildReturnHistoryPath, buildSafeRoutePath, buildSafeRoutePathFromSearch, fetchSafeRoute, postSafeRouteJson } from '@/utils/security';
-import React, { useState, useEffect } from 'react';
+import { fetchSafeRoute, postSafeRouteJson, getLocalText, fetchReturnHistory as fetchSafeReturnHistory, fetchSafeRouteFromSearch } from '@/utils/security';
+import React, { useCallback, useState, useEffect } from 'react';
 import ExcelJS from 'exceljs';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
@@ -167,11 +167,11 @@ export default function ReturnPage() {
   };
 
   const resolveUserContext = () => {
-    const selectedGroup = String(localStorage.getItem('selected_usergroup') || '').trim();
+    const selectedGroup = String(getLocalText('selected_usergroup') || '').trim();
     let employeeId = 'SYSTEM';
     let userGroupNo = selectedGroup;
 
-    const userDataStr = localStorage.getItem('user_data');
+    const userDataStr = getLocalText('user_data');
     if (userDataStr) {
       try {
         const userData = JSON.parse(userDataStr) as {
@@ -261,11 +261,7 @@ export default function ReturnPage() {
   };
 
 
-  useEffect(() => {
-    fetchBorrowRecords();
-  }, []);
-
-  const fetchBorrowRecords = async () => {
+  const fetchBorrowRecords = useCallback(async () => {
     try {
       const employeeId = resolveEmployeeId();
       if (!employeeId) {
@@ -274,7 +270,7 @@ export default function ReturnPage() {
         setDepartments([]);
         return;
       }
-      const res = await fetch(buildSafeRoutePath('transactionBorrowRecords', { employeeId }));
+      const res = await fetchSafeRoute('transactionBorrowRecords', { employeeId });
       if (res.ok) {
         const result = await res.json();
         setBorrowRecords(result.data || []);
@@ -302,12 +298,18 @@ export default function ReturnPage() {
     } catch (error) {
       console.error('Failed to fetch borrow records:', error);
     }
-  };
+  // Initial-load callback intentionally reads the latest browser storage when invoked.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    fetchBorrowRecords();
+  }, [fetchBorrowRecords]);
 
   const fetchReturnHistory = async (borrowId: string, documentNo: string) => {
     try {
       setBorrowRecords(prev => prev.map(r => r.TransactionNo === borrowId ? { ...r, isFetchingReturns: true } : r));
-      const res = await fetch(buildReturnHistoryPath(documentNo, { _t: Date.now() }));
+      const res = await fetchSafeReturnHistory(documentNo, { _t: Date.now() });
       if (res.ok) {
         const result = await res.json();
         setBorrowRecords(prev => prev.map(r => r.TransactionNo === borrowId ? { ...r, returns: result.data || [], isFetchingReturns: false } : r));
@@ -437,7 +439,7 @@ export default function ReturnPage() {
               isRequirePolicy: '0'
             });
 
-            const resp = await fetch(buildSafeRoutePathFromSearch('transactionApprovers', new URLSearchParams({ ...Object.fromEntries(queryParams), _t: String(Date.now()) })));
+            const resp = await fetchSafeRouteFromSearch('transactionApprovers', new URLSearchParams({ ...Object.fromEntries(queryParams), _t: String(Date.now()) }));
             if (resp.ok) {
               const data = await resp.json();
               if (data.data?.length > 0) {
@@ -781,7 +783,7 @@ export default function ReturnPage() {
     if (!normalizedDocumentNo) return [];
 
     try {
-      const res = await fetch(buildReturnHistoryPath(normalizedDocumentNo, { _t: Date.now() }));
+      const res = await fetchSafeReturnHistory(normalizedDocumentNo, { _t: Date.now() });
       if (!res.ok) return [];
       const result = await res.json();
       return Array.isArray(result?.data) ? (result.data as ReturnRecord[]) : [];

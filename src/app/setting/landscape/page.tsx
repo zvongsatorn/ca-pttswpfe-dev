@@ -1,5 +1,6 @@
 'use client';
 
+import { getLocalText } from '@/utils/security';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Alert,
@@ -229,7 +230,7 @@ const DEFAULT_FORMULA_CONFIG: FormulaConfig = {
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 const toLandscapePayload = (record: LandscapeRecord): LandscapePayload => ({

@@ -1,6 +1,6 @@
 'use client';
 
-import { buildSafeRoutePathFromSearch } from '@/utils/security';
+import { getLocalText, fetchSafeRouteFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Table, DatePicker, Button, Form, Checkbox, Popover } from 'antd';
@@ -209,12 +209,12 @@ const resolveUserContext = () => {
     let userGroupNo = '';
 
     if (typeof window !== 'undefined') {
-        const userDataStr = localStorage.getItem('user_data');
+        const userDataStr = getLocalText('user_data');
         if (userDataStr) {
             try {
                 const userData = JSON.parse(userDataStr) as { employeeID?: string; roleId?: string };
                 employeeId = userData.employeeID || employeeId;
-                userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
+                userGroupNo = getLocalText('selected_usergroup') || userData.roleId || '';
             } catch {
                 // ignore parse failure and use defaults
             }
@@ -534,7 +534,7 @@ export default function Report4Page() {
                 if (bgNo) query.set('bgNo', bgNo);
                 if (division) query.set('division', division);
 
-                const res = await fetch(buildSafeRoutePathFromSearch('report4Filters', query), { signal });
+                const res = await fetchSafeRouteFromSearch('report4Filters', query, { signal });
                 let payload: Report4FilterResponse | null = null;
                 try {
                     payload = await res.json();
@@ -603,7 +603,7 @@ export default function Report4Page() {
             if (division) query.set('division', division);
             if (orgUnitNo) query.set('orgUnitNo', orgUnitNo);
 
-            const res = await fetch(buildSafeRoutePathFromSearch('report4', query));
+            const res = await fetchSafeRouteFromSearch('report4', query);
             const payload: Report4ApiResponse = await res.json();
 
             if (!res.ok || payload.status !== 200 || !Array.isArray(payload.data)) {

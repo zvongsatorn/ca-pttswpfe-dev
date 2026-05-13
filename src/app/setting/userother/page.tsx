@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { getLocalText } from '@/utils/security';
+import React, { useCallback, useState, useEffect } from 'react';
 import { Button, Table, Space, Typography, App, Modal, Input, Form } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, UserOutlined, IdcardOutlined, MailOutlined } from '@ant-design/icons';
 import { UserPlus } from 'lucide-react';
@@ -19,7 +20,7 @@ interface UserOther {
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 function UserOtherContent() {
@@ -31,7 +32,7 @@ function UserOtherContent() {
     const [isEditMode, setIsEditMode] = useState(false);
     const [form] = Form.useForm();
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         setLoading(true);
         try {
             const res = await getUserOther(token);
@@ -47,9 +48,9 @@ function UserOtherContent() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [message, token]);
 
-    useEffect(() => { fetchData(); }, [token]);
+    useEffect(() => { fetchData(); }, [fetchData]);
 
     const openAddModal = () => {
         setIsEditMode(false);

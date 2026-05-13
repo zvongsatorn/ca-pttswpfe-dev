@@ -95,6 +95,10 @@ interface HistoryApproveDetailClientProps {
 }
 
 export default function HistoryApproveDetailClient({ mkdId, token, currentUser, initialData, masterKeys }: HistoryApproveDetailClientProps) {
+    void mkdId;
+    void token;
+    void currentUser;
+    void masterKeys;
     const router = useRouter();
     const [activeTab, setActiveTab] = useState<'MANPOWER' | 'SUMMARY' | 'FILES' | 'NOTE'>('MANPOWER');
 

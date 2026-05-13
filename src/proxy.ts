@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 const DEFAULT_ALLOWED_BACKEND_HOST_SUFFIXES = ['localhost', '127.0.0.1', 'pttplc.com', 'pttdigital.com'];
+const API_QUERY_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
+const UNSAFE_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
 
 const getAllowedBackendHostSuffixes = (): string[] => {
   const configured = (process.env.BACKEND_ALLOWED_HOST_SUFFIXES || '')
@@ -26,17 +28,28 @@ const normalizeProxyPath = (pathname: string): string => {
   if (safePath.includes('..') || /%2e|%5c/i.test(safePath) || safePath.includes('\\')) {
     throw new Error('Invalid proxy path');
   }
-  if (/[\u0000-\u001F\u007F]/.test(safePath)) {
+  if (UNSAFE_CONTROL_CHAR_PATTERN.test(safePath)) {
     throw new Error('Invalid proxy path');
   }
   return safePath;
 };
 
+const normalizeProxySearch = (search: string): string => {
+  if (!search) return '';
+  const safeSearch = new URLSearchParams();
+  new URLSearchParams(search).forEach((value, key) => {
+    if (!API_QUERY_KEY_PATTERN.test(key) || UNSAFE_CONTROL_CHAR_PATTERN.test(key) || UNSAFE_CONTROL_CHAR_PATTERN.test(value)) {
+      throw new Error('Invalid proxy query');
+    }
+    safeSearch.append(key, value);
+  });
+  const query = safeSearch.toString();
+  return query ? `?${query}` : '';
+};
+
 const buildProxyTargetUrl = (request: NextRequest, backendUrl: URL): URL => {
   const safePath = normalizeProxyPath(request.nextUrl.pathname);
-  const safeSearch = request.nextUrl.search
-    ? `?${new URLSearchParams(request.nextUrl.search).toString()}`
-    : '';
+  const safeSearch = normalizeProxySearch(request.nextUrl.search);
   return new URL(`${safePath}${safeSearch}`, backendUrl);
 };
 
@@ -76,7 +89,7 @@ export function proxy(request: NextRequest) {
         throw new Error('Invalid Backend URL configuration');
       }
 
-      console.log(`[Proxy Runtime] ${request.method} ${pathname} -> ${targetUrl.toString()}`);
+      console.log(`[Proxy Runtime] ${request.method} ${pathname} -> ${targetUrl.origin}`);
       const response = NextResponse.rewrite(targetUrl);
       return response;
     }

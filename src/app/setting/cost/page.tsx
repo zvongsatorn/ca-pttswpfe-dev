@@ -1,5 +1,6 @@
 'use client';
 
+import { getLocalText } from '@/utils/security';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     App,
@@ -72,7 +73,7 @@ const requiredLabel = (text: string) => (
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 const cleanUnitText = (text: string): string => text.replace(/^[A-Za-z0-9_-]+\s+/, '').trim();

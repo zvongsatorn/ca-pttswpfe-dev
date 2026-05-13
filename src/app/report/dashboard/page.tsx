@@ -1,6 +1,6 @@
 'use client';
 
-import { buildSafeRoutePath, buildSafeRoutePathFromSearch } from '@/utils/security';
+import { getLocalText, fetchSafeRoute, fetchSafeRouteFromSearch } from '@/utils/security';
 import React, { useState, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Select, Button, Table } from 'antd';
@@ -62,16 +62,6 @@ interface UnitOption {
     isUnder?: number;
 }
 
-interface RawUnitData {
-    id: string;
-    name?: string;
-    unitText?: string;
-    OrgUnitNo?: string;
-    UnitName?: string;
-    IsAssistant?: number;
-    IsUnder?: number;
-}
-
 interface RawDashboardRow {
     OrgUnitNo?: string | number;
     BGNo?: string | number;
@@ -106,6 +96,21 @@ interface RawDashboardRow {
     t_5?: string | number;
     t_6?: string | number;
     t_7?: string | number;
+}
+
+interface Report3FilterRow {
+    BGNo?: unknown;
+    BGName?: unknown;
+    OrgUnitNo?: unknown;
+    UnitName?: unknown;
+    UnitText?: unknown;
+    UnitAbbr?: unknown;
+}
+
+interface Report3FiltersData {
+    businessUnits?: Report3FilterRow[];
+    lines?: Report3FilterRow[];
+    units?: Report3FilterRow[];
 }
 
 interface UserGroupOption {
@@ -171,8 +176,8 @@ export default function DashboardPage() {
         let userGroupNo = '';
 
         if (typeof window !== 'undefined') {
-            const selectedGroup = localStorage.getItem('selected_usergroup')?.trim() || '';
-            const userDataStr = localStorage.getItem('user_data');
+            const selectedGroup = getLocalText('selected_usergroup')?.trim() || '';
+            const userDataStr = getLocalText('user_data');
 
             if (userDataStr) {
                 try {
@@ -231,11 +236,11 @@ export default function DashboardPage() {
             const dateStr = filterDate.format('YYYY-MM-01');
 
             try {
-                const res = await fetch(buildSafeRoutePath('report3Filters', { effectiveDate: dateStr, employeeId, userGroupNo, division: '' }));
+                const res = await fetchSafeRoute('report3Filters', { effectiveDate: dateStr, employeeId, userGroupNo, division: '' });
                 if (res.ok) {
                     const result = await res.json();
                     if (result.status === 200 && result.data) {
-                        const toText = (v: any) => String(v || '').trim();
+                        const toText = (v: unknown) => String(v || '').trim();
                         const cleanUnitText = (str: string) => {
                             if (!str) return '';
                             let s = str.trim();
@@ -246,21 +251,21 @@ export default function DashboardPage() {
                             return s;
                         };
 
-                        const toBgOption = (row: any): UnitOption | null => {
+                        const toBgOption = (row: Report3FilterRow): UnitOption | null => {
                             const value = toText(row.BGNo);
                             const label = toText(row.BGName);
                             if (!value || !label) return null;
                             return { value, label };
                         };
 
-                        const toLineOption = (row: any): UnitOption | null => {
+                        const toLineOption = (row: Report3FilterRow): UnitOption | null => {
                             const value = toText(row.OrgUnitNo);
                             const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
                             if (!value || !label) return null;
                             return { value, label: `${value} - ${label}` };
                         };
 
-                        const toUnitOption = (row: any): UnitOption | null => {
+                        const toUnitOption = (row: Report3FilterRow): UnitOption | null => {
                             const value = toText(row.OrgUnitNo);
                             const label = cleanUnitText(toText(row.UnitName || row.UnitText || row.UnitAbbr));
                             if (!value || !label) return null;
@@ -277,9 +282,12 @@ export default function DashboardPage() {
                             });
                         };
 
-                        setBusinessUnitOptions(uniqueOptions(result.data.businessUnits.map(toBgOption).filter((v: any) => v)));
-                        setLineOfWorkOptions(uniqueOptions(result.data.lines.map(toLineOption).filter((v: any) => v)));
-                        setOrgUnitOptions(uniqueOptions(result.data.units.map(toUnitOption).filter((v: any) => v)));
+                        const filterData = result.data as Report3FiltersData;
+                        const isUnitOption = (option: UnitOption | null): option is UnitOption => option !== null;
+
+                        setBusinessUnitOptions(uniqueOptions((filterData.businessUnits || []).map(toBgOption).filter(isUnitOption)));
+                        setLineOfWorkOptions(uniqueOptions((filterData.lines || []).map(toLineOption).filter(isUnitOption)));
+                        setOrgUnitOptions(uniqueOptions((filterData.units || []).map(toUnitOption).filter(isUnitOption)));
                     }
                 }
             } catch (err) {
@@ -312,7 +320,7 @@ export default function DashboardPage() {
                 division: ''
             });
 
-            const res = await fetch(buildSafeRoutePathFromSearch('reportDashboard', query));
+            const res = await fetchSafeRouteFromSearch('reportDashboard', query);
             if (res.ok) {
                 const result = await res.json();
                 if (result.status === 200 && result.data) {
@@ -349,7 +357,6 @@ export default function DashboardPage() {
         if (!appliedUnits || appliedUnits.length === 0) return dashboardData;
         return dashboardData.filter(item => appliedUnits.includes(item.bgNo) || appliedUnits.includes(item.orgUnitNo));
     }, [dashboardData, appliedUnits]);
-
 
     // Determine which bars to show based on filters logic in applied (last searched) state
     const isShowingContractOut = true; // Always แสดง Contract out
@@ -416,7 +423,7 @@ export default function DashboardPage() {
                 query.set('orgUnits', selectedOrgUnits.join(','));
             }
 
-            const res = await fetch(buildSafeRoutePathFromSearch('reportDashboardExcel', query));
+            const res = await fetchSafeRouteFromSearch('reportDashboardExcel', query);
             if (res.ok) {
                 const blob = await res.blob();
                 await saveExcelFile(blob, `Dashboard_${yearStr}${monthStr}.xlsx`);

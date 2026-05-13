@@ -8,12 +8,9 @@ import { SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/th';
 import {
-    getMonitorHistory,
-    getMonitorHistoryActionLog,
-    getMonitorHistoryUnits,
-    type MonitorHistoryUnitOption
+    getMonitorHistory, getMonitorHistoryActionLog, getMonitorHistoryUnits, type MonitorHistoryUnitOption
 } from '@/services/monitorHistoryService';
-import { buildApiFileHref, openSafeApiPath } from '@/utils/security';
+import { buildApiFileHref, openSafeApiPath, getLocalText } from '@/utils/security';
 
 interface UserGroup {
     userGroupNo: string;
@@ -153,7 +150,7 @@ export default function HistoryClient({
     const resolveUserGroupNo = useCallback(() => {
         if (typeof window === 'undefined') return '';
 
-        const selectedUserGroup = localStorage.getItem('selected_usergroup')?.trim();
+        const selectedUserGroup = getLocalText('selected_usergroup')?.trim();
         if (selectedUserGroup) return selectedUserGroup;
 
         const userGroupFromCurrent = currentUser?.userGroupNo?.trim();
@@ -165,7 +162,7 @@ export default function HistoryClient({
         }
 
         try {
-            const rawUserData = localStorage.getItem('user_data');
+            const rawUserData = getLocalText('user_data');
             if (rawUserData) {
                 const parsed = JSON.parse(rawUserData) as { userGroupNo?: string; roleId?: string };
                 const groupNo = (parsed.userGroupNo || parsed.roleId || '').trim();

@@ -1,5 +1,6 @@
 'use client';
 
+import { getLocalText } from '@/utils/security';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Table, Button, Modal, Form, Select, Input, Popconfirm, App, Space, Card } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -31,7 +32,7 @@ const formatEmployeeOptionLabel = (option: DelayEmployeeOptionType): string => {
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 function DelayRetirementContent() {

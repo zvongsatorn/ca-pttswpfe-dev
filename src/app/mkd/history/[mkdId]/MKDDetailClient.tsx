@@ -3,7 +3,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import dayjs from 'dayjs';
-import ExcelJS from 'exceljs';
 import { saveExcelFile } from '@/utils/fileDownload';
 import { buildFilesProxyPath, openSafeApiPath } from '@/utils/security';
 
@@ -1202,7 +1201,6 @@ export default function MKDDetailClient({ mkdId, token, currentUser, initialData
                                 </TableHeader>
                                 <TableBody>
                                     {localFiles.map((file: MKDFile, idx: number) => {
-                                        const ext = file.FileName?.split('.').pop()?.toUpperCase() || file.fileName?.split('.').pop()?.toUpperCase() || 'PDF';
                                         return (
                                             <TableRow key={idx} className="">
                                                 <TableCell className="text-center font-medium">{idx + 1}</TableCell>

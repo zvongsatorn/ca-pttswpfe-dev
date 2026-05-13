@@ -1,6 +1,6 @@
 'use client';
 
-import { buildSafeRoutePathFromSearch } from '@/utils/security';
+import { getLocalText, fetchSafeRouteFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Table, DatePicker, Button, Form, Checkbox, Popover } from 'antd';
@@ -132,8 +132,8 @@ const resolveUserContext = () => {
     let userGroupNo = '';
 
     if (typeof window !== 'undefined') {
-        const selectedGroup = localStorage.getItem('selected_usergroup')?.trim() || '';
-        const userDataStr = localStorage.getItem('user_data');
+        const selectedGroup = getLocalText('selected_usergroup')?.trim() || '';
+        const userDataStr = getLocalText('user_data');
 
         if (userDataStr) {
             try {
@@ -387,7 +387,7 @@ export default function Report8Page() {
             });
             if (bgNo) query.set('bgNo', bgNo);
 
-            const res = await fetch(buildSafeRoutePathFromSearch('report6Filters', query), { signal });
+            const res = await fetchSafeRouteFromSearch('report6Filters', query, { signal });
             let payload: Report8FilterResponse | null = null;
             try {
                 payload = await res.json();
@@ -445,7 +445,7 @@ export default function Report8Page() {
             if (bgNo) params.set('bgNo', bgNo);
             if (division) params.set('division', division);
 
-            const res = await fetch(buildSafeRoutePathFromSearch('report8', params));
+            const res = await fetchSafeRouteFromSearch('report8', params);
             const payload: Report8ApiResponse = await res.json();
 
             if (!res.ok || payload.status !== 200 || !payload.data) {

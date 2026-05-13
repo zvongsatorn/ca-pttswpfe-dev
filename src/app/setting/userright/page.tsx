@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, fetchApi, normalizeApiPath } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiPath, getLocalText } from '@/utils/security';
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import ReactFlow, {
     Background,
@@ -174,11 +174,7 @@ function dedupeEmployeesById(users: RawEmployee[]): RawEmployee[] {
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
-}
-
-function getAuthHeader(): Headers {
-    return buildAuthHeaders(getToken());
+    return getLocalText('auth_token') || '';
 }
 
 async function addUserToUnit(data: { UserGroupNo: string, EmployeeID: string, OrgUnitNo: string, CreateBy: string }) {
@@ -576,13 +572,13 @@ function UserRightContent() {
         if (typeof window === 'undefined') return;
 
         const syncHeaderGroup = () => {
-            setHeaderUserGroupNo(normalizeUserGroupNo(localStorage.getItem('selected_usergroup')));
+            setHeaderUserGroupNo(normalizeUserGroupNo(getLocalText('selected_usergroup')));
         };
 
         const onUserGroupChanged = (event: Event) => {
             const customEvent = event as CustomEvent<{ id?: string; userGroupNo?: string }>;
             const eventGroupNo = customEvent.detail?.id || customEvent.detail?.userGroupNo;
-            setHeaderUserGroupNo(normalizeUserGroupNo(eventGroupNo || localStorage.getItem('selected_usergroup')));
+            setHeaderUserGroupNo(normalizeUserGroupNo(eventGroupNo || getLocalText('selected_usergroup')));
         };
 
         syncHeaderGroup();

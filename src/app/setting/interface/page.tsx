@@ -1,5 +1,6 @@
 'use client';
 
+import { getLocalText } from '@/utils/security';
 import React, { useMemo, useState } from 'react';
 import { App, Button, Card, Checkbox, Divider, Tabs, Tag, Typography } from 'antd';
 import Main from '@/components/layout/main';
@@ -36,7 +37,7 @@ const HRP1002_ALLOWED_FILE_BASENAMES = ['HRP1002'];
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 const normalizeFileBaseName = (fileName: string): string => {

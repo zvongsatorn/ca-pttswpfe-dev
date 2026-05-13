@@ -1,5 +1,6 @@
 'use client';
 
+import { getLocalText } from '@/utils/security';
 import React, { useState, useCallback } from "react";
 import { Button, Select, Table, Modal, App, Popconfirm, Tooltip, Card } from "antd";
 import { LoginOutlined, PlusOutlined, SearchOutlined, CheckCircleOutlined } from "@ant-design/icons";
@@ -12,7 +13,7 @@ import { useEffect } from "react";
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 interface UnitApiRow {

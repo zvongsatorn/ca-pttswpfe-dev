@@ -1,6 +1,6 @@
 'use client';
 
-import { buildSafeRoutePath, fetchApi } from '@/utils/security';
+import { buildSafeRoutePath, fetchApi, getLocalText } from '@/utils/security';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Table, Button, Input, Upload, App, Popconfirm, Modal, Card, Tooltip } from 'antd';
 import type { UploadFile, GetProp, UploadProps } from 'antd';
@@ -30,7 +30,7 @@ interface MasterKey {
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 type RcFile = Parameters<GetProp<UploadProps, 'beforeUpload'>>[0];

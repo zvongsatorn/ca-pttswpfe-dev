@@ -1,6 +1,6 @@
 'use client';
 
-import { buildSafeRoutePathFromSearch } from '@/utils/security';
+import { getLocalText, fetchSafeRouteFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import Main from '@/components/layout/main';
 import { Table, DatePicker, Button, Form, Checkbox, Popover } from 'antd';
@@ -37,8 +37,8 @@ const resolveUserContext = () => {
   let userGroupNo = '';
 
   if (typeof window !== 'undefined') {
-    const selectedGroup = localStorage.getItem('selected_usergroup')?.trim() || '';
-    const userDataStr = localStorage.getItem('user_data');
+    const selectedGroup = getLocalText('selected_usergroup')?.trim() || '';
+    const userDataStr = getLocalText('user_data');
 
     if (userDataStr) {
       try {
@@ -461,7 +461,7 @@ export default function Report1Page() {
         employeeId,
         userGroupNo,
       });
-      const res = await fetch(buildSafeRoutePathFromSearch('report1', params));
+      const res = await fetchSafeRouteFromSearch('report1', params);
       const payload = await res.json();
       if (payload.status === 200 && payload.data) {
         setTableData(payload.data);

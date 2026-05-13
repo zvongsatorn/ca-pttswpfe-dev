@@ -1,5 +1,6 @@
 'use client';
 
+import { getLocalText } from '@/utils/security';
 import React, { useState } from 'react';
 import { DatePicker, Button, Table, Card, Space, Typography, App } from 'antd';
 import type { ColumnsType, ColumnType } from 'antd/es/table';
@@ -24,11 +25,11 @@ const toText = (value: unknown): string => String(value ?? '').trim();
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 const resolveUserContext = (currentUser: Record<string, unknown> | null | undefined) => {
-    const selectedGroup = toText(localStorage.getItem('selected_usergroup'));
+    const selectedGroup = toText(getLocalText('selected_usergroup'));
     let employeeId = toText(currentUser?.employeeID || currentUser?.EmployeeID);
     let userGroupNo = selectedGroup;
 
@@ -41,7 +42,7 @@ const resolveUserContext = (currentUser: Record<string, unknown> | null | undefi
         userGroupNo = toText(firstGroup?.userGroupNo);
     }
 
-    const userDataStr = localStorage.getItem('user_data');
+    const userDataStr = getLocalText('user_data');
     if (userDataStr) {
         try {
             const userData = JSON.parse(userDataStr) as Record<string, unknown>;

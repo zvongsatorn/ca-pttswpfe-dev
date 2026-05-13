@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, buildMkdFilePath, buildMkdPath, buildSafeRoutePathFromSearch, openSafeApiPath, setLocalText, toSafePathSegment } from '@/utils/security';
+import { buildAuthHeaders, buildMkdFilePath, openSafeApiPath, setLocalText, toSafePathSegment, getLocalText, fetchSafeRouteFromSearch, fetchMkd, normalizeAppRoutePath } from '@/utils/security';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -153,7 +153,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
   const router = useRouter();
   const [year, setYear] = useState(() => {
      if (typeof window !== 'undefined') {
-         return localStorage.getItem('mkd_historyapprove_year') || (dayjs().year() + 543).toString();
+         return getLocalText('mkd_historyapprove_year') || (dayjs().year() + 543).toString();
      }
      return (dayjs().year() + 543).toString();
   });
@@ -165,7 +165,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
   const [isMainComboboxOpen, setIsMainComboboxOpen] = useState(false);
   const [selectedMainUnit, setSelectedMainUnit] = useState(() => {
      if (typeof window !== 'undefined') {
-         return localStorage.getItem('mkd_historyapprove_unit') || '';
+         return getLocalText('mkd_historyapprove_unit') || '';
      }
      return '';
   });
@@ -183,7 +183,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    const storedStatus = localStorage.getItem('mkd_historyapprove_status');
+    const storedStatus = getLocalText('mkd_historyapprove_status');
     if (storedStatus) setStatusFilter(storedStatus.trim());
     setIsLoaded(true);
   }, []);
@@ -204,7 +204,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
 
       if (currentUser) {
           employeeId = currentUser.employeeID || '';
-          userGroupNo = localStorage.getItem('selected_usergroup') || currentUser.userGroupNo || currentUser.roleId || '';
+          userGroupNo = getLocalText('selected_usergroup') || currentUser.userGroupNo || currentUser.roleId || '';
           if (!userGroupNo && currentUser.userGroups && currentUser.userGroups.length > 0) {
             userGroupNo = currentUser.userGroups[0].userGroupNo;
           }
@@ -220,7 +220,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
         UserGroupNo: userGroupNo
       });
 
-      const res = await fetch(buildSafeRoutePathFromSearch('mkdHistoryApprove', query), {
+      const res = await fetchSafeRouteFromSearch('mkdHistoryApprove', query, {
           headers: buildAuthHeaders(token)
       });
       const result = await res.json();
@@ -310,7 +310,7 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
     setFlowLoading(true);
     setIsFlowModalOpen(true);
     try {
-      const res = await fetch(buildMkdPath(mkdID, 'flow-history', { approveId: approveID }), {
+      const res = await fetchMkd(mkdID, 'flow-history', { approveId: approveID }, {
           headers: buildAuthHeaders(token)
       });
       const result = await res.json();
@@ -349,11 +349,11 @@ export default function HistoryApproveClient({ token, currentUser, initialYears,
   };
 
   const handleViewDetail = (mkdId: string) => {
-    router.push(`/mkd/historyapprove/${toSafePathSegment(mkdId)}`);
+    router.push(normalizeAppRoutePath(`/mkd/historyapprove/${toSafePathSegment(mkdId)}`));
   };
 
   const handleViewDashboard = (mkdId: string) => {
-    router.push(`/mkd/dashboard/${toSafePathSegment(mkdId)}`);
+    router.push(normalizeAppRoutePath(`/mkd/dashboard/${toSafePathSegment(mkdId)}`));
   };
 
   return (

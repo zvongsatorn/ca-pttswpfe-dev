@@ -1,4 +1,4 @@
-import { buildAuthHeaders, fetchApi, normalizeApiPath, setLocalText } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, getLocalJson, getLocalText, normalizeApiPath, removeLocalValue, setLocalText } from '@/utils/security';
 
 const API_BASE_URL = '';
 
@@ -28,13 +28,7 @@ export interface InsertActionLogPayload {
 
 const getStoredUserData = (): { employeeID?: string } => {
   if (typeof window === 'undefined') return {};
-  const raw = localStorage.getItem('user_data');
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as { employeeID?: string };
-  } catch {
-    return {};
-  }
+  return getLocalJson<{ employeeID?: string }>('user_data') || {};
 };
 
 const toIntOrZero = (value: unknown): number => {
@@ -44,12 +38,12 @@ const toIntOrZero = (value: unknown): number => {
 
 const setCookie = (name: string, value: string): void => {
   if (typeof document === 'undefined') return;
-  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=2592000; SameSite=Strict`;
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=2592000; SameSite=Strict; Secure`;
 };
 
 const clearCookie = (name: string): void => {
   if (typeof document === 'undefined') return;
-  document.cookie = `${name}=; path=/; max-age=0; SameSite=Strict`;
+  document.cookie = `${name}=; path=/; max-age=0; SameSite=Strict; Secure`;
 };
 
 export const setSelectedSubjectContext = (subjectId: number, subjectName: string, subjectPath?: string): void => {
@@ -69,9 +63,9 @@ export const setSelectedSubjectContext = (subjectId: number, subjectName: string
 
 export const clearSelectedSubjectContext = (): void => {
   if (typeof window !== 'undefined') {
-    localStorage.removeItem('selected_subject_id');
-    localStorage.removeItem('selected_subject_name');
-    localStorage.removeItem('selected_subject_path');
+    removeLocalValue('selected_subject_id');
+    removeLocalValue('selected_subject_name');
+    removeLocalValue('selected_subject_path');
   }
   clearCookie('selected_subject_id');
   clearCookie('selected_subject_name');
@@ -81,17 +75,17 @@ export const clearSelectedSubjectContext = (): void => {
 export const insertActionLog = async (payload: InsertActionLogPayload): Promise<boolean> => {
   if (typeof window === 'undefined') return false;
 
-  const token = localStorage.getItem('auth_token');
+  const token = getLocalText('auth_token');
   if (!token) return false;
 
   const userData = getStoredUserData();
   const employeeId = String(payload.employeeId || userData.employeeID || '').trim();
   if (!employeeId) return false;
 
-  const storedGroup = String(localStorage.getItem('selected_usergroup') || '').trim();
+  const storedGroup = String(getLocalText('selected_usergroup') || '').trim();
   const userRole = String(payload.userRole || storedGroup || '').trim();
   const payloadSubjectId = toIntOrZero(payload.subjectId);
-  const storedSubjectId = toIntOrZero(localStorage.getItem('selected_subject_id'));
+  const storedSubjectId = toIntOrZero(getLocalText('selected_subject_id'));
   const subjectId = payloadSubjectId > 0 ? payloadSubjectId : storedSubjectId;
   const adminFlag = toIntOrZero(payload.adminFlag ?? (userRole === '01' ? 1 : 0));
 

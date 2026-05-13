@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, fetchApi, normalizeApiPath } from '@/utils/security';
+import { buildAuthHeaders, fetchApi, normalizeApiPath, getLocalText } from '@/utils/security';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Table, Modal, Button, Select, App, AutoComplete, Input } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -36,7 +36,7 @@ function dedupeLevels(levels: Level[]): Level[] {
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 async function apiCall(url: string, options: RequestInit = {}) {
@@ -83,6 +83,7 @@ function UserGroupsContent() {
         employeeID: user?.employeeID || '',
         userGroupNo: user?.userGroups?.[0]?.userGroupNo || ''
     };
+    const currentUserGroupNo = currentUser.userGroupNo;
 
     useEffect(() => {
         const fetchGroups = async () => {
@@ -91,7 +92,7 @@ function UserGroupsContent() {
                 const res = await getUserGroups(token);
                 if (res.success && Array.isArray(res.data)) {
                     let filtered = res.data;
-                    if (currentUser.userGroupNo === "07") {
+                    if (currentUserGroupNo === "07") {
                         filtered = res.data.filter((g: UserGroup) => g.userGroupNo !== "01" && g.userGroupNo !== "04");
                     }
                     setUserGroups(filtered);
@@ -103,7 +104,7 @@ function UserGroupsContent() {
             }
         };
         fetchGroups();
-    }, [token]);
+    }, [token, currentUserGroupNo, message]);
 
     // --- Logic 2: การจัดการระดับ (Levels) ---
     const openLevelModal = useCallback(async (group: UserGroup) => {

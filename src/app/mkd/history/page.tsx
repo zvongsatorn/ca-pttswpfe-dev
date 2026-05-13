@@ -1,6 +1,6 @@
 'use client';
 
-import { buildMkdFilePath, buildMkdPath, buildSafeRoutePath, buildSafeRoutePathFromSearch, openSafeApiPath, postSafeRouteJson, setLocalText, toSafePathSegment } from '@/utils/security';
+import { buildMkdFilePath, openSafeApiPath, postSafeRouteJson, setLocalText, toSafePathSegment, getLocalText, fetchSafeRoute, fetchSafeRouteFromSearch, fetchMkd, normalizeAppRoutePath } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -207,7 +207,7 @@ export default function MKDHistoryPage() {
     let employeeId = '';
     let userGroupNo = '';
 
-    const userDataStr = localStorage.getItem('user_data');
+    const userDataStr = getLocalText('user_data');
     if (!userDataStr) {
       return { employeeId, userGroupNo };
     }
@@ -216,7 +216,7 @@ export default function MKDHistoryPage() {
       const userData = JSON.parse(userDataStr);
       employeeId = userData.employeeID || userData.EmployeeID || '';
 
-      userGroupNo = localStorage.getItem('selected_usergroup') || '';
+      userGroupNo = getLocalText('selected_usergroup') || '';
       if (!userGroupNo) {
         userGroupNo = userData.userGroupNo || userData.roleId || '';
       }
@@ -283,7 +283,7 @@ export default function MKDHistoryPage() {
 
   const fetchUnits = useCallback(async () => {
     try {
-      const res = await fetch(buildSafeRoutePath('unitsAll', { effectiveDate: new Date().toISOString().split('T')[0] }));
+      const res = await fetchSafeRoute('unitsAll', { effectiveDate: new Date().toISOString().split('T')[0] });
       const result = await res.json();
       console.log('MKD Fetch Units Result:', result); // DEBUG LOG
       if (result.success) {
@@ -308,7 +308,7 @@ export default function MKDHistoryPage() {
         empId: employeeId,
         roleId: userGroupNo
       });
-      const res = await fetch(buildSafeRoutePathFromSearch('unitsByRole', query));
+      const res = await fetchSafeRouteFromSearch('unitsByRole', query);
       const result = await res.json();
 
       if (result.success && Array.isArray(result.data)) {
@@ -334,8 +334,8 @@ export default function MKDHistoryPage() {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    const storedYear = localStorage.getItem('mkd_history_year');
-    const storedStatus = localStorage.getItem('mkd_history_status');
+    const storedYear = getLocalText('mkd_history_year');
+    const storedStatus = getLocalText('mkd_history_status');
     if (storedYear) {
       const normalizedYear = storedYear.trim();
       setYear(normalizedYear);
@@ -422,12 +422,12 @@ export default function MKDHistoryPage() {
     try {
       let employeeId = '';
       let userGroupNo = '';
-      const userDataStr = localStorage.getItem('user_data');
+      const userDataStr = getLocalText('user_data');
       if (userDataStr) {
         try {
           const userData = JSON.parse(userDataStr);
           employeeId = userData.employeeID || '';
-          userGroupNo = localStorage.getItem('selected_usergroup') || '';
+          userGroupNo = getLocalText('selected_usergroup') || '';
           if (!userGroupNo) {
             userGroupNo = userData.userGroupNo || userData.roleId || '';
           }
@@ -451,7 +451,7 @@ export default function MKDHistoryPage() {
         RequestType: '1'
       });
 
-      const res = await fetch(buildSafeRoutePathFromSearch('mkdHistory', query));
+      const res = await fetchSafeRouteFromSearch('mkdHistory', query);
       const result = await res.json();
       if (result.success) {
         const mapped = result.data.map((item: Record<string, unknown>, index: number) => {
@@ -539,7 +539,7 @@ export default function MKDHistoryPage() {
       if (storedUser) {
         setUser(storedUser);
       } else {
-        const userDataStr = localStorage.getItem('user_data');
+        const userDataStr = getLocalText('user_data');
         if (userDataStr) {
           try {
             const userData = JSON.parse(userDataStr);
@@ -556,7 +556,7 @@ export default function MKDHistoryPage() {
     setFlowLoading(true);
     setIsFlowModalOpen(true);
     try {
-      const res = await fetch(buildMkdPath(mkdID, 'flow-history', { approveId: approveID }));
+      const res = await fetchMkd(mkdID, 'flow-history', { approveId: approveID });
       const result = await res.json();
       if (result.success) setFlowData(result.data);
     } catch (e) {
@@ -581,12 +581,12 @@ export default function MKDHistoryPage() {
 
       let employeeId = '';
       let userGroupNo = '';
-      const userDataStr = localStorage.getItem('user_data');
+      const userDataStr = getLocalText('user_data');
       if (userDataStr) {
         try {
           const userData = JSON.parse(userDataStr);
           employeeId = userData.employeeID || '';
-          userGroupNo = localStorage.getItem('selected_usergroup') || '';
+          userGroupNo = getLocalText('selected_usergroup') || '';
           if (!userGroupNo) {
             userGroupNo = userData.userGroupNo || userData.roleId || '';
           }
@@ -867,7 +867,7 @@ export default function MKDHistoryPage() {
     setPendingCreatePayload(null);
     setIsNewModalOpen(false);
     setSelectedOrgUnit('');
-    router.push(`/mkd/history/${toSafePathSegment(newId)}`);
+    router.push(normalizeAppRoutePath(`/mkd/history/${toSafePathSegment(newId)}`));
   }, [getCurrentUserContext, router]);
 
   const handleCreateNew = async () => {
@@ -925,14 +925,14 @@ export default function MKDHistoryPage() {
   };
 
   const handleViewDetail = (mkdId: string) => {
-    router.push(`/mkd/history/${toSafePathSegment(mkdId)}`);
+    router.push(normalizeAppRoutePath(`/mkd/history/${toSafePathSegment(mkdId)}`));
   };
 const handleViewDashboard = (mkdId: string) => {
     if (isGroupRestricted) {
       toast.error('กลุ่มผู้ใช้งานนี้ไม่มีสิทธิ์เข้าดูกราฟ');
       return;
     }
-    router.push(`/mkd/dashboard/${toSafePathSegment(mkdId)}`);
+    router.push(normalizeAppRoutePath(`/mkd/dashboard/${toSafePathSegment(mkdId)}`));
   };
 
   const currentYearBE = new Date().getFullYear() + 543;

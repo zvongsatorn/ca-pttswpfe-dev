@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, buildMenuSubmenuPath, normalizeAppRoutePath } from '@/utils/security';
+import { buildAuthHeaders, normalizeAppRoutePath, toSafeDisplayText, getLocalText, fetchMenuSubmenu } from '@/utils/security';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Main from '@/components/layout/main';
@@ -58,6 +58,12 @@ interface ReportMenuItem {
 
 // TODO: Verified with user that MenuKey is 'REPORT'
 const REPORT_MENU_KEY = 'REPORT';
+const MENU_CLASS_PATTERN = /^(bg|text)-[a-z]+-\d{2,3}$/;
+
+const toSafeMenuClass = (value: unknown, fallback: string): string => {
+  const safeValue = String(value || '').trim();
+  return MENU_CLASS_PATTERN.test(safeValue) ? safeValue : fallback;
+};
 
 export default function ReportMenuPage() {
   const [reports, setReports] = useState<ReportMenuItem[]>([]);
@@ -66,8 +72,8 @@ export default function ReportMenuPage() {
   useEffect(() => {
     const fetchReports = async () => {
       try {
-        const token = localStorage.getItem('auth_token');
-        const response = await fetch(buildMenuSubmenuPath(REPORT_MENU_KEY), {
+        const token = getLocalText('auth_token');
+        const response = await fetchMenuSubmenu(REPORT_MENU_KEY, undefined, {
             headers: buildAuthHeaders(token || undefined)
         });
 
@@ -120,24 +126,29 @@ export default function ReportMenuPage() {
             reports.map((item) => {
               const Icon = getIcon(item.MenuIcon);
               const reportPath = normalizeAppRoutePath(item.MenuPath);
+              const lightColor = toSafeMenuClass(item.lightColor, 'bg-blue-50');
+              const textColor = toSafeMenuClass(item.textColor, 'text-blue-600');
+              const color = toSafeMenuClass(item.color, 'bg-blue-500');
+              const menuTitle = toSafeDisplayText(item.MenuTitle) || 'Report';
+              const menuName = toSafeDisplayText(item.MenuName);
               return (
                 <Link key={item.MenuID} href={reportPath} className="block group h-full">
                   <Card className="h-full border-0 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 bg-white overflow-hidden relative py-0">
                     <CardContent className="p-6 flex items-start gap-4 h-full">
 
                       {/* Icon Box */}
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${item.lightColor || 'bg-blue-50'}`}>
-                        <Icon className={`w-6 h-6 ${item.textColor || 'text-blue-600'}`} />
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${lightColor}`}>
+                        <Icon className={`w-6 h-6 ${textColor}`} />
                       </div>
 
                       {/* Text Content */}
                       <div className="flex-1 flex flex-col justify-between h-full gap-2">
                         <div>
                           <span className={`text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 mb-2 inline-block`}>
-                            {item.MenuTitle || 'Report'}
+                            {menuTitle}
                           </span>
                           <h3 className="text-gray-800 font-semibold leading-snug group-hover:text-blue-600 transition-colors">
-                            {item.MenuName}
+                            {menuName}
                           </h3>
                         </div>
 
@@ -147,7 +158,7 @@ export default function ReportMenuPage() {
                       </div>
 
                       {/* Decorative Background Gradient */}
-                      <div className={`absolute top-0 right-0 w-24 h-24 opacity-5 rounded-bl-full ${item.color || 'bg-blue-500'}`} />
+                      <div className={`absolute top-0 right-0 w-24 h-24 opacity-5 rounded-bl-full ${color}`} />
                     </CardContent>
                   </Card>
                 </Link>

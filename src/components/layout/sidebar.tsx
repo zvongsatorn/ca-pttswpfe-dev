@@ -1,15 +1,6 @@
 'use client';
 
-import {
-  ArrowLeftRight,
-  ChevronDown,
-  ChevronRight,
-  FilePen,
-  FileText,
-  Inbox,
-  MonitorCheck,
-  Settings,
-  LucideIcon
+import { ArrowLeftRight, ChevronDown, ChevronRight, FilePen, FileText, Inbox, MonitorCheck, Settings, LucideIcon
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useRef, useState } from 'react';
@@ -18,7 +9,7 @@ import { saveExcelFile } from '@/utils/fileDownload';
 import { ACTION_LOG, insertActionLog, setSelectedSubjectContext } from '@/services/actionLogService';
 import { ApiMenuItem } from '../../types/menu';
 import { getAuthToken } from '../../utils/auth';
-import { buildAuthHeaders, buildSafeRoutePath, fetchSafeRoute, normalizeAppRoutePath } from '@/utils/security';
+import { buildAuthHeaders, fetchSafeRoute, normalizeAppRoutePath, getLocalText } from '@/utils/security';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -123,7 +114,7 @@ export default function Sidebar({
         }
 
         let employeeId = 'SYSTEM';
-        const userDataStr = localStorage.getItem('user_data');
+        const userDataStr = getLocalText('user_data');
         if (userDataStr) {
           try {
             const userData = JSON.parse(userDataStr);
@@ -147,7 +138,7 @@ export default function Sidebar({
         // Fetch inbox count
         let inboxCount = 0;
         try {
-          const countRes = await fetch(buildSafeRoutePath('documentsInboxCount', { employeeId }), {
+          const countRes = await fetchSafeRoute('documentsInboxCount', { employeeId }, {
             headers: buildAuthHeaders(token || undefined)
           });
           if (countRes.ok) {

@@ -3,6 +3,12 @@ const isUnsafeHeaderChar = (char: string): boolean => {
   return code < 32 || code === 127;
 };
 
+export type SafeApiPath = string & { readonly __safeApiPath: unique symbol };
+export type SafeApiUrl = string & { readonly __safeApiUrl: unique symbol };
+export type SafeAppRoutePath = string & { readonly __safeAppRoutePath: unique symbol };
+
+const API_QUERY_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
+
 export const toSafeHeaderValue = (value: unknown): string => {
   return String(value ?? '').split('').filter((char) => !isUnsafeHeaderChar(char)).join('').trim();
 };
@@ -42,7 +48,7 @@ export const getSafeWindowOrigin = (): string | undefined => {
   return normalizeApiBaseUrl(`${protocol}//${hostname}${safePort ? `:${safePort}` : ''}`);
 };
 
-export const normalizeApiBaseUrl = (baseUrl: string): string => {
+export const normalizeApiBaseUrl = (baseUrl: string): SafeApiUrl | '' => {
   const trimmed = String(baseUrl || '').trim().replace(/^['"]|['"]$/g, '').replace(/\/+$/g, '');
   if (!trimmed) return '';
   const parsed = new URL(trimmed);
@@ -52,64 +58,155 @@ export const normalizeApiBaseUrl = (baseUrl: string): string => {
   if (parsed.username || parsed.password || parsed.hash) {
     throw new Error('Unsupported API base URL parts');
   }
-  return parsed.toString().replace(/\/+$/g, '');
+  return parsed.toString().replace(/\/+$/g, '') as SafeApiUrl;
 };
 
-export const normalizeApiPath = (path: string): string => {
+const normalizeApiSearchParams = (search: URLSearchParams | string): string => {
+  const params = typeof search === 'string'
+    ? new URLSearchParams(search.replace(/^\?/, ''))
+    : search;
+  const safeSearch = new URLSearchParams();
+
+  params.forEach((value, key) => {
+    if (!API_QUERY_KEY_PATTERN.test(key) || key.split('').some(isUnsafeHeaderChar)) {
+      throw new Error('Unsupported API query key');
+    }
+    if (String(value).split('').some(isUnsafeHeaderChar)) {
+      throw new Error('Unsupported API query value');
+    }
+    safeSearch.append(key, value);
+  });
+
+  return safeSearch.toString();
+};
+
+const getApiOrigin = (baseUrl: string): string => {
+  const safeBase = normalizeApiBaseUrl(baseUrl);
+  return safeBase ? new URL(safeBase).origin : '';
+};
+
+const getAllowedApiOrigins = (): Set<string> => {
+  const origins = new Set<string>();
+  [
+    process.env.NEXT_PUBLIC_BACKEND_URL || '',
+    process.env.BACKEND_URL || '',
+    'http://localhost:5000',
+  ].forEach((candidate) => {
+    try {
+      const origin = getApiOrigin(candidate);
+      if (origin) origins.add(origin);
+    } catch {
+      // Ignore invalid optional configuration.
+    }
+  });
+
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location;
+    origins.add(window.location.origin);
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      origins.add(`${protocol}//${hostname}:5000`);
+    }
+  }
+
+  return origins;
+};
+
+const assertAllowedApiUrl = (url: URL): void => {
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Unsupported API URL protocol');
+  }
+  if (url.username || url.password || url.hash) {
+    throw new Error('Unsupported API URL parts');
+  }
+  if (!getAllowedApiOrigins().has(url.origin)) {
+    throw new Error('Unsupported API URL origin');
+  }
+};
+
+export const normalizeApiPath = (path: string): SafeApiPath => {
   const trimmed = String(path || '').trim();
-  if (trimmed.includes('..') || trimmed.split('').some(isUnsafeHeaderChar)) {
+  if (trimmed.split('').some(isUnsafeHeaderChar) || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(trimmed) || trimmed.startsWith('//')) {
     throw new Error('Unsupported API path');
   }
-  if (!trimmed.startsWith('/api/') && !trimmed.startsWith('/uploads/')) {
+
+  const parsed = new URL(trimmed, 'http://app.local');
+  if (parsed.origin !== 'http://app.local' || parsed.hash) {
     throw new Error('Unsupported API path');
   }
-  return trimmed;
+
+  let decodedPath = parsed.pathname;
+  try {
+    decodedPath = decodeURIComponent(parsed.pathname);
+  } catch {
+    throw new Error('Unsupported API path');
+  }
+
+  if (decodedPath.includes('..') || decodedPath.includes('\\')) {
+    throw new Error('Unsupported API path');
+  }
+  if (!parsed.pathname.startsWith('/api/') && !parsed.pathname.startsWith('/uploads/')) {
+    throw new Error('Unsupported API path');
+  }
+
+  const query = normalizeApiSearchParams(parsed.searchParams);
+  return `${parsed.pathname}${query ? `?${query}` : ''}` as SafeApiPath;
 };
 
-export const buildApiUrl = (baseUrl: string, path: string): string => {
+export const buildApiUrl = (baseUrl: string, path: string): SafeApiPath | SafeApiUrl => {
   const safePath = normalizeApiPath(path);
   const safeBase = normalizeApiBaseUrl(baseUrl);
-  return safeBase ? `${safeBase}${safePath}` : safePath;
+  if (!safeBase) return safePath;
+  const apiUrl = new URL(safePath, safeBase);
+  assertAllowedApiUrl(apiUrl);
+  return apiUrl.toString() as SafeApiUrl;
 };
 
-export const buildApiPath = (path: string, params?: Record<string, string | number | boolean | null | undefined>): string => {
-  const safePath = normalizeApiPath(path);
-  if (!params) return safePath;
-
+const appendSafeApiQuery = (
+  path: SafeApiPath,
+  params?: Record<string, string | number | boolean | null | undefined>
+): SafeApiPath => {
+  if (!params) return path;
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
+    if (!API_QUERY_KEY_PATTERN.test(key)) {
+      throw new Error('Unsupported API query key');
+    }
     if (value !== null && value !== undefined) search.set(key, String(value));
   });
   const query = search.toString();
-  return query ? `${safePath}?${query}` : safePath;
+  return (query ? `${path}?${query}` : path) as SafeApiPath;
 };
 
-export const buildApiPathFromSearch = (path: string, search: URLSearchParams | string): string => {
+export const buildApiPath = (path: string, params?: Record<string, string | number | boolean | null | undefined>): SafeApiPath => {
   const safePath = normalizeApiPath(path);
-  const query = typeof search === 'string'
-    ? new URLSearchParams(search.replace(/^\?/, '')).toString()
-    : search.toString();
-  return query ? `${safePath}?${query}` : safePath;
+  return appendSafeApiQuery(safePath, params);
 };
 
-export const normalizeAppRoutePath = (path: unknown, fallback = '#'): string => {
+export const buildApiPathFromSearch = (path: string, search: URLSearchParams | string): SafeApiPath => {
+  const safePath = normalizeApiPath(path);
+  const query = normalizeApiSearchParams(search);
+  return (query ? `${safePath}?${query}` : safePath) as SafeApiPath;
+};
+
+export const normalizeAppRoutePath = (path: unknown, fallback = '#'): SafeAppRoutePath => {
   const rawPath = String(path || '').trim();
-  if (!rawPath || rawPath === '#') return fallback;
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(rawPath) || rawPath.startsWith('//')) return fallback;
-  if (rawPath.includes('..') || rawPath.includes('\\') || rawPath.split('').some(isUnsafeHeaderChar)) return fallback;
-  if (/^#[A-Za-z0-9_-]+$/.test(rawPath)) return rawPath;
+  const safeFallback = fallback as SafeAppRoutePath;
+  if (!rawPath || rawPath === '#') return safeFallback;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(rawPath) || rawPath.startsWith('//')) return safeFallback;
+  if (rawPath.includes('..') || rawPath.includes('\\') || rawPath.split('').some(isUnsafeHeaderChar)) return safeFallback;
+  if (/^#[A-Za-z0-9_-]+$/.test(rawPath)) return rawPath as SafeAppRoutePath;
 
   const normalized = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
   const [pathOnly] = normalized.split(/[?#]/, 1);
-  if (!/^\/[A-Za-z0-9/_~.-]*$/.test(pathOnly)) return fallback;
+  if (!/^\/[A-Za-z0-9/_~.-]*$/.test(pathOnly)) return safeFallback;
 
   try {
     const url = new URL(normalized, 'http://app.local');
-    if (url.origin !== 'http://app.local') return fallback;
-    if (!/^\/[A-Za-z0-9/_~.-]*$/.test(url.pathname)) return fallback;
-    return `${url.pathname}${url.search}${url.hash}`;
+    if (url.origin !== 'http://app.local') return safeFallback;
+    if (!/^\/[A-Za-z0-9/_~.-]*$/.test(url.pathname)) return safeFallback;
+    return `${url.pathname}${url.search}${url.hash}` as SafeAppRoutePath;
   } catch {
-    return fallback;
+    return safeFallback;
   }
 };
 
@@ -190,47 +287,47 @@ export const toSafePathSegment = (value: unknown): string => {
 export const buildSafeRoutePath = (
   key: SafeRouteKey,
   params?: Record<string, string | number | boolean | null | undefined>
-): string => buildApiPath(SAFE_ROUTE_PATHS[key], params);
+): SafeApiPath => buildApiPath(SAFE_ROUTE_PATHS[key], params);
 
-export const buildSafeRoutePathFromSearch = (key: SafeRouteKey, search: URLSearchParams | string): string => {
+export const buildSafeRoutePathFromSearch = (key: SafeRouteKey, search: URLSearchParams | string): SafeApiPath => {
   return buildApiPathFromSearch(SAFE_ROUTE_PATHS[key], search);
 };
 
 export const buildDocumentDetailPath = (
   documentNo: unknown,
   params?: Record<string, string | number | boolean | null | undefined>
-): string => buildApiPath(`/api/documents/${toSafePathSegment(documentNo)}`, params);
+): SafeApiPath => buildApiPath(`/api/documents/${toSafePathSegment(documentNo)}`, params);
 
 export const buildReturnHistoryPath = (
   documentNo: unknown,
   params?: Record<string, string | number | boolean | null | undefined>
-): string => buildApiPath(`/api/transactions/return-history/${toSafePathSegment(documentNo)}`, params);
+): SafeApiPath => buildApiPath(`/api/transactions/return-history/${toSafePathSegment(documentNo)}`, params);
 
 export const buildTransactionDraftPath = (
   transactionNo: unknown,
   params?: Record<string, string | number | boolean | null | undefined>
-): string => buildApiPath(`/api/transactions/draft/${toSafePathSegment(transactionNo)}`, params);
+): SafeApiPath => buildApiPath(`/api/transactions/draft/${toSafePathSegment(transactionNo)}`, params);
 
 export const buildMenuSubmenuPath = (
   menuKey: unknown,
   params?: Record<string, string | number | boolean | null | undefined>
-): string => buildApiPath(`/api/menu/submenu/${toSafePathSegment(menuKey)}`, params);
+): SafeApiPath => buildApiPath(`/api/menu/submenu/${toSafePathSegment(menuKey)}`, params);
 
 export const buildMkdPath = (
   mkdId: unknown,
   suffix: 'details' | 'dashboard' | 'dashboard/rate' | 'flow-history',
   params?: Record<string, string | number | boolean | null | undefined>
-): string => buildApiPath(`/api/mkd/${toSafePathSegment(mkdId)}/${suffix}`, params);
+): SafeApiPath => buildApiPath(`/api/mkd/${toSafePathSegment(mkdId)}/${suffix}`, params);
 
-export const buildMkdFilePath = (mkdId: unknown, fileName: unknown): string => {
+export const buildMkdFilePath = (mkdId: unknown, fileName: unknown): SafeApiPath => {
   return buildApiPath(`/api/mkd/${toSafePathSegment(mkdId)}/files/${toSafePathSegment(fileName)}`);
 };
 
-export const buildPirFilePath = (effectiveYear: unknown, fileName: unknown): string => {
+export const buildPirFilePath = (effectiveYear: unknown, fileName: unknown): SafeApiPath => {
   return buildApiPath(`/api/pir/file/download/${toSafePathSegment(effectiveYear)}/${toSafePathSegment(fileName)}`);
 };
 
-export const buildFilesProxyPath = (folder: unknown, fileName: unknown): string => {
+export const buildFilesProxyPath = (folder: unknown, fileName: unknown): SafeApiPath => {
   const proxyPath = `${String(toSafePathSegment(folder))}/${String(toSafePathSegment(fileName))}`;
   return buildApiPath('/api/files-proxy', { path: proxyPath });
 };
@@ -238,9 +335,9 @@ export const buildFilesProxyPath = (folder: unknown, fileName: unknown): string 
 export const buildUserOtherPath = (
   employeeId: unknown,
   params?: Record<string, string | number | boolean | null | undefined>
-): string => buildApiPath(`/api/users/other/${toSafePathSegment(employeeId)}`, params);
+): SafeApiPath => buildApiPath(`/api/users/other/${toSafePathSegment(employeeId)}`, params);
 
-export const openSafeApiPath = (path: string): void => {
+export const openSafeApiPath = (path: string | SafeApiPath): void => {
   if (typeof window === 'undefined') return;
   const safePath = normalizeApiPath(path);
   const link = document.createElement('a');
@@ -252,7 +349,7 @@ export const openSafeApiPath = (path: string): void => {
   link.remove();
 };
 
-export const buildApiFileHref = (filePath: string): string => {
+export const buildApiFileHref = (filePath: string): SafeApiPath | '' => {
   const rawPath = String(filePath || '').trim();
   if (!rawPath || rawPath.includes('..') || rawPath.split('').some(isUnsafeHeaderChar)) {
     return '';
@@ -270,8 +367,15 @@ export const buildApiFileHref = (filePath: string): string => {
   return normalizeApiPath(`/api/${normalized}`);
 };
 
-export const fetchApi = (baseUrl: string, path: string, options?: RequestInit): Promise<Response> => {
-  return fetch(buildApiUrl(baseUrl, path), options);
+export const fetchApi = (baseUrl: string, path: string | SafeApiPath, options?: RequestInit): Promise<Response> => {
+  const safeUrl = buildApiUrl(baseUrl, path);
+  return fetch(new Request(safeUrl, options));
+};
+
+export const fetchSafeApiPath = (path: string | SafeApiPath, options?: RequestInit): Promise<Response> => {
+  const trimmedPath = String(path || '').trim();
+  const safePath = normalizeApiPath(trimmedPath);
+  return fetch(new Request(safePath, options));
 };
 
 export const fetchSafeRoute = (
@@ -279,7 +383,56 @@ export const fetchSafeRoute = (
   params?: Record<string, string | number | boolean | null | undefined>,
   options?: RequestInit
 ): Promise<Response> => {
-  return fetch(buildSafeRoutePath(key, params), options);
+  return fetchSafeApiPath(buildSafeRoutePath(key, params), options);
+};
+
+export const fetchSafeRouteFromSearch = (
+  key: SafeRouteKey,
+  search: URLSearchParams | string,
+  options?: RequestInit
+): Promise<Response> => {
+  return fetchSafeApiPath(buildSafeRoutePathFromSearch(key, search), options);
+};
+
+export const fetchDocumentDetail = (
+  documentNo: unknown,
+  params?: Record<string, string | number | boolean | null | undefined>,
+  options?: RequestInit
+): Promise<Response> => {
+  return fetchSafeApiPath(buildDocumentDetailPath(documentNo, params), options);
+};
+
+export const fetchReturnHistory = (
+  documentNo: unknown,
+  params?: Record<string, string | number | boolean | null | undefined>,
+  options?: RequestInit
+): Promise<Response> => {
+  return fetchSafeApiPath(buildReturnHistoryPath(documentNo, params), options);
+};
+
+export const fetchTransactionDraft = (
+  transactionNo: unknown,
+  params?: Record<string, string | number | boolean | null | undefined>,
+  options?: RequestInit
+): Promise<Response> => {
+  return fetchSafeApiPath(buildTransactionDraftPath(transactionNo, params), options);
+};
+
+export const fetchMenuSubmenu = (
+  menuKey: unknown,
+  params?: Record<string, string | number | boolean | null | undefined>,
+  options?: RequestInit
+): Promise<Response> => {
+  return fetchSafeApiPath(buildMenuSubmenuPath(menuKey, params), options);
+};
+
+export const fetchMkd = (
+  mkdId: unknown,
+  suffix: 'details' | 'dashboard' | 'dashboard/rate' | 'flow-history',
+  params?: Record<string, string | number | boolean | null | undefined>,
+  options?: RequestInit
+): Promise<Response> => {
+  return fetchSafeApiPath(buildMkdPath(mkdId, suffix, params), options);
 };
 
 export const postSafeRouteJson = (
@@ -322,8 +475,12 @@ const LOCAL_TEXT_KEYS = new Set([
 ]);
 
 const LOCAL_JSON_KEYS = new Set(['user_data']);
+const SESSION_ONLY_KEYS = new Set(['auth_token', 'user_data']);
 const SESSION_JSON_KEY_PATTERN = /^user_units_cache:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/;
 const SESSION_JSON_STORAGE_KEY = 'user_units_cache';
+const LOCAL_REMOVED_PREFIX = 'removed_local_value:';
+
+const getRemovedLocalValueKey = (key: string): string => `${LOCAL_REMOVED_PREFIX}${key}`;
 
 const readSessionJsonCache = (): Record<string, unknown> => {
   if (typeof window === 'undefined') return {};
@@ -361,50 +518,27 @@ export const setLocalText = (key: string, value: unknown): void => {
   const safeKey = String(key || '').trim();
   if (!LOCAL_TEXT_KEYS.has(safeKey)) return;
   const safeValue = toSafeHeaderValue(value);
-  switch (safeKey) {
-    case 'auth_token':
-      localStorage.setItem('auth_token', safeValue);
-      break;
-    case 'StartYear':
-      localStorage.setItem('StartYear', safeValue);
-      break;
-    case 'selected_usergroup':
-      localStorage.setItem('selected_usergroup', safeValue);
-      break;
-    case 'selected_usergroup_role':
-      localStorage.setItem('selected_usergroup_role', safeValue);
-      break;
-    case 'selected_subject_id':
-      localStorage.setItem('selected_subject_id', safeValue);
-      break;
-    case 'selected_subject_name':
-      localStorage.setItem('selected_subject_name', safeValue);
-      break;
-    case 'selected_subject_path':
-      localStorage.setItem('selected_subject_path', safeValue);
-      break;
-    case 'mkd_historyapprove_year':
-      localStorage.setItem('mkd_historyapprove_year', safeValue);
-      break;
-    case 'mkd_historyapprove_unit':
-      localStorage.setItem('mkd_historyapprove_unit', safeValue);
-      break;
-    case 'mkd_historyapprove_status':
-      localStorage.setItem('mkd_historyapprove_status', safeValue);
-      break;
-    case 'mkd_history_year':
-      localStorage.setItem('mkd_history_year', safeValue);
-      break;
-    case 'mkd_history_status':
-      localStorage.setItem('mkd_history_status', safeValue);
-      break;
-    case 'mkd_historyrecord_year':
-      localStorage.setItem('mkd_historyrecord_year', safeValue);
-      break;
-    case 'mkd_historyrecord_status':
-      localStorage.setItem('mkd_historyrecord_status', safeValue);
-      break;
-  }
+  sessionStorage.removeItem(getRemovedLocalValueKey(safeKey));
+  sessionStorage.setItem(safeKey, safeValue);
+};
+
+export const getLocalText = (key: string): string => {
+  if (typeof window === 'undefined') return '';
+  const safeKey = String(key || '').trim();
+  if (!LOCAL_TEXT_KEYS.has(safeKey) && !LOCAL_JSON_KEYS.has(safeKey)) return '';
+  const sessionValue = sessionStorage.getItem(safeKey);
+  if (sessionValue !== null) return sessionValue;
+  if (sessionStorage.getItem(getRemovedLocalValueKey(safeKey)) === '1') return '';
+  if (SESSION_ONLY_KEYS.has(safeKey)) return '';
+  return localStorage.getItem(safeKey) || '';
+};
+
+export const removeLocalValue = (key: string): void => {
+  if (typeof window === 'undefined') return;
+  const safeKey = String(key || '').trim();
+  if (!LOCAL_TEXT_KEYS.has(safeKey) && !LOCAL_JSON_KEYS.has(safeKey)) return;
+  sessionStorage.removeItem(safeKey);
+  sessionStorage.setItem(getRemovedLocalValueKey(safeKey), '1');
 };
 
 export const setLocalJson = (key: string, value: unknown): void => {
@@ -412,6 +546,17 @@ export const setLocalJson = (key: string, value: unknown): void => {
   const safeKey = String(key || '').trim();
   if (!LOCAL_JSON_KEYS.has(safeKey)) return;
   if (safeKey === 'user_data') {
-    localStorage.setItem('user_data', JSON.stringify(value));
+    sessionStorage.removeItem(getRemovedLocalValueKey(safeKey));
+    sessionStorage.setItem('user_data', JSON.stringify(value));
+  }
+};
+
+export const getLocalJson = <T = unknown>(key: string): T | null => {
+  const raw = getLocalText(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
   }
 };

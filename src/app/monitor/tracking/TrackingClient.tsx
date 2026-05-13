@@ -1,5 +1,6 @@
 'use client';
 
+import { getLocalText } from '@/utils/security';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Table, Button, Input, Select, Modal, Card, Typography, Tag, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -177,7 +178,7 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
     const isActiveGroupHrVerify = useMemo(() => {
         const activeGroupNo = normalizeGroupNo(activeUserGroupNo);
         const selectedGroupRole = typeof window !== 'undefined'
-            ? toText(localStorage.getItem('selected_usergroup_role'))
+            ? toText(getLocalText('selected_usergroup_role'))
             : '';
         const currentGroupRole = toText(
             currentUser?.userGroups?.find((group) => toText(group.userGroupNo) === activeUserGroupNo)?.userGroupRole
@@ -191,7 +192,7 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
     const isActiveGroupHrPolicy = useMemo(() => {
         const activeGroupNo = normalizeGroupNo(activeUserGroupNo);
         const selectedGroupRole = typeof window !== 'undefined'
-            ? toText(localStorage.getItem('selected_usergroup_role'))
+            ? toText(getLocalText('selected_usergroup_role'))
             : '';
         const currentGroupRole = toText(
             currentUser?.userGroups?.find((group) => toText(group.userGroupNo) === activeUserGroupNo)?.userGroupRole
@@ -214,7 +215,7 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
     const resolveUserGroupNo = useCallback(() => {
         if (typeof window === 'undefined') return '';
 
-        const selectedUserGroup = localStorage.getItem('selected_usergroup')?.trim();
+        const selectedUserGroup = getLocalText('selected_usergroup')?.trim();
         if (selectedUserGroup) return selectedUserGroup;
 
         const userGroupFromCurrent = currentUser?.userGroupNo?.trim();
@@ -226,7 +227,7 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
         }
 
         try {
-            const rawUserData = localStorage.getItem('user_data');
+            const rawUserData = getLocalText('user_data');
             if (rawUserData) {
                 const parsed = JSON.parse(rawUserData) as { userGroupNo?: string; roleId?: string; role?: string };
                 const groupNo = (parsed.userGroupNo || parsed.roleId || parsed.role || '').trim();
@@ -246,7 +247,7 @@ export default function TrackingClient({ token, currentUser, initialMonth, initi
 
         if (typeof window === 'undefined') return '';
         try {
-            const rawUserData = localStorage.getItem('user_data');
+            const rawUserData = getLocalText('user_data');
             if (rawUserData) {
                 const parsed = JSON.parse(rawUserData) as { employeeID?: string };
                 return (parsed.employeeID || '').trim();

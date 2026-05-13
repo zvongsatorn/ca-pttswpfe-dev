@@ -1,5 +1,6 @@
 'use client';
 
+import { getLocalText } from '@/utils/security';
 import React, { useState, useCallback, useEffect } from 'react';
 import { Select, Button, App, Card, Divider } from 'antd';
 import { Users, Copy, ArrowRight } from 'lucide-react';
@@ -9,7 +10,7 @@ import { fetchUserGroups, fetchUserGroupMembers, copyOrgRights } from '@/service
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 function normalizeCode(value: string | number | null | undefined, length: number): string {
@@ -40,6 +41,7 @@ function CopyrightContent() {
     const { notification, modal, message } = App.useApp();
     const token = getToken();
     const currentUser = getUserFromToken();
+    const currentUserGroupNo = currentUser?.userGroups?.[0]?.userGroupNo || '';
 
     const [userGroups, setUserGroups] = useState<{ value: string; label: string }[]>([]);
     const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
@@ -55,8 +57,7 @@ function CopyrightContent() {
             if (Array.isArray(groupsRes)) {
                 const groups = groupsRes as UserGroupApiRow[];
                 let filtered = groups;
-                const userGroupNo = currentUser?.userGroups?.[0]?.userGroupNo || '';
-                if (userGroupNo === "07") {
+                if (currentUserGroupNo === "07") {
                     filtered = groups.filter((g) => g.userGroupNo !== '04' && g.userGroupNo !== '01');
                 }
                 setUserGroups(filtered.map((g) => ({
@@ -66,7 +67,7 @@ function CopyrightContent() {
             }
         };
         fetchGroups();
-    }, [token]);
+    }, [token, currentUserGroupNo]);
 
     const handleGroupChange = useCallback(async (value: string) => {
         const groupNo = normalizeCode(value, 2);

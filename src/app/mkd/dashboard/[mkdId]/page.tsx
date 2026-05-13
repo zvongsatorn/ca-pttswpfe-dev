@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FileSpreadsheet, Edit2, Save, X } from "lucide-react";
 import { toast } from "sonner";
-import { buildMkdPath } from '@/utils/security';
+import { fetchMkd } from '@/utils/security';
 
 export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: string }> }) {
   const { mkdId } = React.use(params);
@@ -72,8 +72,8 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
       try {
         setIsLoading(true);
         const [detailRes, dashRes] = await Promise.all([
-          fetch(buildMkdPath(mkdId, 'details')).then(r => r.json()),
-          fetch(buildMkdPath(mkdId, 'dashboard')).then(r => r.json())
+          fetchMkd(mkdId, 'details').then(r => r.json()),
+          fetchMkd(mkdId, 'dashboard').then(r => r.json())
         ]);
 
         let currentEffYear = 0;
@@ -178,7 +178,7 @@ export default function MKDDashboardPage({ params }: { params: Promise<{ mkdId: 
               year: year.toString(),
               amount: Number(amount)
           }));
-          const res = await fetch(buildMkdPath(mkdId, 'dashboard/rate'), {
+          const res = await fetchMkd(mkdId, 'dashboard/rate', undefined, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ data: payload })

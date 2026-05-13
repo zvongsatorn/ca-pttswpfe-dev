@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiFileHref, buildDocumentDetailPath, buildSafeRoutePath, postSafeRouteJson, toSafeDisplayText, type SafeRouteKey } from '@/utils/security';
+import { buildApiFileHref, postSafeRouteJson, toSafeDisplayText, type SafeRouteKey, getLocalText, fetchSafeRoute, fetchDocumentDetail, openSafeApiPath } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,7 +19,7 @@ import {
   ArrowRight,
   File as FileIcon,
 } from 'lucide-react';
-import { useState, useEffect, useRef, useSyncExternalStore, useMemo } from 'react';
+import { useCallback, useState, useEffect, useRef, useSyncExternalStore, useMemo } from 'react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/th';
 import buddhistEra from 'dayjs/plugin/buddhistEra';
@@ -33,7 +33,7 @@ const getYears = () => {
     return [endYear.toString(), currentYear.toString()];
   }
 
-  const startYearStr = localStorage.getItem('StartYear') || '';
+  const startYearStr = getLocalText('StartYear') || '';
   const parsedStartYear = Number.parseInt(startYearStr, 10);
   const startYear = Number.isInteger(parsedStartYear) ? parsedStartYear : currentYear - 5;
   const years: string[] = [];
@@ -107,8 +107,6 @@ interface TransactionProgressItem {
   items: TransactionDetail[];
   logs: ApprovalLogItem[];
 }
-
-
 
 interface FilterOption {
   value: string;
@@ -310,7 +308,6 @@ export default function TransactionProgressPage() {
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
   const [selectedAgencies, setSelectedAgencies] = useState<string[]>([]);
 
-
   // Column Filter States
   const [filterInbox, setFilterInbox] = useState('');
   const [filterCat, setFilterCat] = useState('');
@@ -414,7 +411,6 @@ export default function TransactionProgressPage() {
       return normalized ? selected.has(normalized) : false;
     });
   };
-
 
   const businessUnitOptions = useMemo(() => {
     return uniqueOptions(
@@ -567,12 +563,12 @@ export default function TransactionProgressPage() {
     let employeeId = 'SYSTEM';
     let userGroupNo = '';
     let employeeName = '';
-    const userDataStr = localStorage.getItem('user_data');
+    const userDataStr = getLocalText('user_data');
     if (userDataStr) {
       try {
         const userData = JSON.parse(userDataStr);
         employeeId = userData.employeeID || 'SYSTEM';
-        userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
+        userGroupNo = getLocalText('selected_usergroup') || userData.roleId || '';
         employeeName = String(userData.name || userData.fullName || userData.Fullname || '').trim();
       } catch { /* ignore */ }
     }
@@ -581,16 +577,7 @@ export default function TransactionProgressPage() {
   const getEmployeeId = () => getUserContext().employeeId;
   const canRejectBySelectedGroup = selectedHeaderGroupNo === '04' || selectedHeaderGroupRole.includes('HRPOLICY');
 
-  const toEffectiveDateParam = () => {
-    const monthIndex = months.indexOf(appliedMonth);
-    const month = monthIndex >= 0 ? monthIndex + 1 : new Date().getMonth() + 1;
-    const yearRaw = Number.parseInt(String(appliedYear || '').trim(), 10);
-    const currentAdYear = new Date().getFullYear();
-    const adYear = Number.isInteger(yearRaw) ? (yearRaw > 2400 ? yearRaw - 543 : yearRaw) : currentAdYear;
-    return `${adYear}-${String(month).padStart(2, '0')}-01`;
-  };
-
-  const fetchProgress = async () => {
+  const fetchProgress = useCallback(async () => {
     setIsLoading(true);
     try {
       const { employeeId } = getUserContext();
@@ -661,7 +648,7 @@ export default function TransactionProgressPage() {
       };
 
       const fetchDocs = async (routeKey: SafeRouteKey): Promise<APIDocumentSummary[] | null> => {
-        const res = await fetch(buildSafeRoutePath(routeKey, { employeeId }));
+        const res = await fetchSafeRoute(routeKey, { employeeId });
         if (!res.ok) return null;
         const json = await res.json();
         return Array.isArray(json?.data) ? (json.data as APIDocumentSummary[]) : [];
@@ -705,17 +692,18 @@ export default function TransactionProgressPage() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-
-  useEffect(() => {
-    fetchProgress();
+  // Initial-load callback intentionally reads the latest browser storage when invoked.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    fetchProgress();
+  }, [fetchProgress]);
+
+  useEffect(() => {
     const readSelectedHeaderGroup = () => {
-      setSelectedHeaderGroupNo((localStorage.getItem('selected_usergroup') || '').trim());
-      setSelectedHeaderGroupRole(normalizeGroupRole(localStorage.getItem('selected_usergroup_role')));
+      setSelectedHeaderGroupNo((getLocalText('selected_usergroup') || '').trim());
+      setSelectedHeaderGroupRole(normalizeGroupRole(getLocalText('selected_usergroup_role')));
     };
 
     readSelectedHeaderGroup();
@@ -762,8 +750,6 @@ export default function TransactionProgressPage() {
       setItemRejectRemark('');
     }
   }, [canRejectBySelectedGroup, isRejectModalOpen, isItemRejectModalOpen]);
-
-
 
   // ============================================================================
   // 3. HELPERS & HANDLERS
@@ -827,7 +813,7 @@ export default function TransactionProgressPage() {
   };
   const fetchRejectableItemOptions = async (documentNo: string): Promise<RejectableItemOption[]> => {
     const employeeId = getEmployeeId();
-    const res = await fetch(buildDocumentDetailPath(documentNo, { employeeId }));
+    const res = await fetchDocumentDetail(documentNo, { employeeId });
     if (!res.ok) return [];
     const detailJson = await res.json().catch(() => null);
     if (!detailJson?.data) return [];
@@ -902,7 +888,7 @@ export default function TransactionProgressPage() {
 
     try {
       const employeeId = getEmployeeId();
-      const res = await fetch(buildDocumentDetailPath(item.id, { employeeId }));
+      const res = await fetchDocumentDetail(item.id, { employeeId });
       if (res.ok) {
         const detailJson = await res.json();
         if (detailJson.data) {
@@ -1593,6 +1579,10 @@ export default function TransactionProgressPage() {
                                         const showRejectReasonText = !!rejectReasonDisplay && !/^Rejected by\b/i.test(rejectReasonDisplay);
                                         const typeLabel = toSafeDisplayText(item.typeLabel);
                                         const description = toSafeDisplayText(item.description);
+                                        const remark = toSafeDisplayText(item.remark);
+                                        const rejectedBy = toSafeDisplayText(item.rejectedBy);
+                                        const rejectedRole = toSafeDisplayText(item.rejectedRole);
+                                        const rejectedAt = toSafeDisplayText(item.rejectedAt);
                                         return (
                                         <tr key={`${item.id}-${itemIndex}`} className="hover:bg-gray-50 transition-colors">
                                             <td className="p-4 align-top">
@@ -1605,9 +1595,9 @@ export default function TransactionProgressPage() {
                                                     <div className="text-xs text-blue-600 font-bold mb-0.5">[{item.id}]</div>
                                                     {description}
                                                 </div>
-                                                {item.remark && item.remark !== '-' && (
+                                                {remark && remark !== '-' && (
                                                     <div className="text-xs text-gray-500 p-0 rounded inline-block">
-                                                        <span className="font-bold mr-1 text-gray-500">หมายเหตุ:</span> {item.remark}
+                                                        <span className="font-bold mr-1 text-gray-500">หมายเหตุ:</span> {remark}
                                                     </div>
                                                 )}
                                                 {item.rejectionReason && (
@@ -1617,11 +1607,11 @@ export default function TransactionProgressPage() {
                                                           {showRejectReasonText && (
                                                             <span><b>Reject Reason:</b> {rejectReasonDisplay}</span>
                                                           )}
-                                                          {(item.rejectedBy || item.rejectedRole || item.rejectedAt) && (
+                                                          {(rejectedBy || rejectedRole || rejectedAt) && (
                                                             <span className={`${showRejectReasonText ? 'mt-1' : ''} block space-y-1 text-[11px] text-red-800`}>
-                                                              {item.rejectedBy && <span className="block"><b>Rejected By:</b> {item.rejectedBy}</span>}
-                                                              {item.rejectedRole && <span className="block"><b>Role:</b> {item.rejectedRole}</span>}
-                                                              {item.rejectedAt && <span className="block"><b>Rejected At:</b> {item.rejectedAt}</span>}
+                                                              {rejectedBy && <span className="block"><b>Rejected By:</b> {rejectedBy}</span>}
+                                                              {rejectedRole && <span className="block"><b>Role:</b> {rejectedRole}</span>}
+                                                              {rejectedAt && <span className="block"><b>Rejected At:</b> {rejectedAt}</span>}
                                                             </span>
                                                           )}
                                                         </span>
@@ -1629,10 +1619,10 @@ export default function TransactionProgressPage() {
                                                 )}
                                             </td>
                                             <td className="p-4 text-center align-top">
-                                                {item.hasFile && item.fileUrl ? (
-                                                    <a href={buildApiFileHref(item.fileUrl)} target="_blank" rel="noopener noreferrer" className="inline-block p-2 hover:bg-blue-100 rounded-full text-blue-600 transition-colors">
+                                                {item.hasFile && item.fileUrl && buildApiFileHref(item.fileUrl) ? (
+                                                    <button type="button" onClick={() => openSafeApiPath(buildApiFileHref(item.fileUrl || ''))} className="inline-block p-2 hover:bg-blue-100 rounded-full text-blue-600 transition-colors">
                                                         <FileIcon size={18} />
-                                                    </a>
+                                                    </button>
                                                 ) : item.hasFile ? (
                                                     <button className="p-2 hover:bg-blue-100 rounded-full text-blue-600 transition-colors"><FileIcon size={18} /></button>
                                                 ) : <span className="text-gray-300">-</span>}

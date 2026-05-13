@@ -19,7 +19,7 @@ import { useMsal } from '@azure/msal-react';
 import { loginRequest } from '@/lib/msalConfig';
 import { b2cInstance, b2cLoginRequest } from '@/lib/msalB2CConfig';
 import type { RedirectRequest } from '@azure/msal-browser';
-import { buildAuthHeaders, buildSafeRoutePath, fetchSafeRoute, isSecureSubmissionContext, postSafeRouteJson, setAuthCookie, setLocalJson, setLocalText, setSessionJson } from '@/utils/security';
+import { buildAuthHeaders, fetchSafeRoute, isSecureSubmissionContext, postSafeRouteJson, setAuthCookie, setLocalJson, setLocalText, setSessionJson, getLocalText } from '@/utils/security';
 
 const toText = (value: unknown): string => String(value ?? '').trim();
 
@@ -67,7 +67,7 @@ const resolveDefaultRole = (userData: Record<string, unknown>): string => {
     .map((group) => normalizeGroupNo(toText(group.userGroupNo)))
     .filter(Boolean);
 
-  const selectedGroup = normalizeGroupNo(toText(localStorage.getItem('selected_usergroup')));
+  const selectedGroup = normalizeGroupNo(toText(getLocalText('selected_usergroup')));
   if (selectedGroup && (groupNos.length === 0 || groupNos.includes(selectedGroup))) return selectedGroup;
 
   const directGroup = normalizeGroupNo(toText(userData.userGroupNo));
@@ -167,7 +167,7 @@ export default function LoginForm() {
               }
               clearUnitsCacheKeys();
               if (employeeId && defaultRole) {
-                fetch(buildSafeRoutePath('unitsByRole', { empId: employeeId, roleId: defaultRole }), {
+                fetchSafeRoute('unitsByRole', { empId: employeeId, roleId: defaultRole }, {
                   headers: buildAuthHeaders(token)
                 })
                   .then(async (res) => {
@@ -342,7 +342,7 @@ export default function LoginForm() {
           }
           clearUnitsCacheKeys();
           if (employeeId && defaultRole) {
-            fetch(buildSafeRoutePath('unitsByRole', { empId: employeeId, roleId: defaultRole }), {
+            fetchSafeRoute('unitsByRole', { empId: employeeId, roleId: defaultRole }, {
               headers: buildAuthHeaders(token)
             })
               .then(async (res) => {
@@ -393,7 +393,6 @@ export default function LoginForm() {
       handleLogin();
     }
   };
-
 
   return (
     <>

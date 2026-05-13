@@ -1,6 +1,6 @@
 'use client';
 
-import { buildSafeRoutePathFromSearch } from '@/utils/security';
+import { getLocalText, fetchSafeRouteFromSearch } from '@/utils/security';
 import React, { useMemo, useState } from 'react';
 import Main from '@/components/layout/main';
 import { FileText } from 'lucide-react';
@@ -150,8 +150,8 @@ const resolveUserContext = () => {
     let userGroupNo = '';
 
     if (typeof window !== 'undefined') {
-        const selectedGroup = localStorage.getItem('selected_usergroup')?.trim() || '';
-        const userDataStr = localStorage.getItem('user_data');
+        const selectedGroup = getLocalText('selected_usergroup')?.trim() || '';
+        const userDataStr = getLocalText('user_data');
 
         if (userDataStr) {
             try {
@@ -693,7 +693,7 @@ export default function Report10Page() {
             userGroupNo,
         });
 
-        const res = await fetch(buildSafeRoutePathFromSearch('report10', query));
+        const res = await fetchSafeRouteFromSearch('report10', query);
         const payload = await readJsonSafely<Report10SummaryApiResponse>(res);
 
         if (!res.ok || !payload || payload.status !== 200 || !Array.isArray(payload.data)) {
@@ -734,7 +734,7 @@ export default function Report10Page() {
                 userGroupNo,
             });
 
-            const res = await fetch(buildSafeRoutePathFromSearch('report10Excel', query));
+            const res = await fetchSafeRouteFromSearch('report10Excel', query);
             const payload = await readJsonSafely<Report10DetailApiResponse>(res);
 
             if (!res.ok || !payload || payload.status !== 200 || !Array.isArray(payload.data)) {

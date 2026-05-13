@@ -1,6 +1,6 @@
 'use client';
 
-import { buildSafeRoutePath, fetchApi, getLocalDevApiBaseUrl, normalizeApiBaseUrl, openSafeApiPath } from '@/utils/security';
+import { buildSafeRoutePath, fetchApi, getLocalDevApiBaseUrl, normalizeApiBaseUrl, openSafeApiPath, getLocalText, fetchSafeRoute } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -45,7 +45,7 @@ const getBackendBaseUrl = (): string => {
 
 const getYears = () => {
   if (typeof window === 'undefined') return ['2568', '2569'];
-  const startYearStr = localStorage.getItem('StartYear') || '2568';
+  const startYearStr = getLocalText('StartYear') || '2568';
   const startYear = parseInt(startYearStr, 10);
   const currentYear = new Date().getFullYear() + 543;
   const endYear = currentYear + 1;
@@ -95,13 +95,13 @@ const normalizeUserGroupNo = (value: string | null | undefined): string => {
 const getSelectedUserGroupNo = () => {
   if (typeof window === 'undefined') return '';
 
-  const fromSelectedGroup = normalizeUserGroupNo(localStorage.getItem('selected_usergroup'));
+  const fromSelectedGroup = normalizeUserGroupNo(getLocalText('selected_usergroup'));
   if (fromSelectedGroup) return fromSelectedGroup;
 
-  const fromSelectedRole = normalizeUserGroupNo(localStorage.getItem('selected_usergroup_role'));
+  const fromSelectedRole = normalizeUserGroupNo(getLocalText('selected_usergroup_role'));
   if (fromSelectedRole) return fromSelectedRole;
 
-  const userDataRaw = localStorage.getItem('user_data');
+  const userDataRaw = getLocalText('user_data');
   if (userDataRaw) {
     try {
       const userData = JSON.parse(userDataRaw) as {
@@ -216,7 +216,6 @@ interface SendToSapResult {
 }
 
 type SapMinusRow = Record<string, unknown>;
-
 
 const sapTypes = [
   { title: "All", id: "" },
@@ -728,7 +727,7 @@ export default function HRCenterPage() {
       setIsLoading(true);
       try {
         let employeeId = 'SYSTEM';
-        const userDataStr = localStorage.getItem('user_data');
+        const userDataStr = getLocalText('user_data');
         if (userDataStr) {
           try {
             const userData = JSON.parse(userDataStr);
@@ -749,12 +748,10 @@ export default function HRCenterPage() {
         const yearAD = Number(appliedYear) - 543;
         const effectiveDate = `${yearAD}-${String(monthIndex).padStart(2, '0')}-01`;
 
-        const hrcenterPath = buildSafeRoutePath('transactionsHrcenter', { viewMode: viewMode === 'all' ? 'all' : 'department', effectiveMonth: appliedMonth, effectiveYear: appliedYear, employeeId, userGroupNo });
-        const report3Path = buildSafeRoutePath('report3', { effectiveDate, employeeId, userGroupNo, reportType: 0 });
         const reportCacheKey = `${effectiveDate}|${employeeId}|${userGroupNo}`;
         const cachedReportRows = report3CacheRef.current.get(reportCacheKey);
 
-        const hrcenterRes = await fetch(hrcenterPath);
+        const hrcenterRes = await fetchSafeRoute('transactionsHrcenter', { viewMode: viewMode === 'all' ? 'all' : 'department', effectiveMonth: appliedMonth, effectiveYear: appliedYear, employeeId, userGroupNo });
 
         if (!hrcenterRes.ok) {
           console.error("Failed to fetch hrcenter data");
@@ -786,7 +783,7 @@ export default function HRCenterPage() {
 
         let report3Rows: Report3MatchRow[] | null = cachedReportRows ?? null;
         if (!report3Rows) {
-          const reportRes = await fetch(report3Path);
+          const reportRes = await fetchSafeRoute('report3', { effectiveDate, employeeId, userGroupNo, reportType: 0 });
           if (reportRes.ok) {
             const reportJson = await reportRes.json();
             const parsedRows: Report3MatchRow[] = Array.isArray(reportJson.data) ? reportJson.data : [];
@@ -1007,7 +1004,7 @@ export default function HRCenterPage() {
 
   const getEmployeeId = (): string => {
     if (typeof window === 'undefined') return 'SYSTEM';
-    const userDataStr = localStorage.getItem('user_data');
+    const userDataStr = getLocalText('user_data');
     if (!userDataStr) return 'SYSTEM';
     try {
       const userData = JSON.parse(userDataStr) as { employeeID?: string };
@@ -1018,7 +1015,7 @@ export default function HRCenterPage() {
   };
 
   const fetchSapMinus = async () => {
-    const minusRes = await fetch(buildSafeRoutePath('transactionsHrcenterSapMinus', { effectiveMonth: appliedMonth, effectiveYear: appliedYear }));
+    const minusRes = await fetchSafeRoute('transactionsHrcenterSapMinus', { effectiveMonth: appliedMonth, effectiveYear: appliedYear });
     if (!minusRes.ok) {
       setSapMinusRows([]);
       return;
@@ -1104,7 +1101,6 @@ export default function HRCenterPage() {
   const handleDownloadSapFile = () => {
     openSafeApiPath(buildSafeRoutePath('transactionHrcenterSapFile', { t: Date.now() }));
   };
-
 
   // Calculate totals
   const calculateTotals = () => {
@@ -1311,7 +1307,6 @@ export default function HRCenterPage() {
                     ))}
                   </select>
 
-
                 </div>
 
                    {/* Search Button */}
@@ -1421,12 +1416,7 @@ export default function HRCenterPage() {
               />
             </div>
 
-
-
-
-
   </div>
-
 
   {/* ========================================= */}
   {/* 2. RIGHT GROUP: View Mode & Actions       */}
@@ -1508,7 +1498,6 @@ export default function HRCenterPage() {
         {/* Overview Tab */}
         <Card className="bg-white border-0 shadow-sm py-0 overflow-visible">
             <CardContent className="p-0 relative">
-
 
               {/* Table */}
               <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)]">

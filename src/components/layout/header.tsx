@@ -17,7 +17,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { getUserFromToken } from '@/utils/auth';
-import { buildAuthHeaders, buildSafeRoutePath, fetchSafeRoute, setAuthCookie, setLocalText, setSessionJson } from '@/utils/security';
+import { buildAuthHeaders, fetchSafeRoute, getLocalText, removeLocalValue, setAuthCookie, setLocalText, setSessionJson } from '@/utils/security';
 import {
   Dialog,
   DialogContent,
@@ -35,7 +35,6 @@ interface HeaderProps {
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
 }
-
 
 interface UserGroup {
   id: string;
@@ -97,8 +96,6 @@ const readJsonOrText = async <T = Record<string, unknown>>(response: Response): 
   }
 };
 
-
-
 export default function Header({
   onToggleSidebar,
 }: HeaderProps) {
@@ -158,8 +155,7 @@ export default function Header({
         };
       });
 
-      // Check for saved group in localStorage
-      const savedGroupId = localStorage.getItem('selected_usergroup');
+      const savedGroupId = getLocalText('selected_usergroup');
       const savedGroup = mappedGroups.find((g) => g.id === savedGroupId);
       let initialActiveGroup = mappedGroups.length > 0 ? mappedGroups[0] : {
         id: '',
@@ -224,10 +220,10 @@ export default function Header({
     });
 
     // Clear any stored authentication data
-    document.cookie = "auth_token=; path=/; max-age=0; SameSite=Strict";
-    localStorage.removeItem('user_data');
-    localStorage.removeItem('selected_usergroup');
-    localStorage.removeItem('selected_usergroup_role');
+    document.cookie = "auth_token=; path=/; max-age=0; SameSite=Strict; Secure";
+    removeLocalValue('user_data');
+    removeLocalValue('selected_usergroup');
+    removeLocalValue('selected_usergroup_role');
     clearUnitsCacheKeys();
     clearSelectedSubjectContext();
 
@@ -307,8 +303,8 @@ export default function Header({
     // Refetch the units for the new role and update sessionStorage
     if (userData?.employeeID) {
       try {
-        const token = localStorage.getItem('auth_token');
-        const response = await fetch(buildSafeRoutePath('unitsByRole', { empId: userData.employeeID, roleId: group.id }), {
+        const token = getLocalText('auth_token');
+        const response = await fetchSafeRoute('unitsByRole', { empId: userData.employeeID, roleId: group.id }, {
           headers: buildAuthHeaders(token || undefined)
         });
         const { json: unitData, text } = await readJsonOrText<{ success?: boolean; data?: unknown[]; message?: string; error?: string }>(response);
@@ -357,7 +353,7 @@ export default function Header({
     formData.append('employeeId', userData.employeeID);
 
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = getLocalText('auth_token');
       const response = await fetchSafeRoute('userProfilePicture', undefined, {
         method: 'POST',
         headers: buildAuthHeaders(token || undefined),
@@ -735,9 +731,6 @@ export default function Header({
                   />
                 </div>
               </div>
-
-
-
 
                <div className="grid gap-2">
                 <Label className="text-gray-500">กลุ่มผู้ใช้งาน</Label>

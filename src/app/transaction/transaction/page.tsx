@@ -1,10 +1,10 @@
 'use client';
 
-import { buildApiUrl, buildAuthHeaders, buildSafeRoutePath, buildSafeRoutePathFromSearch, buildTransactionDraftPath, fetchApi, fetchSafeRoute, getSessionJson, normalizeApiBaseUrl, openSafeApiPath, postSafeRouteJson, setSessionJson, toSafeDisplayText } from '@/utils/security';
+import { buildApiUrl, buildAuthHeaders, buildSafeRoutePath, fetchApi, fetchSafeRoute, getSessionJson, normalizeApiBaseUrl, openSafeApiPath, postSafeRouteJson, setSessionJson, toSafeDisplayText, getLocalText, fetchSafeRouteFromSearch, fetchTransactionDraft } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { CheckCircle, Trash2, X, Save, Menu, LogOut, ChevronDown, ChevronUp, Check, ChevronsUpDown, AlertCircle, ArrowRight, UserCircle, FileText, User, ShieldCheck, Users, LucideIcon, Info, Loader2
+import { CheckCircle, Trash2, X, Save, ChevronDown, ChevronUp, Check, ChevronsUpDown, AlertCircle, FileText, User, ShieldCheck, Users, Info, Loader2
 } from 'lucide-react';
 import { useState, useEffect, useRef, useSyncExternalStore, useMemo } from 'react'; // Added useSyncExternalStore
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -46,7 +46,6 @@ const customGenerateConfig = {
 
 const BDatePicker = generatePicker<dayjs.Dayjs>(customGenerateConfig);
 
-
 // --- TYPE DEFINITIONS ---
 type TransactionTypeEnum = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
@@ -55,7 +54,6 @@ interface FilteredFile {
   name: string;
   fileObj: File | null;
 }
-
 
 interface TransactionFormData {
   transactionType: TransactionTypeEnum | null;
@@ -146,7 +144,6 @@ interface CalendarWindowState {
   startDate: Date | null;
   endDate: Date | null;
 }
-
 
 const months = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
 const CALENDAR_TYPE_END = 1;
@@ -249,8 +246,8 @@ const resolveUserContext = (): { employeeId: string; userGroupNo: string } => {
     return { employeeId: '', userGroupNo: '' };
   }
 
-  const userDataStr = localStorage.getItem('user_data');
-  const selectedGroup = normalizeUserGroupNo(String(localStorage.getItem('selected_usergroup') || '').trim());
+  const userDataStr = getLocalText('user_data');
+  const selectedGroup = normalizeUserGroupNo(String(getLocalText('selected_usergroup') || '').trim());
   let employeeId = '';
   let userGroupNo = '';
 
@@ -366,7 +363,7 @@ const openSafeUploadFile = (fileUpload: string): void => {
 // Helper to generate years
 const getYears = () => {
   if (typeof window === 'undefined') return ['2568', '2569'];
-  const startYearStr = localStorage.getItem('StartYear') || '2568';
+  const startYearStr = getLocalText('StartYear') || '2568';
   const startYear = parseInt(startYearStr, 10);
   const currentYear = new Date().getFullYear() + 543;
   const endYear = currentYear + 1;
@@ -499,12 +496,11 @@ export default function TransactionPage() {
   const [openUnitReceive, setOpenUnitReceive] = useState(false);
   const [openUnitTransfer, setOpenUnitTransfer] = useState(false);
 
-
   const [formData, setFormData] = useState<TransactionFormData>(() => {
     // Check if user is HRPolicy
     let isPolicy = 0;
     if (typeof window !== 'undefined') {
-      const selectedGroup = localStorage.getItem('selected_usergroup');
+      const selectedGroup = getLocalText('selected_usergroup');
       if (selectedGroup === '04') { // 04 is HRPolicy
         isPolicy = 1;
       }
@@ -568,7 +564,6 @@ export default function TransactionPage() {
   const [allUnits, setAllUnits] = useState<UnitOption[]>([]);
   const [transferUnitsByReceive, setTransferUnitsByReceive] = useState<UnitOption[]>([]);
 
-
   useEffect(() => {
     // Listen for custom event from Header when user switches group
     const handleUnitsChanged = (event: Event) => {
@@ -593,16 +588,16 @@ export default function TransactionPage() {
     // Always fetch fresh units on mount to ensure IsAssistant/IsUnder fields are present
     const userContext = resolveUserContext();
     const employeeId = userContext.employeeId;
-    const defaultGroup = userContext.userGroupNo || normalizeUserGroupNo(String(localStorage.getItem('selected_usergroup') || '').trim()) || '02';
+    const defaultGroup = userContext.userGroupNo || normalizeUserGroupNo(String(getLocalText('selected_usergroup') || '').trim()) || '02';
     if (employeeId) {
-      const token = localStorage.getItem('auth_token');
+      const token = getLocalText('auth_token');
       const unitsPath = buildSafeRoutePath('unitsByRole', { roleId: defaultGroup, empId: employeeId });
       const rawPublicApiBase = process.env.NEXT_PUBLIC_API_URL || '';
       const publicApiBase = rawPublicApiBase.trim() ? normalizeApiBaseUrl(rawPublicApiBase) : '';
       const fetchTargets = [
         {
           label: unitsPath,
-          request: (headers?: HeadersInit) => fetch(unitsPath, { headers })
+          request: (headers?: HeadersInit) => fetchSafeRoute('unitsByRole', { roleId: defaultGroup, empId: employeeId }, { headers })
         },
         ...(publicApiBase ? [{
           label: buildApiUrl(publicApiBase, unitsPath),
@@ -689,7 +684,7 @@ export default function TransactionPage() {
       }
 
       try {
-        const token = localStorage.getItem('auth_token');
+        const token = getLocalText('auth_token');
         const response = await fetchSafeRoute('calendar', undefined, {
           headers: buildAuthHeaders(token || undefined)
         });
@@ -792,7 +787,7 @@ export default function TransactionPage() {
     const fetchDrafts = async () => {
       try {
         let employeeId = 'SYSTEM';
-        const userDataStr = localStorage.getItem('user_data');
+        const userDataStr = getLocalText('user_data');
         if (userDataStr) {
           try {
             const userData = JSON.parse(userDataStr);
@@ -809,7 +804,7 @@ export default function TransactionPage() {
           effectiveMonth: formData.effectiveMonth,
           effectiveYear: formData.effectiveYear,
         });
-        const res = await fetch(buildSafeRoutePathFromSearch('transactionDrafts', query));
+        const res = await fetchSafeRouteFromSearch('transactionDrafts', query);
         if (res.ok) {
           const { json: data, text } = await readApiBody<{ status?: number; data?: Array<{
             TransactionNo: string;
@@ -901,7 +896,7 @@ export default function TransactionPage() {
 
       const fetchAllUnits = async () => {
         try {
-          const res = await fetch(buildSafeRoutePath('unitsAll', { effectiveDate }));
+          const res = await fetchSafeRoute('unitsAll', { effectiveDate });
           const { json: data, text } = await readApiBody<{ success?: boolean; data?: Record<string, unknown>[] }>(res);
           if (!data) {
             console.error('Error fetching all units: non-JSON response', text || `HTTP ${res.status}`);
@@ -969,7 +964,7 @@ export default function TransactionPage() {
       return;
     }
 
-    const userDataStr = localStorage.getItem('user_data');
+    const userDataStr = getLocalText('user_data');
     let employeeId = '';
     let userGroupNo = '';
 
@@ -977,7 +972,7 @@ export default function TransactionPage() {
       try {
         const userData = JSON.parse(userDataStr) as { employeeID?: string; userGroupNo?: string; roleId?: string; userGroups?: { userGroupNo: string }[] };
         employeeId = String(userData.employeeID || '').trim();
-        userGroupNo = normalizeUserGroupNo(String(localStorage.getItem('selected_usergroup') || '').trim());
+        userGroupNo = normalizeUserGroupNo(String(getLocalText('selected_usergroup') || '').trim());
         if (!userGroupNo) userGroupNo = normalizeUserGroupNo(String(userData.userGroupNo || userData.roleId || '').trim());
         if (!userGroupNo && Array.isArray(userData.userGroups) && userData.userGroups.length > 0) {
           userGroupNo = normalizeUserGroupNo(String(userData.userGroups[0].userGroupNo || '').trim());
@@ -1012,7 +1007,7 @@ export default function TransactionPage() {
             selectType: '0'
           });
 
-          const res = await fetch(buildSafeRoutePathFromSearch('unitsTransferByReceive', query));
+          const res = await fetchSafeRouteFromSearch('unitsTransferByReceive', query);
           const { json: data, text } = await readApiBody<{ success?: boolean; data?: Record<string, unknown>[] }>(res);
           if (!data) {
             console.error('Error fetching transfer units by receive: non-JSON response', text || `HTTP ${res.status}`);
@@ -1042,13 +1037,12 @@ export default function TransactionPage() {
     });
   }, [activeTab, transferUnitsByReceive]);
 
-
   useEffect(() => {
     if (detailFormData.fileOption === 'existing' && formData.effectiveMonth && formData.effectiveYear) {
       const fetchFiles = async () => {
         try {
           let empId = 'SYSTEM';
-          const userDataStr = localStorage.getItem('user_data');
+          const userDataStr = getLocalText('user_data');
           if (userDataStr) {
             try {
               const userData = JSON.parse(userDataStr);
@@ -1065,7 +1059,7 @@ export default function TransactionPage() {
             effectiveYear: formData.effectiveYear,
             employeeId: empId,
           });
-          const res = await fetch(buildSafeRoutePathFromSearch('transactionFiles', query));
+          const res = await fetchSafeRouteFromSearch('transactionFiles', query);
           if (res.ok) {
             const { json: data, text } = await readApiBody<{ status?: number; data?: Array<{ id: string; name: string; conclusionNo: string; fileUrl: string }> }>(res);
             if (!data) {
@@ -1108,7 +1102,7 @@ export default function TransactionPage() {
             unit,
             userGroupNo: effectiveUserGroupNo,
           });
-          const res = await fetch(buildSafeRoutePathFromSearch('unitsLevels', query));
+          const res = await fetchSafeRouteFromSearch('unitsLevels', query);
           if (res.ok) {
             const { json: data, text } = await readApiBody<{ success?: boolean; data?: { id: string; name: string; nameEN: string; order: number; top: number }[] }>(res);
             if (!data) {
@@ -1130,7 +1124,6 @@ export default function TransactionPage() {
       setLevels([]);
     }
   }, [activeTab, formData.unitReceive, detailFormData.unitTransfer, formData.effectiveMonth, formData.effectiveYear]);
-
 
   const getDepartmentName = (id: string, resolvedName?: string) =>
     resolvedName ||
@@ -1272,7 +1265,7 @@ export default function TransactionPage() {
         unitReceive: '',
         remark: '',
         lineStaffFlag: null,
-        policyFlag: (typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04') ? 1 : 0,
+        policyFlag: (typeof window !== 'undefined' && getLocalText('selected_usergroup') === '04') ? 1 : 0,
         pastFlag: 0,
       });
     } else {
@@ -1287,7 +1280,7 @@ export default function TransactionPage() {
         unitReceive: '',
         remark: '',
         lineStaffFlag: null,
-        policyFlag: (typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04') ? 1 : 0,
+        policyFlag: (typeof window !== 'undefined' && getLocalText('selected_usergroup') === '04') ? 1 : 0,
         pastFlag: 0,
       });
     }
@@ -1365,7 +1358,7 @@ export default function TransactionPage() {
       setIsSavingDraft(true);
       // Get employeeId (username) from localStorage user_data
       let employeeId = 'SYSTEM';
-      const userDataStr = localStorage.getItem('user_data');
+      const userDataStr = getLocalText('user_data');
       if (userDataStr) {
         try {
           const userData = JSON.parse(userDataStr);
@@ -1498,7 +1491,7 @@ export default function TransactionPage() {
 
     try {
       let employeeId = 'SYSTEM';
-      const userDataStr = localStorage.getItem('user_data');
+      const userDataStr = getLocalText('user_data');
       if (userDataStr) {
         try {
           const userData = JSON.parse(userDataStr);
@@ -1508,7 +1501,7 @@ export default function TransactionPage() {
         }
       }
 
-      const response = await fetch(buildTransactionDraftPath(transactionToDelete, { employeeId }), {
+      const response = await fetchTransactionDraft(transactionToDelete, { employeeId }, {
         method: 'DELETE'
       });
 
@@ -1602,7 +1595,7 @@ export default function TransactionPage() {
             isRequirePolicy: isRequirePolicy.toString()
           });
 
-          const resp = await fetch(buildSafeRoutePathFromSearch('transactionApprovers', new URLSearchParams({ ...Object.fromEntries(queryParams), _t: String(Date.now()) })));
+          const resp = await fetchSafeRouteFromSearch('transactionApprovers', new URLSearchParams({ ...Object.fromEntries(queryParams), _t: String(Date.now()) }));
           if (resp.ok) {
             const { json: data, text } = await readApiBody<{ data?: ApproverUser[] }>(resp);
             if (!data) {
@@ -2428,9 +2421,9 @@ export default function TransactionPage() {
                     <Button
                       onClick={handleRequest}
                       disabled={!canSubmitPendingTransactions}
-                      className={`px-4 py-2 text-white rounded-lg font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed ${typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-500 hover:bg-blue-600'}`}
+                      className={`px-4 py-2 text-white rounded-lg font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed ${typeof window !== 'undefined' && getLocalText('selected_usergroup') === '04' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-500 hover:bg-blue-600'}`}
                     >
-                      {typeof window !== 'undefined' && localStorage.getItem('selected_usergroup') === '04' ? 'อนุมัติรายการ' : 'REQUEST'}
+                      {typeof window !== 'undefined' && getLocalText('selected_usergroup') === '04' ? 'อนุมัติรายการ' : 'REQUEST'}
                     </Button>
                   )}
                 </div>
@@ -2536,14 +2529,13 @@ export default function TransactionPage() {
                         icon,
                         color,
                         users: groupUsers.map((u) => {
-                          const rec = u as unknown as Record<string, string | undefined>;
-                          const groupName = toSafeDisplayText(rec.UserGroupName || rec.userGroupName || rec['UsergroupName'] || rec.GroupName || rec.usergroupname || rec['Groupname'] || rec.groupName);
+                          const groupName = toSafeDisplayText(u.UserGroupName);
                           const groupNo = toSafeDisplayText(u.UserGroupNo);
                           const finalRole = groupName || `Group: ${groupNo}`;
 
                           return {
-                            id: u.EmployeeID,
-                            name: u.FullName,
+                            id: toSafeDisplayText(u.EmployeeID),
+                            name: toSafeDisplayText(u.FullName),
                             role: finalRole
                           };
                         })

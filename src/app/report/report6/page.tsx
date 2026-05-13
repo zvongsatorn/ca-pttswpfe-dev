@@ -1,12 +1,12 @@
 'use client';
 
-import { buildSafeRoutePathFromSearch } from '@/utils/security';
+import { getLocalText, fetchSafeRouteFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Main from '@/components/layout/main';
 import { Table, DatePicker, Button, Form, Popover, Checkbox, Select } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined, FileExcelOutlined, FullscreenOutlined, FullscreenExitOutlined, SettingOutlined } from '@ant-design/icons';
-import { ChevronDown, Search, Check, FileText } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import MultiSelectFilter, { FilterOption } from '@/components/filters/MultiSelectFilter';
 import dayjs, { Dayjs } from 'dayjs';
 import 'dayjs/locale/th';
@@ -67,8 +67,6 @@ interface Report6FilterResponse {
     };
     message?: string;
 }
-
-
 
 interface SearchFormValues {
     date?: Dayjs;
@@ -153,12 +151,12 @@ const resolveUserContext = () => {
     let userGroupNo = '';
 
     if (typeof window !== 'undefined') {
-        const userDataStr = localStorage.getItem('user_data');
+        const userDataStr = getLocalText('user_data');
         if (userDataStr) {
             try {
                 const userData = JSON.parse(userDataStr) as { employeeID?: string; roleId?: string };
                 employeeId = userData.employeeID || employeeId;
-                userGroupNo = localStorage.getItem('selected_usergroup') || userData.roleId || '';
+                userGroupNo = getLocalText('selected_usergroup') || userData.roleId || '';
             } catch {
                 // ignore parse error
             }
@@ -177,14 +175,6 @@ const uniqueOptions = (options: FilterOption[]) => {
         map.set(opt.value, opt);
     });
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'th'));
-};
-
-const isSameSelection = (a: string[], b: string[]) =>
-    a.length === b.length && a.every((item, index) => item === b[index]);
-
-const syncSelected = (prev: string[], options: FilterOption[]) => {
-    const next = prev.filter((item) => options.some((opt) => opt.value === item)).slice(0, 1);
-    return isSameSelection(prev, next) ? prev : next;
 };
 
 const toBgOption = (row: Report6FilterItem): FilterOption | null => {
@@ -339,7 +329,6 @@ const filterTree = (nodes: Report6DataType[], allowedUnits: string[]): Report6Da
     return result;
 };
 
-
 export default function Report6Page() {
     const [form] = Form.useForm<SearchFormValues>();
     const [loading, setLoading] = useState(false);
@@ -389,7 +378,7 @@ export default function Report6Page() {
                 userGroupNo
             });
 
-            const res = await fetch(buildSafeRoutePathFromSearch('report6Filters', query), { signal });
+            const res = await fetchSafeRouteFromSearch('report6Filters', query, { signal });
             let payload: Report6FilterResponse | null = null;
             try {
                 payload = await res.json();
@@ -443,7 +432,7 @@ export default function Report6Page() {
                 userGroupNo
             });
 
-            const res = await fetch(buildSafeRoutePathFromSearch('report6', query));
+            const res = await fetchSafeRouteFromSearch('report6', query);
             const payload: Report6ApiResponse = await res.json();
 
             if (!res.ok || payload.status !== 200 || !Array.isArray(payload.data)) {

@@ -1,5 +1,6 @@
 'use client';
 
+import { getLocalText } from '@/utils/security';
 import React, { useState, useCallback, useEffect } from 'react';
 import { Calendar, Modal, Form, DatePicker, Select, Radio, Card, Popconfirm, App, Badge, Space } from 'antd';
 import type { Dayjs } from 'dayjs';
@@ -16,7 +17,7 @@ dayjs.locale('th');
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 const normalizeUtcDateToLocalClock = (date: Date): Date => {

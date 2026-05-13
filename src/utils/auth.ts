@@ -1,3 +1,4 @@
+import { getLocalText } from '@/utils/security';
 import { jwtDecode } from 'jwt-decode';
 
 interface DecodedToken {
@@ -20,7 +21,7 @@ export function getUserFromToken(token?: string) {
     if (!token) {
         // Try to get from cookie first
         const cookieMatch = document.cookie.match(/(?:^|; )auth_token=([^;]*)/);
-        token = cookieMatch ? cookieMatch[1] : (localStorage.getItem('auth_token') || undefined);
+        token = cookieMatch ? cookieMatch[1] : (getLocalText('auth_token') || undefined);
     }
 
     if (!token) return null;
@@ -46,7 +47,7 @@ export function getUserFromToken(token?: string) {
 
 export function getAuthToken() {
     if (typeof window === 'undefined') return null;
-    const localToken = localStorage.getItem('auth_token');
+    const localToken = getLocalText('auth_token');
     if (localToken && localToken !== 'null' && localToken !== 'undefined') {
         return localToken;
     }

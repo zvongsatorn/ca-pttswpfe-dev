@@ -1,6 +1,6 @@
 'use client';
 
-import { buildApiFileHref, buildDocumentDetailPath, buildSafeRoutePath, postSafeRouteJson, toSafeDisplayText, toSafePathSegment } from '@/utils/security';
+import { buildApiFileHref, postSafeRouteJson, toSafeDisplayText, toSafePathSegment, getLocalText, fetchSafeRoute, fetchDocumentDetail, openSafeApiPath, normalizeAppRoutePath } from '@/utils/security';
 import Main from '@/components/layout/main';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,12 +12,12 @@ import buddhistEra from 'dayjs/plugin/buddhistEra';
 dayjs.extend(buddhistEra);
 dayjs.locale('th');
 import {
-  X, CheckCircle, FileText, Clock, XCircle, UserCheck, ShieldAlert,
-  CornerDownLeft, ArrowRight, Search, User, Eye, RotateCcw, AlertOctagon,
-  Link as LinkIcon, Briefcase, File as FileIcon, Calendar, ChevronUp,
+  X, CheckCircle, FileText, Clock, XCircle,
+  ArrowRight, Search,
+  Briefcase, File as FileIcon,
   Check
 } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 // ============================================================================
 // 1. TYPES DEFINITION
@@ -231,18 +231,18 @@ export default function Home() {
     setIsLoading(true);
     try {
       let employeeId = 'SYSTEM';
-      const userDataStr = localStorage.getItem('user_data');
+      const userDataStr = getLocalText('user_data');
       if (userDataStr) {
         try {
           const userData = JSON.parse(userDataStr);
           employeeId = userData.employeeID || 'SYSTEM';
-        } catch (e) {}
+        } catch {}
       }
 
       // --- Fetch Inbox ---
       const [docInboxRes, mkdInboxRes] = await Promise.all([
-        fetch(buildSafeRoutePath('documentsInbox', { employeeId })),
-        fetch(buildSafeRoutePath('mkdInbox', { employeeId }))
+        fetchSafeRoute('documentsInbox', { employeeId }),
+        fetchSafeRoute('mkdInbox', { employeeId })
       ]);
 
       const map = new Map<string, InboxItem>();
@@ -303,8 +303,8 @@ export default function Home() {
 
       // --- Fetch My Requests ---
       const [docReqRes, mkdReqRes] = await Promise.all([
-        fetch(buildSafeRoutePath('documentsMyRequests', { employeeId })),
-        fetch(buildSafeRoutePath('mkdMyRequests', { employeeId }))
+        fetchSafeRoute('documentsMyRequests', { employeeId }),
+        fetchSafeRoute('mkdMyRequests', { employeeId })
       ]);
 
       let allReqs: MyRequestItem[] = [];
@@ -393,25 +393,24 @@ export default function Home() {
   // 4. HELPERS & HANDLERS
   // ============================================================================
 
-
   const handleInboxClick = async (item: InboxItem) => {
     if (item.type === 'mkd') {
-      router.push(`/mkd/history/${toSafePathSegment(item.id)}?from=inbox`);
+      router.push(normalizeAppRoutePath(`/mkd/history/${toSafePathSegment(item.id)}?from=inbox`));
     } else {
       setSelectedInboxItem(item);
       setIsActionModalOpen(true);
 
       try {
         let employeeId = 'SYSTEM';
-        const userDataStr = localStorage.getItem('user_data');
+        const userDataStr = getLocalText('user_data');
         if (userDataStr) {
           try {
             const userData = JSON.parse(userDataStr);
             employeeId = userData.employeeID || 'SYSTEM';
-          } catch (e) {}
+          } catch {}
         }
 
-        const res = await fetch(buildDocumentDetailPath(item.id, { employeeId }));
+        const res = await fetchDocumentDetail(item.id, { employeeId });
         if (res.ok) {
           const detailJson = await res.json();
 
@@ -569,8 +568,6 @@ export default function Home() {
     }
   };
 
-
-
   const handleOutstandingClick = (filter: 'transaction_pending' | 'mkd_pending') => {
     setTrackingFilter(filter);
     setIsTrackingModalOpen(true);
@@ -579,17 +576,6 @@ export default function Home() {
   const getFilteredRequests = () => {
     if (trackingFilter === 'mkd_pending') return myRequestsData.filter(i => i.type === 'mkd');
     return myRequestsData.filter(i => i.type === 'transaction');
-  };
-
-  // Helper for background color of transaction items (image_3c8a08)
-  const getItemBackgroundColor = (category: string) => {
-    switch (category) {
-      case 'transfer': return 'bg-blue-50 border-blue-100';
-      case 'other': return 'bg-purple-50 border-purple-100'; // สีม่วงอ่อน
-      case 'add': return 'bg-cyan-50 border-cyan-100';       // สีฟ้าอ่อน
-      case 'adjust': return 'bg-pink-50 border-pink-100';     // สีชมพูอ่อน
-      default: return 'bg-white';
-    }
   };
 
   // Helper for Type Label Badge
@@ -616,20 +602,19 @@ export default function Home() {
     return 'bg-gray-100 text-gray-800 border-gray-200'; // Default
   };
 
-
   const handleProcessActions = async () => {
     if (!selectedInboxItem || !selectedInboxItem.items) return;
     setIsLoading(true);
 
     let employeeId = 'SYSTEM';
     let employeeName = '';
-    const userDataStr = localStorage.getItem('user_data');
+    const userDataStr = getLocalText('user_data');
     if (userDataStr) {
       try {
         const userData = JSON.parse(userDataStr);
         employeeId = userData.employeeID || 'SYSTEM';
         employeeName = String(userData.name || userData.fullName || userData.Fullname || '').trim();
-      } catch (e) {}
+      } catch {}
     }
 
     try {
@@ -676,13 +661,13 @@ export default function Home() {
 
     let employeeId = 'SYSTEM';
     let employeeName = '';
-    const userDataStr = localStorage.getItem('user_data');
+    const userDataStr = getLocalText('user_data');
     if (userDataStr) {
       try {
         const userData = JSON.parse(userDataStr);
         employeeId = userData.employeeID || 'SYSTEM';
         employeeName = String(userData.name || userData.fullName || userData.Fullname || '').trim();
-      } catch (e) {}
+      } catch {}
     }
 
     const actorText = `Rejected by ${employeeId}${employeeName ? ` ${employeeName}` : ''}`;
@@ -896,6 +881,10 @@ export default function Home() {
     const showRejectReasonText = !!rejectReasonDisplay && !/^Rejected by\b/i.test(rejectReasonDisplay);
     const typeLabel = toSafeDisplayText(item.typeLabel);
     const description = toSafeDisplayText(item.description);
+    const remark = toSafeDisplayText(item.remark);
+    const rejectedBy = toSafeDisplayText(item.rejectedBy);
+    const rejectedRole = toSafeDisplayText(item.rejectedRole);
+    const rejectedAt = toSafeDisplayText(item.rejectedAt);
     return (
     <tr
     key={item.actionKey}
@@ -919,9 +908,9 @@ export default function Home() {
                 <div className="text-xs text-blue-600 font-bold mb-0.5">[{item.id}]</div>
                 <div>{description}</div>
             </div>
-            {item.remark && item.remark !== '-' && (
+            {remark && remark !== '-' && (
                 <div className="text-xs text-gray-500 p-0 rounded inline-block">
-                    <span className="font-bold mr-1 text-gray-500">หมายเหตุ:</span> {item.remark}
+                    <span className="font-bold mr-1 text-gray-500">หมายเหตุ:</span> {remark}
                 </div>
             )}
 
@@ -936,11 +925,11 @@ export default function Home() {
                         {rejectReasonDisplay}
                       </>
                     )}
-                    {(item.rejectedBy || item.rejectedRole || item.rejectedAt) && (
+                    {(rejectedBy || rejectedRole || rejectedAt) && (
                       <div className={`${showRejectReasonText ? 'mt-2' : ''} space-y-1 text-[11px] text-red-800`}>
-                        {item.rejectedBy && <div><b>Rejected By:</b> {item.rejectedBy}</div>}
-                        {item.rejectedRole && <div><b>Role:</b> {item.rejectedRole}</div>}
-                        {item.rejectedAt && <div><b>Rejected At:</b> {item.rejectedAt}</div>}
+                        {rejectedBy && <div><b>Rejected By:</b> {rejectedBy}</div>}
+                        {rejectedRole && <div><b>Role:</b> {rejectedRole}</div>}
+                        {rejectedAt && <div><b>Rejected At:</b> {rejectedAt}</div>}
                       </div>
                     )}
                 </div>
@@ -954,10 +943,10 @@ export default function Home() {
 
         {/* File */}
         <td className="p-4 text-center align-top">
-            {item.hasFile && item.fileUrl ? (
-                <a href={buildApiFileHref(item.fileUrl)} target="_blank" rel="noopener noreferrer" className="inline-block p-2 hover:bg-blue-100 rounded-full text-blue-600 transition-colors">
+            {item.hasFile && item.fileUrl && buildApiFileHref(item.fileUrl) ? (
+                <button type="button" onClick={() => openSafeApiPath(buildApiFileHref(item.fileUrl || ''))} className="inline-block p-2 hover:bg-blue-100 rounded-full text-blue-600 transition-colors">
                     <FileIcon size={18} />
-                </a>
+                </button>
             ) : item.hasFile ? (
                 <button className="p-2 hover:bg-blue-100 rounded-full text-blue-600 transition-colors"><FileIcon size={18} /></button>
             ) : <span className="text-gray-300">-</span>}
@@ -1061,11 +1050,9 @@ export default function Home() {
             {/* Footer */}
             <div className="bg-white border-t p-4 flex justify-end items-center gap-9 shrink-0 mr-10">
 
-
   <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-500" onClick={() => {
      setIsRejectAllModalOpen(true);
   }}><XCircle className="mr-2 h-4 w-4"/> Reject All</Button>
-
 
   <Button
     className="bg-green-600 hover:bg-green-700 text-white"

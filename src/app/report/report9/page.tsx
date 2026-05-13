@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, buildSafeRoutePathFromSearch } from '@/utils/security';
+import { buildAuthHeaders, getLocalText, fetchSafeRouteFromSearch } from '@/utils/security';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import Main from '@/components/layout/main';
 import { Table, Button, Form, Select } from 'antd';
@@ -64,7 +64,7 @@ const toBE = (year: number): number => (year < 2500 ? year + 543 : year);
 
 const getToken = () => {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 };
 
 const getAllExpandableKeys = (rows: Report9DataType[]): string[] => {
@@ -102,8 +102,8 @@ const resolveUserContext = () => {
     let userGroupNo = '';
 
     if (typeof window !== 'undefined') {
-        const selectedGroup = localStorage.getItem('selected_usergroup')?.trim() || '';
-        const userDataStr = localStorage.getItem('user_data');
+        const selectedGroup = getLocalText('selected_usergroup')?.trim() || '';
+        const userDataStr = getLocalText('user_data');
 
         if (userDataStr) {
             try {
@@ -213,7 +213,7 @@ export default function Report9Page() {
                 userGroupNo
             });
 
-            const res = await fetch(buildSafeRoutePathFromSearch('report9', params), {
+            const res = await fetchSafeRouteFromSearch('report9', params, {
                 headers: token ? buildAuthHeaders(token) : undefined
             });
             const raw = await res.text();

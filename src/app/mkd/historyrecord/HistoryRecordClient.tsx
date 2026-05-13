@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, buildSafeRoutePathFromSearch, postSafeRouteJson, setLocalText, toSafePathSegment } from '@/utils/security';
+import { buildAuthHeaders, postSafeRouteJson, setLocalText, toSafePathSegment, getLocalText, fetchSafeRouteFromSearch, normalizeAppRoutePath } from '@/utils/security';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
@@ -92,13 +92,13 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
     const [loading, setLoading] = useState(false);
     const [selectedYear, setSelectedYear] = useState(() => {
         if (typeof window !== 'undefined') {
-            return localStorage.getItem('mkd_historyrecord_year') || (dayjs().year() + 543).toString();
+            return getLocalText('mkd_historyrecord_year') || (dayjs().year() + 543).toString();
         }
         return (dayjs().year() + 543).toString();
     });
     const [statusFilter, setStatusFilter] = useState(() => {
         if (typeof window !== 'undefined') {
-            return localStorage.getItem('mkd_historyrecord_status') || 'ทั้งหมด';
+            return getLocalText('mkd_historyrecord_status') || 'ทั้งหมด';
         }
         return 'ทั้งหมด';
     });
@@ -129,7 +129,7 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
 
             let userGroupNo = '';
             if (typeof window !== 'undefined') {
-                userGroupNo = localStorage.getItem('selected_usergroup') || '';
+                userGroupNo = getLocalText('selected_usergroup') || '';
             }
             if (!userGroupNo) {
                 userGroupNo = currentUser.userGroupNo || currentUser.roleId || currentUser.role || '';
@@ -150,7 +150,7 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                 RequestType: '2'
             });
 
-            const res = await fetch(buildSafeRoutePathFromSearch('mkdHistory', query), {
+            const res = await fetchSafeRouteFromSearch('mkdHistory', query, {
                 headers: buildAuthHeaders(token)
             });
             const result = (await res.json()) as { success: boolean; data: Omit<HistoryRecord, 'no' | 'status' | 'manStatus'>[] };
@@ -211,7 +211,7 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                 setIsNewModalOpen(false);
                 setNewUnitName('');
                 const newId = (result.data as { ManDriverID: string | number })?.ManDriverID || (Array.isArray(result.data) && result.data[0]?.ManDriverID);
-                if (newId) router.push(`/mkd/historyrecord/${toSafePathSegment(newId)}`);
+                if (newId) router.push(normalizeAppRoutePath(`/mkd/historyrecord/${toSafePathSegment(newId)}`));
             } else {
                 toast.error(result.message || 'สร้างรายการไม่สำเร็จ');
             }
@@ -380,11 +380,11 @@ export default function HistoryRecordClient({ token, currentUser, initialYears }
                                             </td>
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center justify-center gap-2">
-                                                    <button onClick={() => router.push(`/mkd/historyrecord/${toSafePathSegment(r.ManDriverID)}`)} className="p-1.5 hover:bg-blue-50 rounded-full transition-colors group">
+                                                    <button onClick={() => router.push(normalizeAppRoutePath(`/mkd/historyrecord/${toSafePathSegment(r.ManDriverID)}`))} className="p-1.5 hover:bg-blue-50 rounded-full transition-colors group">
                                                         <Search className="h-5 w-5 text-blue-500 group-hover:text-blue-700 cursor-pointer" />
                                                     </button>
                                                     {(r.manStatus === 2 || r.manStatus === 3) && (
-                                                        <button onClick={() => router.push(`/mkd/dashboard/${toSafePathSegment(r.ManDriverID)}`)} className="p-1.5 hover:bg-emerald-50 rounded-full transition-colors group">
+                                                        <button onClick={() => router.push(normalizeAppRoutePath(`/mkd/dashboard/${toSafePathSegment(r.ManDriverID)}`))} className="p-1.5 hover:bg-emerald-50 rounded-full transition-colors group">
                                                             <BarChart3 className="h-5 w-5 text-emerald-500 group-hover:text-emerald-700 cursor-pointer" />
                                                         </button>
                                                     )}

@@ -11,7 +11,7 @@ import Main from '@/components/layout/main';
 import { getUserFromToken } from '@/utils/auth';
 import { getPIR, getPIROrg, getFileAttach, getRemark, uploadFilePIR, deleteFileAttach, exportExcel, insertPIR, deletePIR, copyPIR, insertRemark, deleteRemark } from '@/services/pirService';
 import { fetchAllUnits } from '@/services/userRightService';
-import { buildPirFilePath, openSafeApiPath } from '@/utils/security';
+import { buildPirFilePath, openSafeApiPath, getLocalText } from '@/utils/security';
 
 const { Text } = Typography;
 
@@ -23,7 +23,7 @@ interface PIROrgType { OrgUnitNo?: string; UnitText: string; }
 
 function getToken(): string {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem('auth_token') || '';
+    return getLocalText('auth_token') || '';
 }
 
 function PIRContent() {
@@ -189,8 +189,8 @@ function PIRContent() {
                 let userGroupNo = '';
 
                 if (typeof window !== 'undefined') {
-                    const selectedGroup = localStorage.getItem('selected_usergroup') || '';
-                    const userDataStr = localStorage.getItem('user_data');
+                    const selectedGroup = getLocalText('selected_usergroup') || '';
+                    const userDataStr = getLocalText('user_data');
                     if (userDataStr) {
                         try {
                             const userData = JSON.parse(userDataStr) as { employeeID?: string; roleId?: string; userGroupNo?: string };
