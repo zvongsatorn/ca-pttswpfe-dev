@@ -314,7 +314,7 @@ function DelayRetirementContent() {
                 okButtonProps={{ className: 'bg-blue-600 font-bold px-10 rounded-lg' }}
                 cancelButtonProps={{ className: 'px-8 rounded-lg', disabled: saveLoading }}
                 closable={!saveLoading}
-                maskClosable={!saveLoading}
+                mask={{ closable: !saveLoading }}
                 keyboard={!saveLoading}
                 width={550}
             >

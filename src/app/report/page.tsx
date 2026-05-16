@@ -1,6 +1,6 @@
 'use client';
 
-import { buildAuthHeaders, normalizeAppRoutePath, toSafeDisplayText, getLocalText, fetchMenuSubmenu } from '@/utils/security';
+import { buildAuthHeaders, toSafeDisplayText, getLocalText, fetchMenuSubmenu } from '@/utils/security';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Main from '@/components/layout/main';
@@ -59,30 +59,30 @@ interface ReportMenuItem {
 // TODO: Verified with user that MenuKey is 'REPORT'
 const REPORT_MENU_KEY = 'REPORT';
 const MENU_CLASS_PATTERN = /^(bg|text)-[a-z]+-\d{2,3}$/;
-const REPORT_FALLBACK_PATH = '/report';
+const REPORT_ROUTE_PATHS = [
+  '/report/dashboard',
+  '/report/report1',
+  '/report/report2',
+  '/report/report3',
+  '/report/report4',
+  '/report/report5',
+  '/report/report6',
+  '/report/report7',
+  '/report/report8',
+  '/report/report9',
+  '/report/report10'
+] as const;
+type ReportRoutePath = typeof REPORT_ROUTE_PATHS[number];
 
 const toSafeMenuClass = (value: unknown, fallback: string): string => {
   const safeValue = String(value || '').trim();
   return MENU_CLASS_PATTERN.test(safeValue) ? safeValue : fallback;
 };
 
-const toSafeReportPath = (value: unknown) => {
+const toReportRoutePath = (value: unknown): ReportRoutePath | null => {
   const rawPath = String(value || '').trim();
   const normalizedPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
-  switch (normalizedPath) {
-    case '/report/dashboard': return normalizeAppRoutePath('/report/dashboard');
-    case '/report/report1': return normalizeAppRoutePath('/report/report1');
-    case '/report/report2': return normalizeAppRoutePath('/report/report2');
-    case '/report/report3': return normalizeAppRoutePath('/report/report3');
-    case '/report/report4': return normalizeAppRoutePath('/report/report4');
-    case '/report/report5': return normalizeAppRoutePath('/report/report5');
-    case '/report/report6': return normalizeAppRoutePath('/report/report6');
-    case '/report/report7': return normalizeAppRoutePath('/report/report7');
-    case '/report/report8': return normalizeAppRoutePath('/report/report8');
-    case '/report/report9': return normalizeAppRoutePath('/report/report9');
-    case '/report/report10': return normalizeAppRoutePath('/report/report10');
-    default: return normalizeAppRoutePath(REPORT_FALLBACK_PATH);
-  }
+  return REPORT_ROUTE_PATHS.find((path) => path === normalizedPath) || null;
 };
 
 export default function ReportMenuPage() {
@@ -120,6 +120,14 @@ export default function ReportMenuPage() {
     return FileBarChart; // Default icon
   };
 
+  const reportsByRoutePath = new Map<ReportRoutePath, ReportMenuItem>();
+  reports.forEach((item) => {
+    const routePath = toReportRoutePath(item.MenuPath);
+    if (routePath && !reportsByRoutePath.has(routePath)) {
+      reportsByRoutePath.set(routePath, item);
+    }
+  });
+
   return (
     <Main currentPath="/report">
       <div className="space-y-6">
@@ -143,9 +151,11 @@ export default function ReportMenuPage() {
           {loading ? (
              <div className="col-span-full text-center py-10">Loading...</div>
           ) : (
-            reports.map((item) => {
+            REPORT_ROUTE_PATHS.map((reportPath) => {
+              const item = reportsByRoutePath.get(reportPath);
+              if (!item) return null;
+
               const Icon = getIcon(item.MenuIcon);
-              const reportPath = toSafeReportPath(item.MenuPath);
               const lightColor = toSafeMenuClass(item.lightColor, 'bg-blue-50');
               const textColor = toSafeMenuClass(item.textColor, 'text-blue-600');
               const color = toSafeMenuClass(item.color, 'bg-blue-500');

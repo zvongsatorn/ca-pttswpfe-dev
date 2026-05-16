@@ -1270,7 +1270,7 @@ function UserRightContent() {
                     width={550}
                     className="assignment-modal"
                     closable={!isSavingAssignment}
-                    maskClosable={!isSavingAssignment}
+                    mask={{ closable: !isSavingAssignment }}
                     keyboard={!isSavingAssignment}
                 >
                     <Form form={form} layout="vertical" onFinish={handleAddUser} className="pt-4">
